@@ -16,6 +16,40 @@ test('readJSON devuelve null si el archivo esta vacio y lanza si es ilegible', a
   await expect(readJSON(conTexto('{"registros":,}'))).rejects.toThrow()   // la coma de más
 })
 
+// Fix hallazgo menor (re-revisión final): parsea sin problema no es lo mismo
+// que "es nuestro esquema". Antes de este fix, loadJSON() leía cero registros
+// de estos cuatro sin ningún aviso, el handle se conectaba igual, y la
+// primera edición sobrescribía el archivo entero.
+test('readJSON lanza si el valor parseado no es un objeto', async () => {
+  await expect(readJSON(conTexto('42'))).rejects.toThrow()
+  await expect(readJSON(conTexto('"hola"'))).rejects.toThrow()
+  await expect(readJSON(conTexto('true'))).rejects.toThrow()
+  await expect(readJSON(conTexto('null'))).rejects.toThrow()
+  await expect(readJSON(conTexto('[]'))).rejects.toThrow()
+  await expect(readJSON(conTexto('[1,2,3]'))).rejects.toThrow()
+})
+
+// El caso concreto peor que motivó el fix: `registros` del tipo equivocado.
+// Object.entries("algo") no da cero entradas -- da una por caracter
+// (['0','a'],['1','l'],...), que loadJSON() no distingue de ids reales: se
+// guardan como huérfanos y toJSON() los re-emite, plantados en el archivo.
+test('readJSON lanza si "registros" viene pero no es un objeto', async () => {
+  await expect(readJSON(conTexto('{"registros":"algo"}'))).rejects.toThrow()
+  await expect(readJSON(conTexto('{"registros":42}'))).rejects.toThrow()
+  await expect(readJSON(conTexto('{"registros":[1,2,3]}'))).rejects.toThrow()
+})
+
+// Límite deliberado del chequeo -- "forma MÍNIMA", no el esquema completo.
+// {} no trae `registros`, así que no hay nada que validar en él (se comporta
+// como un archivo con cero registros, no como uno roto); y una clave mal
+// escrita (`registro` en vez de `registros`) tampoco se detecta -- adivinar
+// nombres de clave es un problema sin fondo que no se pidió resolver. Ambos
+// se documentan con un test, no se dejan como un olvido silencioso.
+test('readJSON acepta un objeto sin la clave "registros" -- fuera del alcance del chequeo minimo', async () => {
+  expect(await readJSON(conTexto('{}'))).toEqual({})
+  expect(await readJSON(conTexto('{"registro":{"1":{"pci":50}}}'))).toEqual({ registro: { 1: { pci: 50 } } })
+})
+
 // Fix Task 21 ronda 4: dos escrituras solapadas -- la primera resolviendo
 // DESPUÉS de que la segunda edición ya armó su propio guardado -- no deben
 // dejar que la resolución vieja declare 'guardado' antes de tiempo. El

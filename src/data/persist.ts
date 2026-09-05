@@ -94,10 +94,36 @@ export async function writeJSON (handle: FileSystemFileHandle, obj: unknown) {
 // primera edición escribía {"registros":{}} encima -- todo el trabajo,
 // borrado. Y el spec documenta editar este archivo a mano como flujo normal:
 // una coma de más es el caso previsto, no uno raro.
+//
+// Fix hallazgo menor (re-revisión final): "parsea" no es "tiene nuestra
+// forma". 42, "hola" o [1,2,3] parsean sin problema y antes pasaban de largo
+// -- loadJSON() (store.ts) hace `Object.entries(obj.registros ?? {})`, lee
+// cero registros, no avisa nada, y el handle se conecta igual: la primera
+// edición sobrescribe ese archivo entero. El caso peor es un objeto con
+// `registros` del tipo equivocado, ej. {"registros":"algo"}: Object.entries
+// de una cadena no da cero entradas, da UNA por caracter (['0','a'],['1','l'],
+// ...), que loadJSON() no distingue de ids reales -- se guardan como huérfanos
+// y toJSON() los re-emite en el próximo guardado, plantados en el archivo.
+// Se valida la forma MÍNIMA, no el esquema completo (`version`/`actualizado`
+// no se exigen: el diseño ya cuenta con que el usuario edite este archivo a
+// mano, y esos dos campos no los lee nadie más que toJSON() al escribir) --
+// que el valor parseado sea un objeto, y que `registros`, si viene, también
+// lo sea. Una clave mal escrita (`registro` en vez de `registros`) no la
+// detecta esto -- adivinar nombres de clave es un problema sin fondo, y no es
+// el caso concreto que se pidió cerrar. Igual que un JSON.parse roto: lanza,
+// mismo camino de 'ilegible' que ya construido en App.tsx (cargarDesdeArchivo).
+function esObjeto (v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
 export async function readJSON (handle: FileSystemFileHandle): Promise<unknown | null> {
   const texto = await (await handle.getFile()).text()
   if (!texto.trim()) return null
-  return JSON.parse(texto)
+  const obj: unknown = JSON.parse(texto)
+  if (!esObjeto(obj) || (obj.registros !== undefined && !esObjeto(obj.registros))) {
+    throw new Error('el JSON no tiene la forma esperada (se esperaba un objeto, con "registros" como objeto si viene)')
+  }
+  return obj
 }
 
 // ponytail: File System Access API; Firefox no lo soporta y cae a descarga manual
