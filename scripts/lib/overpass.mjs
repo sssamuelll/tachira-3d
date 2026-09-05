@@ -21,7 +21,13 @@ export async function overpass (query, cacheKey) {
     return JSON.parse(await readFile(path, 'utf8'))
   }
   console.log(`  consultando Overpass (${cacheKey})…`)
-  const res = await fetch(ENDPOINT, { method: 'POST', body: query })
+  // El Apache delante de overpass-api.de devuelve 406 a requests sin User-Agent
+  // (fetch nativo de Node no manda uno por defecto; confirmado con curl -A "").
+  const res = await fetch(ENDPOINT, {
+    method: 'POST',
+    headers: { 'User-Agent': 'vialidad-tachira-3d-pipeline/1.0' },
+    body: query,
+  })
   if (!res.ok) throw new Error(`Overpass devolvió ${res.status} para ${cacheKey}`)
   const json = await res.json()
   if (!json.elements) throw new Error(`Overpass no devolvió elements para ${cacheKey}`)
