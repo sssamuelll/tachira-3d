@@ -86,8 +86,13 @@ export function CoverageBar (
             </div>
           </>
         )
+        // 100 y no 74: medido en el navegador, el nombre más largo sin el
+        // prefijo ("San Judas Tadeo", "Simón Rodríguez") ocupa 85 px, y la
+        // fila suma 14 px de padding y borde. Con 74 se recortaban 9 de los
+        // 29. La barra ya venía con scroll horizontal a cualquier ancho, así
+        // que lo único que cuesta es un poco más de recorrido.
         const filaStyle: CSSProperties = {
-          minWidth: 74, background: 'none', border: '1px solid #2a3644',
+          minWidth: 100, background: 'none', border: '1px solid #2a3644',
           borderRadius: 4, padding: '4px 6px', color: '#e8eaed',
           textAlign: 'left', fontSize: 11, cursor: f.clickable ? 'pointer' : 'default',
         }
