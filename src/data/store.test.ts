@@ -39,6 +39,21 @@ test('set notifica una sola vez por lote', () => {
   expect(n).toBe(1)
 })
 
+test('set normaliza una fuente invalida y un pci NaN en vez de dejarlos corruptos', () => {
+  const s = new AttrStore(ways)
+  s.set([0], { fuente: 'medidoo' as any, pci: NaN })
+  expect(s.get(0).fuente).toBe('sin')
+  expect(s.get(0).pci).toBeNull()
+})
+
+test('set normaliza el merge completo, no tumba un campo valido que el patch no toca', () => {
+  const s = new AttrStore(ways)
+  s.set([0], { fuente: 'medido' })
+  s.set([0], { pci: 80 })          // este patch no menciona fuente
+  expect(s.get(0).fuente).toBe('medido')   // sigue el valor previo, no se resetea a 'sin'
+  expect(s.get(0).pci).toBe(80)
+})
+
 test('la cobertura por municipio cuenta evaluados sobre total', () => {
   const s = new AttrStore(ways)
   s.set([0], { pci: 80, fuente: 'medido' })

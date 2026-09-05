@@ -47,10 +47,18 @@ export class AttrStore {
   private notify () { for (const cb of this.listeners) cb() }
 
   /** Un solo notify por lote: con selecciones de miles de vías, notificar por
-   * elemento es la diferencia entre instantáneo y colgado. */
+   * elemento es la diferencia entre instantáneo y colgado.
+   *
+   * `Partial<Registro>` es un tipo de TypeScript, se borra al compilar: no
+   * protege contra un <select> mal tipado ni un `as any` de la UI. Se
+   * normaliza el registro resultante del merge (no el patch suelto, para no
+   * tumbar un campo válido que el patch no menciona) con el mismo criterio
+   * que ya usa loadJSON() — un pci corrupto (NaN, fuera de 0-100) no debe
+   * poder llegar a la data texture como 0 = "Colapsado". */
   set (indices: number[], patch: Partial<Registro>) {
     for (const i of indices) {
-      this.regs[i] = { ...this.regs[i], ...patch, fecha: patch.fecha ?? hoy() }
+      const merged = { ...this.regs[i], ...patch, fecha: patch.fecha ?? hoy() }
+      this.regs[i] = normalizar(merged).reg
     }
     this.notify()
   }

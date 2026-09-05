@@ -13,7 +13,12 @@ export function encodeAttr (reg: Registro, visible: boolean, selected: boolean):
     // 255 (no 0) marca "sin evaluar": un PCI de 0 es dato real, el peor
     // escalón de la escala ASTM (pavimento colapsado), no ausencia de dato.
     reg.pci == null ? 255 : Math.max(0, Math.min(100, Math.round(reg.pci))),
-    FUENTES.indexOf(reg.fuente),
+    // indexOf da -1 si reg.fuente no está en FUENTES (Partial<Registro> es un
+    // tipo que se borra al compilar, no protege en runtime); Math.max(0, ...)
+    // lo lleva al índice de 'sin', mismo destino que un valor fuera de
+    // dominio en normalizar() de store.ts. Segunda línea de defensa: esta
+    // función está exportada y se puede llamar sin pasar por ningún store.
+    Math.max(0, FUENTES.indexOf(reg.fuente)),
     (visible ? 1 : 0) | (selected ? 2 : 0),
     0,
   ]
@@ -24,6 +29,11 @@ export class AttrTexture {
   private data: Uint8Array
 
   constructor (private store: AttrStore) {
+    // Uint8Array nace en ceros: los 184 texels sobrantes (164²-26.712) que
+    // refresh() nunca visita (el for corre hasta store.length) quedan en
+    // (0,0,0,0) para siempre — B=0 decodifica "no visible". Relleno inerte a
+    // propósito, no un descuido: ningún segId real de la geometría cae ahí,
+    // así que el shader jamás los lee.
     this.data = new Uint8Array(ATTR_SIZE * ATTR_SIZE * 4)
     this.texture = new THREE.DataTexture(
       this.data, ATTR_SIZE, ATTR_SIZE, THREE.RGBAFormat, THREE.UnsignedByteType,
