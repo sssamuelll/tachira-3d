@@ -14,11 +14,16 @@ test('arranca sin evaluar y sin fuente', () => {
   expect(s.get(0).fuente).toBe('sin')
 })
 
-test('seedFromSurface siembra el tipo como heredado y cuenta cuantas sembro', () => {
+// Fix ronda final: sembrar la rodadura NO escribe `fuente`. Ese campo
+// describe la procedencia del PCI (fix Task 19) y acá no hay PCI ninguno --
+// escribir 'heredado' para marcar que la rodadura venía de OSM metía dos
+// significados en un campo, y el filtro de "Procedencia" mezclaba PCI
+// aplicados en bloque con vías sin PCI cuya rodadura salió del mapa.
+test('seedFromSurface siembra el tipo sin tocar la procedencia, y cuenta cuantas sembro', () => {
   const s = new AttrStore(ways)
   expect(s.seedFromSurface()).toBe(1)
   expect(s.get(0).tipo).toBe('asfalto')
-  expect(s.get(0).fuente).toBe('heredado')
+  expect(s.get(0).fuente).toBe('sin')      // no hay PCI: no hay procedencia que declarar
   expect(s.get(1).tipo).toBe('sin_definir')
   expect(s.get(1).fuente).toBe('sin')      // sin surface, no se siembra nada
 })
@@ -230,8 +235,8 @@ test('toJSON serializa un registro al que solo se le cambio la rodadura, sin pci
 // mas fino que el test de arriba).
 test('toJSON NO serializa un registro cuyo unico contenido es el sembrado de seedFromSurface', () => {
   const s = new AttrStore(ways)
-  s.seedFromSurface()                        // ways[0] tiene surface -- se siembra tipo:'asfalto', fuente:'heredado'
-  expect(s.get(0).fuente).toBe('heredado')    // confirma la premisa
+  s.seedFromSurface()                        // ways[0] tiene surface -- se siembra tipo:'asfalto'
+  expect(s.get(0).fuente).toBe('sin')         // confirma la premisa: sembrar no declara procedencia
   const out = s.toJSON() as any
   expect(out.registros['1']).toBeUndefined()  // nada que el usuario haya tocado -- no se guarda
 })
@@ -240,10 +245,27 @@ test('toJSON SI serializa cuando el usuario cambia la rodadura sembrada a otra d
   const s = new AttrStore(ways)
   s.seedFromSurface()                         // ways[0]: sembrado a tipo:'asfalto'
   s.set([0], { tipo: 'granzon' })             // el usuario la corrige a mano, sin tocar pci
-  expect(s.get(0).fuente).toBe('heredado')    // fuente sigue sin tocarse (fix Task 19: set() sin pci no la toca)
+  expect(s.get(0).fuente).toBe('sin')         // fuente sigue sin tocarse (fix Task 19: set() sin pci no la toca)
   const out = s.toJSON() as any
   expect(out.registros['1']).toBeDefined()    // ya no coincide con ways[0].tipo -- es dato real, se guarda
   expect(out.registros['1'].tipo).toBe('granzon')
+})
+
+// El corte del sembrado ahora exige fuente:'sin' (antes 'heredado', que era
+// lo que escribia el propio sembrado). Un registro sin PCI pero CON
+// procedencia solo puede venir de un JSON escrito a mano: es dato del
+// usuario, no ruido regenerable, y no se puede descartar aunque la rodadura
+// coincida con la sembrada.
+test('toJSON SI serializa un registro sin pci pero con procedencia escrita a mano', () => {
+  const s = new AttrStore(ways)
+  s.seedFromSurface()
+  s.loadJSON({ registros: {
+    '1': { pci: null, fuente: 'heredado', tipo: 'asfalto', fecha: '2026-01-10', nota: '' },
+  } }, ways)
+  expect(s.get(0).tipo).toBe(ways[0].tipo)    // la rodadura coincide con la sembrada
+  const out = s.toJSON() as any
+  expect(out.registros['1']).toBeDefined()
+  expect(out.registros['1'].fuente).toBe('heredado')
 })
 
 // Menor, pedido explicito del coordinador: faltaba el caso "solo nota" del

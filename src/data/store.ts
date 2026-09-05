@@ -106,14 +106,22 @@ export class AttrStore {
     this.notify()
   }
 
-  /** El surface de OSM (ya resuelto a tipo por el pipeline) siembra el tipo
-   * de rodadura con procedencia heredado. Devuelve cuántas vías sembró. */
+  /** El surface de OSM (ya resuelto a tipo por el pipeline) siembra el tipo de
+   * rodadura. Devuelve cuántas vías sembró.
+   *
+   * NO toca `fuente` (fix ronda final): `fuente` describe la procedencia del
+   * PCI (fix Task 19, ver set() arriba) y acá no hay ningún PCI de por medio
+   * -- se queda en 'sin'. Antes escribía 'heredado' en 6.228 vías para marcar
+   * que la rodadura venía de OSM, y el FilterPanel lee ese mismo campo bajo
+   * la etiqueta "Procedencia": filtrar por `heredado` devolvía PCI aplicados
+   * en bloque mezclados con vías sin PCI cuya rodadura salió del mapa. Dos
+   * significados en un campo, y el que importa es el del PCI. */
   seedFromSurface (): number {
     let n = 0
     for (let i = 0; i < this.ways.length; i++) {
       const t = this.ways[i].tipo
       if (t !== 'sin_definir') {
-        this.regs[i] = { ...this.regs[i], tipo: t, fuente: 'heredado', fecha: hoy() }
+        this.regs[i] = { ...this.regs[i], tipo: t, fecha: hoy() }
         n++
       }
     }
@@ -142,19 +150,24 @@ export class AttrStore {
    *
    * Excluye además el sembrado intacto de seedFromSurface() (fix Task 21
    * ronda 2): App.tsx la llama en cada carga de la app sobre el mismo `ways`
-   * estático del build, así que un registro con fuente:'heredado' y el mismo
-   * `tipo` que ya trae `ways[i]` se regenera solo, idéntico, cada vez -- no es
-   * dato del usuario, es ruido que multiplicaba el archivo por ~10 (todas las
-   * vías con superficie conocida en OSM) sin nada real adentro. Si el usuario
-   * SÍ cambió la rodadura a otra distinta de la sembrada, `tipo` ya no
-   * coincide con `ways[i].tipo` y el registro se guarda igual -- mismo caso
-   * que ya distingue la condición de `tipo` de arriba, un nivel más fino. */
+   * estático del build, así que un registro sin PCI y con el mismo `tipo` que
+   * ya trae `ways[i]` se regenera solo, idéntico, cada vez -- no es dato del
+   * usuario, es ruido que multiplicaba el archivo por ~10 (todas las vías con
+   * superficie conocida en OSM) sin nada real adentro. Si el usuario SÍ
+   * cambió la rodadura a otra distinta de la sembrada, `tipo` ya no coincide
+   * con `ways[i].tipo` y el registro se guarda igual -- mismo caso que ya
+   * distingue la condición de `tipo` de arriba, un nivel más fino.
+   *
+   * La condición mira `fuente === 'sin'` (antes 'heredado', que era lo que
+   * escribía el sembrado hasta el fix de esta ronda): un registro sin PCI
+   * pero CON procedencia solo puede venir de un JSON escrito a mano, y eso es
+   * dato del usuario -- se guarda. */
   toJSON () {
     const registros: Record<string, Registro> = {}
     for (let i = 0; i < this.regs.length; i++) {
       const r = this.regs[i]
       const tieneDato = r.pci != null || r.fuente !== 'sin' || r.tipo !== 'sin_definir' || r.nota
-      const soloSembrado = r.pci == null && !r.nota && r.fuente === 'heredado' && r.tipo === this.ways[i].tipo
+      const soloSembrado = r.pci == null && !r.nota && r.fuente === 'sin' && r.tipo === this.ways[i].tipo
       if (tieneDato && !soloSembrado) registros[String(this.ways[i].osmId)] = r
     }
     // Los huérfanos vuelven a salir siempre, intactos -- toJSON() no es quien
