@@ -24,7 +24,14 @@ export function Roads (
     patchLineMaterial(material, attr.texture, ATTR_SIZE)
 
     const line = new LineSegments2(geometry, material)
-    line.frustumCulled = false     // el bbox de una geometría instanciada no es fiable
+    // LineSegmentsGeometry.computeBoundingBox() sí es fiable (itera
+    // instanceStart/instanceEnd reales) -- se desactiva el cull igual porque
+    // esto es un solo objeto que cubre el bbox completo del Táchira (igual
+    // que Terrain.tsx): a esa escala el cull es todo-o-nada y casi nunca
+    // ahorra nada real (si el terreno está en cámara, casi siempre una parte
+    // de la red vial también), así que no vale el riesgo de un caso límite
+    // del bounding volume borrando la red entera del mapa.
+    line.frustumCulled = false
     return line
   }, [positions, segIds, attr])
 

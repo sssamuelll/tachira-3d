@@ -1,7 +1,10 @@
 import * as THREE from 'three'
 import { PCI_RANGES, SIN_EVALUAR, FUENTES } from '../data/constants'
 
-const ANCLA_VERT = 'void main() {'
+// Exportadas para que roadsShader.test.ts las use contra el LineMaterial real
+// instalado, en vez de duplicar los strings en el test (la misma clase de
+// desincronización silenciosa que este archivo ya evita para la paleta).
+export const ANCLA_VERT = 'void main() {'
 
 // El brief de esta tarea asumía 'vec4 diffuseColor = vec4( diffuse, opacity );'
 // (la forma de versiones viejas de three). En three@0.185.1 ese main() abre
@@ -9,7 +12,7 @@ const ANCLA_VERT = 'void main() {'
 // con el uniform directo -- confirmado leyendo
 // node_modules/three/examples/jsm/lines/LineMaterial.js. El string viejo no
 // aparece en esta versión; el ancla real es esta:
-const ANCLA_FRAG = 'vec4 diffuseColor = vec4( diffuse, alpha );'
+export const ANCLA_FRAG = 'vec4 diffuseColor = vec4( diffuse, alpha );'
 
 const vec3Lit = ([r, g, b]: readonly [number, number, number]) => `vec3(${r}, ${g}, ${b})`
 
@@ -18,7 +21,7 @@ const vec3Lit = ([r, g, b]: readonly [number, number, number]) => `vec3(${r}, ${
 // tabla en tiempo de módulo -- escribirla a mano una segunda vez dentro del
 // shader es justo el tipo de duplicado que este proyecto ya vio
 // desincronizarse en silencio dos veces.
-const PCI_COLOR_GLSL = `
+export const PCI_COLOR_GLSL = `
   vec3 pciColor (float pci) {
     // 255 (vía encodeAttr) es el centinela de "sin evaluar" -- un PCI real
     // va de 0 a 100, así que 0 (pavimento colapsado) nunca cae acá.
@@ -64,6 +67,14 @@ export function patchLineMaterial (
           mod(segId, uAttrSize), floor(segId / uAttrSize)) + 0.5) / uAttrSize);
     `)
 
+    // Mismo patrón que el vertex shader arriba: cada ancla se comprueba antes
+    // de usarse, incluida esta reutilización de ANCLA_VERT sobre el fragment
+    // shader (string idéntico, pero es un shader.fragmentShader distinto del
+    // shader.vertexShader ya comprobado -- nada garantiza que ambos cambien
+    // juntos en una versión futura de three).
+    if (!shader.fragmentShader.includes(ANCLA_VERT)) {
+      throw new Error('roadsShader: no se encontró el ancla de void main() en el fragment shader de LineMaterial')
+    }
     if (!shader.fragmentShader.includes(ANCLA_FRAG)) {
       throw new Error('roadsShader: no se encontró el ancla del fragment shader de LineMaterial')
     }
