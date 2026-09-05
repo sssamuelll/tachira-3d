@@ -54,6 +54,7 @@ for (const v of grid) { sum += v; if (v === -500 || v === 9000) clamped++ }
 const mean = sum / grid.length
 const range = terrain.max - terrain.min
 check(range >= 1000, `rango de elevación: ${range} m (umbral >= 1000 m)`)
+check(terrain.max <= 4200, `elevación máxima: ${terrain.max} m (umbral <= 4200 m)`)
 check(mean >= 100 && mean <= 2000, `elevación media: ${mean.toFixed(1)} m (esperado 100-2000)`)
 check(clamped / grid.length < 0.01,
   `celdas en el tope del clamp: ${clamped} de ${grid.length} (${(clamped / grid.length * 100).toFixed(2)}%, umbral < 1%)`)
@@ -62,7 +63,7 @@ check(grid.length === terrain.width * terrain.height,
 
 // 7. drapeado no plano: la mayoría de las vías sube o baja con el terreno, y ninguna queda invertida
 const draped = meta.ways.filter(w => w.km3d > w.km).length
-const inverted = meta.ways.filter(w => w.km3d < w.km)
+const inverted = meta.ways.filter(w => w.km3d < w.km - 1e-6)
 check(draped / meta.ways.length >= 0.5,
   `vías con km3d > km: ${draped} de ${meta.ways.length} (${(draped / meta.ways.length * 100).toFixed(1)}%, umbral >= 50%)`)
 check(inverted.length === 0, `vías con km3d menor que km: ${inverted.length}`)
