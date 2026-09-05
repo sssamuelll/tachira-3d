@@ -1895,7 +1895,18 @@ git commit -m "feat: camara geodesica y encuadre de bbox"
 **Interfaces:**
 - Consumes: `types.ts` → `Registro`, `Way`, `Fuente`, `Tipo`
 - Produces:
-  - `class AttrStore` con: `constructor(ways: Way[])`, `get(i) → Registro`, `set(indices: number[], patch: Partial<Registro>) → void`, `seedFromSurface() → number`, `coverageByMunicipio() → Map<string, {total, evaluados}>`, `toJSON() → object`, `loadJSON(obj, ways) → string[]` (devuelve ids huérfanos), `onChange(cb)`
+  - `class AttrStore` con: `constructor(ways: Way[])`, `get(i) → Registro`, `set(indices: number[], patch: Partial<Registro>) → void`, `seedFromSurface() → number`, `coverageByMunicipio() → Map<string, {total, evaluados}>`, `toJSON() → object`, `loadJSON(obj, ways) → { orphans: string[], invalid: string[] }`, `onChange(cb)`
+
+> **Corregido durante la ejecución.** `loadJSON` validaba los ids pero no los valores. Como
+> `pci-tachira.json` se versiona en git para que el usuario lo edite a mano, por ahí entra
+> texto escrito por una persona: un `"pci": 150` lo recortaba a 100 la data texture aguas
+> abajo y **se mostraba como "Bueno"** — corrupción silenciosa en un número destinado a un
+> informe. Ahora normaliza y reporta, con el mismo criterio que ya se usaba con los
+> huérfanos: `fuente` fuera de dominio → `'sin'`, `tipo` → `'sin_definir'`, `pci` no finito
+> o fuera de 0-100 → `null`. **`pci: null` explícito no cuenta como corrupción**: es el
+> valor legítimo de "sin evaluar" y sin esa excepción las ~20.484 vías no evaluadas
+> saldrían marcadas en cada carga. Un registro corrupto nunca descarta el archivo ni toca
+> a los sanos.
 
 El store vive **fuera de React**: 26.712 registros no pasan por `useState`. Notifica cambios por
 callback para que la data texture se actualice.
@@ -2042,7 +2053,10 @@ export class AttrStore {
   }
 
   /** Devuelve los ids que ya no existen en la red. No los borra: los reporta. */
-  loadJSON (obj: { registros?: Record<string, Registro> }, ways: Way[]): string[] {
+  loadJSON (
+    obj: { version?: number; actualizado?: string; registros?: Record<string, Registro> },
+    ways: Way[],
+  ): { orphans: string[]; invalid: string[] } {
     const porId = new Map(ways.map((w, i) => [String(w.osmId), i]))
     const orphans: string[] = []
     for (const [id, reg] of Object.entries(obj.registros ?? {})) {
@@ -3194,8 +3208,10 @@ export function useAutosave (
 - [ ] **Step 2: Conectar en App**
 
 Al arrancar, intentar `loadHandle()`; si devuelve un handle, leer el archivo y llamar
-`store.loadJSON(obj, ways)`. Si devuelve ids huérfanos, mostrarlos en consola con un aviso claro de
-que **no se borraron**.
+`store.loadJSON(obj, ways)`, que devuelve `{ orphans, invalid }`. Mostrar ambos en consola con un
+aviso claro: los huérfanos **no se borraron** (son ids que ya no existen en la red, el usuario
+decide), y los inválidos **se normalizaron** (valores fuera de dominio que se llevaron a su
+sentinel, para que un dato corrupto no se pinte como bueno).
 
 Añadir un botón "archivo de datos" que llame `pickFile()`. Si `isFsAccessSupported()` es falso,
 mostrar en su lugar un botón "descargar" que llame `downloadJSON(store.toJSON())`.
