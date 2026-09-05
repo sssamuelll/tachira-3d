@@ -169,3 +169,17 @@ test('toJSON solo serializa lo que tiene dato', () => {
   const out = s.toJSON() as any
   expect(Object.keys(out.registros)).toEqual(['2'])
 })
+
+// Fix Task 21: aplicar solo rodadura (sin pci) a una vía que nunca tuvo PCI no
+// toca `fuente` (fix Task 19, ver store.set() arriba) -- se queda en 'sin'.
+// Antes de este fix, toJSON() no miraba `tipo`, así que ese cambio no se
+// serializaba y se perdía en el próximo loadJSON(): pérdida de datos
+// silenciosa. Este test fija el comportamiento correcto.
+test('toJSON serializa un registro al que solo se le cambio la rodadura, sin pci ni fuente', () => {
+  const s = new AttrStore(ways)
+  s.set([1], { tipo: 'granzon' })            // ways[1] no tiene surface -- fuente se queda en 'sin'
+  expect(s.get(1).fuente).toBe('sin')        // confirma la premisa: este es justo el caso que fallaba
+  const out = s.toJSON() as any
+  expect(out.registros['2']).toBeDefined()
+  expect(out.registros['2'].tipo).toBe('granzon')
+})

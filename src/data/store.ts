@@ -107,12 +107,19 @@ export class AttrStore {
     return out
   }
 
-  /** Solo serializa lo que tiene dato real: un registro vacío no ensucia el JSON. */
+  /** Solo serializa lo que tiene dato real: un registro vacío no ensucia el JSON.
+   * Incluye `tipo` en la condición, no solo pci/fuente/nota: desde el fix de
+   * Task 19 (arriba, en set()), aplicar solo rodadura a una vía que nunca
+   * tuvo PCI ya no toca `fuente` -- se queda en 'sin'. Sin `tipo` acá, ese
+   * cambio no entraba en el JSON y se perdía en el próximo loadJSON(): pérdida
+   * de datos silenciosa, no un registro vacío de verdad. */
   toJSON () {
     const registros: Record<string, Registro> = {}
     for (let i = 0; i < this.regs.length; i++) {
       const r = this.regs[i]
-      if (r.pci != null || r.fuente !== 'sin' || r.nota) registros[String(this.ways[i].osmId)] = r
+      if (r.pci != null || r.fuente !== 'sin' || r.tipo !== 'sin_definir' || r.nota) {
+        registros[String(this.ways[i].osmId)] = r
+      }
     }
     return { version: 1, actualizado: hoy(), registros }
   }
