@@ -49,12 +49,61 @@ test('la cobertura por municipio cuenta evaluados sobre total', () => {
 
 test('loadJSON restaura por osmId y reporta huerfanos sin borrarlos', () => {
   const s = new AttrStore(ways)
-  const huerfanos = s.loadJSON({ version: 1, registros: {
+  const { orphans, invalid } = s.loadJSON({ version: 1, registros: {
     '2': { pci: 30, fuente: 'medido', tipo: 'tierra', fecha: '2026-09-05', nota: '' },
     '999': { pci: 50, fuente: 'medido', tipo: 'asfalto', fecha: '2026-09-05', nota: '' },
   } }, ways)
   expect(s.get(1).pci).toBe(30)
-  expect(huerfanos).toEqual(['999'])
+  expect(orphans).toEqual(['999'])
+  expect(invalid).toEqual([])
+})
+
+test('loadJSON normaliza una fuente invalida a sin y reporta el id', () => {
+  const s = new AttrStore(ways)
+  const { invalid } = s.loadJSON({ registros: {
+    '1': { pci: 50, fuente: 'medidoo' as any, tipo: 'asfalto', fecha: '2026-09-05', nota: '' },
+  } }, ways)
+  expect(s.get(0).fuente).toBe('sin')
+  expect(invalid).toEqual(['1'])
+})
+
+test('loadJSON normaliza un tipo invalido a sin_definir y reporta el id', () => {
+  const s = new AttrStore(ways)
+  const { invalid } = s.loadJSON({ registros: {
+    '1': { pci: 50, fuente: 'medido', tipo: 'adoquin' as any, fecha: '2026-09-05', nota: '' },
+  } }, ways)
+  expect(s.get(0).tipo).toBe('sin_definir')
+  expect(invalid).toEqual(['1'])
+})
+
+test('loadJSON normaliza un pci no finito o fuera de 0-100 a null y reporta el id', () => {
+  const s = new AttrStore(ways)
+  const { invalid } = s.loadJSON({ registros: {
+    '1': { pci: 150, fuente: 'medido', tipo: 'asfalto', fecha: '2026-09-05', nota: '' },
+    '2': { pci: NaN, fuente: 'medido', tipo: 'asfalto', fecha: '2026-09-05', nota: '' },
+  } }, ways)
+  expect(s.get(0).pci).toBeNull()
+  expect(s.get(1).pci).toBeNull()
+  expect(invalid).toEqual(['1', '2'])
+})
+
+test('un pci null (sin evaluar) no cuenta como invalido', () => {
+  const s = new AttrStore(ways)
+  const { invalid } = s.loadJSON({ registros: {
+    '1': { pci: null, fuente: 'heredado', tipo: 'asfalto', fecha: '2026-09-05', nota: '' },
+  } }, ways)
+  expect(invalid).toEqual([])
+})
+
+test('un registro corrupto no impide cargar los sanos', () => {
+  const s = new AttrStore(ways)
+  const { invalid } = s.loadJSON({ registros: {
+    '1': { pci: 999, fuente: 'medido', tipo: 'asfalto', fecha: '2026-09-05', nota: '' },
+    '2': { pci: 30, fuente: 'medido', tipo: 'tierra', fecha: '2026-09-05', nota: '' },
+  } }, ways)
+  expect(s.get(0).pci).toBeNull()   // el corrupto se normaliza, no se descarta el archivo
+  expect(s.get(1).pci).toBe(30)     // el sano no se ve afectado
+  expect(invalid).toEqual(['1'])
 })
 
 test('toJSON solo serializa lo que tiene dato', () => {

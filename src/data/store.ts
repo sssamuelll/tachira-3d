@@ -1,7 +1,30 @@
+import { FUENTES, TIPOS } from './constants'
 import type { Way, Registro } from './types'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
 const vacio = (): Registro => ({ pci: null, fuente: 'sin', tipo: 'sin_definir', fecha: '', nota: '' })
+
+// El JSON de entrada de loadJSON puede traer texto escrito a mano por una
+// persona (el spec versiona pci-tachira.json en git para que el usuario
+// resuelva huérfanos en el diff) — pci/fuente/tipo se normalizan al valor
+// "sin dato" de su campo en vez de propagar un valor fuera de dominio, que
+// silenciosamente se vería mal en la data texture (ej. pci:150 se recortaría
+// a 100 = "Bueno" en vez de avisar que el dato está corrupto).
+function normalizar (reg: Registro): { reg: Registro; corrupto: boolean } {
+  const fuenteOk = FUENTES.includes(reg.fuente)
+  const tipoOk = TIPOS.includes(reg.tipo)
+  const pciOk = reg.pci == null || (Number.isFinite(reg.pci) && reg.pci >= 0 && reg.pci <= 100)
+  if (fuenteOk && tipoOk && pciOk) return { reg, corrupto: false }
+  return {
+    reg: {
+      ...reg,
+      fuente: fuenteOk ? reg.fuente : 'sin',
+      tipo: tipoOk ? reg.tipo : 'sin_definir',
+      pci: pciOk ? reg.pci : null,
+    },
+    corrupto: true,
+  }
+}
 
 // Store de atributos de las vías, fuera de React a propósito: 26.712 registros
 // no pasan por useState — la escena los lee de una data texture (Task 14) que
@@ -69,18 +92,25 @@ export class AttrStore {
     return { version: 1, actualizado: hoy(), registros }
   }
 
-  /** Restaura por osmId el mismo objeto que produce toJSON(). Ids que ya no
-   * existen en la red (una vía partida en OSM) se devuelven, no se borran:
-   * el usuario decide qué hacer con ellos. */
-  loadJSON (obj: { version?: number; actualizado?: string; registros?: Record<string, Registro> }, ways: Way[]): string[] {
+  /** Restaura por osmId el mismo objeto que produce toJSON(). Nunca descarta
+   * en silencio, en dos frentes distintos:
+   *  - orphans: ids que ya no existen en la red (una vía partida en OSM) —
+   *    el registro no se toca, el usuario decide qué hacer con él.
+   *  - invalid: ids cuyo fuente/tipo/pci está fuera de dominio (JSON editado
+   *    a mano) — se normalizan al "sin dato" de su campo y se cargan igual;
+   *    un registro corrupto no le cuesta el archivo entero a los otros. */
+  loadJSON (obj: { version?: number; actualizado?: string; registros?: Record<string, Registro> }, ways: Way[]): { orphans: string[]; invalid: string[] } {
     const porId = new Map(ways.map((w, i) => [String(w.osmId), i]))
-    const huerfanos: string[] = []
+    const orphans: string[] = []
+    const invalid: string[] = []
     for (const [id, reg] of Object.entries(obj.registros ?? {})) {
       const i = porId.get(id)
-      if (i == null) huerfanos.push(id)
-      else this.regs[i] = { ...vacio(), ...reg }
+      if (i == null) { orphans.push(id); continue }
+      const { reg: limpio, corrupto } = normalizar(reg)
+      if (corrupto) invalid.push(id)
+      this.regs[i] = { ...vacio(), ...limpio }
     }
     this.notify()
-    return huerfanos
+    return { orphans, invalid }
   }
 }
