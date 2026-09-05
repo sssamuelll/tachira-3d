@@ -380,7 +380,12 @@ export default function App () {
           de poder hacer clic en nada -- se detectó arrastrando de verdad en
           el navegador, no en los tests del predicado. */}
       <div style={{ position: 'fixed', top: 12, left: 12, zIndex: 20, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button onClick={() => setFlyTo(BBOX)}>Encuadrar Táchira</button>
+        {/* Una copia, no BBOX: setFlyTo con la MISMA referencia de módulo no
+            cambia el estado, así que no hay re-render y el efecto de <FlyTo>
+            no vuelve a correr -- el botón funcionaba una sola vez por sesión.
+            Los de municipio no sufrían esto porque municipioBbox() construye
+            un objeto nuevo cada vez. No borrar el spread. */}
+        <button onClick={() => setFlyTo({ ...BBOX })}>Encuadrar Táchira</button>
         <button onClick={() => setLassoOn(o => !o)}>
           {lassoOn ? 'Lazo activo (clic para salir)' : 'Selección por lazo'}
         </button>
