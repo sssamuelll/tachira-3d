@@ -11,9 +11,12 @@ export function Sky ({ date }: { date: Date }) {
   return (
     <Atmosphere
       date={date}
-      // el scattering necesita la altitud real de la cámara aunque la
-      // escena esté rebaseada al origen local (ya es el valor por defecto,
-      // explícito aquí porque de eso depende la Task 11)
+      // ajusta la esfera interna de la atmósfera para que sea tangente
+      // (osculating sphere) al elipsoide WGS84 real en la posición
+      // proyectada de la cámara: el elipsoide es oblato y la atmósfera se
+      // aproxima con una esfera, la diferencia puede superar 10.000 m.
+      // No tiene relación con si la escena está rebaseada a un origen
+      // local. Ya es el valor por defecto, lo dejo explícito por claridad.
       correctAltitude
     >
       <TakramSky />
