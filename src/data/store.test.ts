@@ -183,3 +183,28 @@ test('toJSON serializa un registro al que solo se le cambio la rodadura, sin pci
   expect(out.registros['2']).toBeDefined()
   expect(out.registros['2'].tipo).toBe('granzon')
 })
+
+// Fix Task 21 ronda 2: seedFromSurface() se re-ejecuta identica en cada carga
+// de la app (App.tsx la llama sobre el mismo `ways` del build cada vez) --
+// persistir un registro cuyo unico contenido es ese sembrado es ruido puro,
+// se regenera solo. Los dos tests de abajo distinguen exactamente el caso que
+// pidio el coordinador: rodadura sembrada intacta NO se guarda, rodadura que
+// el usuario cambio a otra distinta SI se guarda (mismo mecanismo, un nivel
+// mas fino que el test de arriba).
+test('toJSON NO serializa un registro cuyo unico contenido es el sembrado de seedFromSurface', () => {
+  const s = new AttrStore(ways)
+  s.seedFromSurface()                        // ways[0] tiene surface -- se siembra tipo:'asfalto', fuente:'heredado'
+  expect(s.get(0).fuente).toBe('heredado')    // confirma la premisa
+  const out = s.toJSON() as any
+  expect(out.registros['1']).toBeUndefined()  // nada que el usuario haya tocado -- no se guarda
+})
+
+test('toJSON SI serializa cuando el usuario cambia la rodadura sembrada a otra distinta', () => {
+  const s = new AttrStore(ways)
+  s.seedFromSurface()                         // ways[0]: sembrado a tipo:'asfalto'
+  s.set([0], { tipo: 'granzon' })             // el usuario la corrige a mano, sin tocar pci
+  expect(s.get(0).fuente).toBe('heredado')    // fuente sigue sin tocarse (fix Task 19: set() sin pci no la toca)
+  const out = s.toJSON() as any
+  expect(out.registros['1']).toBeDefined()    // ya no coincide con ways[0].tipo -- es dato real, se guarda
+  expect(out.registros['1'].tipo).toBe('granzon')
+})

@@ -112,14 +112,24 @@ export class AttrStore {
    * Task 19 (arriba, en set()), aplicar solo rodadura a una vía que nunca
    * tuvo PCI ya no toca `fuente` -- se queda en 'sin'. Sin `tipo` acá, ese
    * cambio no entraba en el JSON y se perdía en el próximo loadJSON(): pérdida
-   * de datos silenciosa, no un registro vacío de verdad. */
+   * de datos silenciosa, no un registro vacío de verdad.
+   *
+   * Excluye además el sembrado intacto de seedFromSurface() (fix Task 21
+   * ronda 2): App.tsx la llama en cada carga de la app sobre el mismo `ways`
+   * estático del build, así que un registro con fuente:'heredado' y el mismo
+   * `tipo` que ya trae `ways[i]` se regenera solo, idéntico, cada vez -- no es
+   * dato del usuario, es ruido que multiplicaba el archivo por ~10 (todas las
+   * vías con superficie conocida en OSM) sin nada real adentro. Si el usuario
+   * SÍ cambió la rodadura a otra distinta de la sembrada, `tipo` ya no
+   * coincide con `ways[i].tipo` y el registro se guarda igual -- mismo caso
+   * que ya distingue la condición de `tipo` de arriba, un nivel más fino. */
   toJSON () {
     const registros: Record<string, Registro> = {}
     for (let i = 0; i < this.regs.length; i++) {
       const r = this.regs[i]
-      if (r.pci != null || r.fuente !== 'sin' || r.tipo !== 'sin_definir' || r.nota) {
-        registros[String(this.ways[i].osmId)] = r
-      }
+      const tieneDato = r.pci != null || r.fuente !== 'sin' || r.tipo !== 'sin_definir' || r.nota
+      const soloSembrado = r.pci == null && !r.nota && r.fuente === 'heredado' && r.tipo === this.ways[i].tipo
+      if (tieneDato && !soloSembrado) registros[String(this.ways[i].osmId)] = r
     }
     return { version: 1, actualizado: hoy(), registros }
   }

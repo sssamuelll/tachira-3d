@@ -1,6 +1,12 @@
 import { useEffect, useRef } from 'react'
 import type { AttrStore } from './store'
 
+// pci-tachira.json NO viene versionado en este repo (fix Task 21 ronda 2): el
+// diseño es que cada usuario lo cree la primera vez que abre la app (botón
+// "archivo de datos" -> pickFile()) y lo versione en SU PROPIO git, con SUS
+// datos -- no queremos que el repo llegue con PCI de prueba puestos por
+// quien lo desarrolló. El archivo aparece en la raíz del proyecto recién
+// después de ese primer guardado.
 const DB = 'vialidad-tachira', STORE = 'handles', KEY = 'pci'
 
 export const isFsAccessSupported = () => typeof (window as any).showSaveFilePicker === 'function'
