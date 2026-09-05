@@ -44,28 +44,40 @@ async function main () {
   console.log('4/9  municipio por punto medio')
   // Un tramo que cruza límite cae en uno solo. Cortar en el límite duplicaría
   // segmentos y rompería los ids, que es lo que ancla los datos del usuario.
-  const buscaMunicipio = (lon, lat) =>
+  const findMunicipio = (lon, lat) =>
     // un municipio puede ser multipolígono (enclaves), de ahí el .some()
     municipios.find(mm => mm.polygons.some(p => pointInPolygon(lon, lat, p)))
-  let porVertice = 0
+  let resolvedByVote = 0
   for (const l of lines) {
     const [lon, lat] = l.coords[midpointIndex(l.coords)]
-    let m = buscaMunicipio(lon, lat)
-    if (!m) {
-      // el punto medio cayó en una grieta de precisión entre municipios vecinos
-      // (frontera compartida, puente internacional): probar el resto de los
-      // vértices antes de rendirse, en vez de dejar la vía sin municipio.
-      for (const [vlon, vlat] of l.coords) {
-        m = buscaMunicipio(vlon, vlat)
-        if (m) { porVertice++; break }
-      }
+    const mid = findMunicipio(lon, lat)
+    if (mid) {
+      l.municipio = mid.name
+      continue
     }
-    l.municipio = m ? m.name : null
+    // el punto medio cayó en una grieta de precisión entre municipios vecinos
+    // (frontera compartida, puente internacional): votar con todos los
+    // vértices de la vía y quedarnos con el municipio que más vértices tenga,
+    // en vez del primero que caiga — eso dependía del orden del array (un
+    // ramal corto al inicio no debe ganarle al grueso de la vía en otro
+    // municipio). Empate: gana el primero que alcanzó el máximo recorriendo
+    // los vértices en orden — arbitrario pero determinista, no un descuido.
+    const votes = new Map()
+    for (const [vlon, vlat] of l.coords) {
+      const v = findMunicipio(vlon, vlat)
+      if (v) votes.set(v.name, (votes.get(v.name) ?? 0) + 1)
+    }
+    let winner = null, best = 0
+    for (const [name, count] of votes) {
+      if (count > best) { best = count; winner = name }
+    }
+    l.municipio = winner
+    if (winner) resolvedByVote++
   }
-  const huerfanos = municipios.reduce((s, m) => s + m.orphanFragments, 0)
-  if (huerfanos > 0) console.warn(`     AVISO: ${huerfanos} fragmentos de frontera sin cerrar`)
-  const sinMunicipio = lines.filter(l => !l.municipio).length
-  console.log(`     resueltas por vértice: ${porVertice} · sin municipio: ${sinMunicipio}`)
+  const totalOrphanFragments = municipios.reduce((s, m) => s + m.orphanFragments, 0)
+  if (totalOrphanFragments > 0) console.warn(`     AVISO: ${totalOrphanFragments} fragmentos de frontera sin cerrar`)
+  const unassigned = lines.filter(l => !l.municipio).length
+  console.log(`     resueltas por voto: ${resolvedByVote} · sin municipio: ${unassigned}`)
 
   console.log('5/9  drapeado y longitudes')
   let vertices = 0
@@ -114,9 +126,9 @@ async function main () {
   console.log('9/9  municipios')
   await writeFile(`${OUT}/municipios.json`, JSON.stringify(municipios))
 
-  const sembrados = lines.filter(l => SURFACE_A_TIPO[l.tags.surface]).length
+  const seeded = lines.filter(l => SURFACE_A_TIPO[l.tags.surface]).length
   console.log(`\nlisto. ${lines.length} vías · ${packed.segmentCount} segmentos · ` +
-              `${sembrados} con tipo sembrado desde surface`)
+              `${seeded} con tipo sembrado desde surface`)
 }
 
 main().catch(e => { console.error(e); process.exit(1) })

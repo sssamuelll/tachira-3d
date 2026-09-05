@@ -981,7 +981,8 @@ git commit -m "feat: empaquetado de vias a binarios con ejes de three"
   - `terrain.bin` — `Int16Array` 1024×1024, row-major desde el norte
   - `terrain.json` — `{ width, height, bbox: {s,w,n,e}, min, max, origin: {lat, lon, h} }`
   - `roads-pos.bin`, `roads-segid.bin`, `roads-index.bin`
-  - `roads-meta.json` — `{ count, ways: Array<{ osmId, ref, name, highway, surface, municipio, km, km3d }> }`
+  - `roads-meta.json` — `{ count, ways: Array<{ osmId, ref, name, highway, surface, tipo, municipio, km, km3d }> }`
+    (`tipo` es la rodadura sembrada desde `surface`, ver §3.2)
   - `municipios.json` — `Array<{ osmId, name, polygons }>`, donde `polygons` es un array
     de polígonos y cada polígono es `[exterior, ...huecos]` (ver la nota en la Task 4)
 
@@ -1219,8 +1220,14 @@ Run: `npm run verify`
 Expected: todos los checks en `ok`, salida `todo en orden`, código 0.
 
 Si el check 3 falla con pocas vías sin municipio, son tramos fronterizos cuyo punto medio cayó
-fuera de todo polígono. Asignarlas al municipio del vértice más cercano en `build-data.mjs` paso 4
-y volver a correr.
+en una grieta de precisión entre polígonos vecinos. El fallback del paso 4 de `build-data.mjs`
+las resuelve por **voto mayoritario de vértices**: se cuenta en cuántos vértices de la vía cae
+cada municipio y gana el que más tenga.
+
+No "el primer vértice que resuelva" — eso depende del orden del array y asignaría una vía entera
+al municipio de un ramal corto inicial cuando el grueso de su longitud está en otro. Tampoco "el
+vértice más cercano", que exige calcular distancias para responder peor: la pregunta real no es
+qué vértice está cerca, sino dónde está la mayor parte de la vía.
 
 - [ ] **Step 3: Commit**
 
