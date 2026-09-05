@@ -19,7 +19,7 @@ const box: CSSProperties = {
 export function EditPanel ({ selection, filteredCount, onApply, onSelectAllFiltered }: {
   selection: number[]
   filteredCount: number
-  onApply: (patch: { pci?: number; fuente: Fuente; tipo?: Tipo; nota?: string }) => void
+  onApply: (patch: { pci?: number; fuente?: Fuente; tipo?: Tipo; nota?: string }) => void
   onSelectAllFiltered: () => void
 }) {
   const [pci, setPci] = useState(50)
@@ -62,14 +62,17 @@ export function EditPanel ({ selection, filteredCount, onApply, onSelectAllFilte
           <input type="range" min={0} max={100} step={1} value={pci} disabled={!aplicaPci}
             onChange={e => setPci(+e.target.value)} />
 
-          {/* Obligatoria de verdad: el botón de aplicar (abajo) se deshabilita
-              sin fuente elegida, sin importar el estado de aplicaPci -- un
-              heredado en bloque también necesita procedencia declarada, no
-              solo un medido puntual. Es la regla que sostiene la integridad
-              del dato (spec §3.1): un PCI estimado presentado como medido es
-              un número inventado con apariencia de rigor. */}
-          <label>Procedencia (obligatoria)
-            <select value={fuente} onChange={e => setFuente(e.target.value as Fuente | '')}>
+          {/* Obligatoria solo si se va a aplicar PCI: la fuente describe la
+              procedencia del PCI, no de la rodadura (fix Task 19) -- una
+              vía ya medida en campo no debe perder ese dato solo porque
+              después se le fija la rodadura en bloque. Con aplicaPci
+              destildado el selector se deshabilita (no hay PCI que proteger
+              acá) y el botón de aplicar deja de exigirlo; con aplicaPci
+              marcado sigue siendo la regla que sostiene la integridad del
+              dato (spec §3.1): un PCI estimado presentado como medido es un
+              número inventado con apariencia de rigor. */}
+          <label>Procedencia{aplicaPci ? ' (obligatoria)' : ''}
+            <select value={fuente} disabled={!aplicaPci} onChange={e => setFuente(e.target.value as Fuente | '')}>
               <option value="">elegir…</option>
               <option value="medido">medido — inspección con ficha</option>
               <option value="estimado">estimado — a ojo o desde imagen</option>
@@ -89,12 +92,12 @@ export function EditPanel ({ selection, filteredCount, onApply, onSelectAllFilte
           </label>
 
           <button
-            disabled={!fuente}
-            title={fuente ? '' : 'Elige la procedencia antes de aplicar'}
+            disabled={aplicaPci && !fuente}
+            title={aplicaPci && !fuente ? 'Elige la procedencia antes de aplicar' : ''}
             onClick={() => {
               onApply({
                 ...(aplicaPci ? { pci } : {}),
-                fuente: fuente as Fuente,
+                ...(fuente ? { fuente } : {}),
                 ...(tipo ? { tipo: tipo as Tipo } : {}),
                 ...(nota ? { nota } : {}),
               })

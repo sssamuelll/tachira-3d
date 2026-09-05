@@ -48,10 +48,37 @@ test('set normaliza una fuente invalida y un pci NaN en vez de dejarlos corrupto
 
 test('set normaliza el merge completo, no tumba un campo valido que el patch no toca', () => {
   const s = new AttrStore(ways)
-  s.set([0], { fuente: 'medido' })
-  s.set([0], { pci: 80 })          // este patch no menciona fuente
-  expect(s.get(0).fuente).toBe('medido')   // sigue el valor previo, no se resetea a 'sin'
-  expect(s.get(0).pci).toBe(80)
+  s.set([0], { pci: 80, fuente: 'medido' })
+  s.set([0], { tipo: 'granzon' })   // este patch no menciona pci ni fuente
+  expect(s.get(0).pci).toBe(80)            // sigue el valor previo, no se resetea
+  expect(s.get(0).fuente).toBe('medido')   // idem
+  expect(s.get(0).tipo).toBe('granzon')    // y el campo que sí tocó el patch se aplica
+})
+
+// Escenario destructivo real (fix Task 19, reportado por el coordinador): medir una
+// vía en campo (fuente:'medido') y más tarde fijar la rodadura en bloque sobre su
+// municipio (fuente:'heredado') no debe degradar en silencio la procedencia del PCI
+// ya medido -- eso perdería justo el trabajo de campo, que es el caro. `fuente`
+// describe la procedencia del PCI, no de la rodadura: un patch que no toca `pci` no
+// escribe `fuente` en NINGÚN índice del lote, tenga o no tenga PCI previo -- la regla
+// es sobre el patch (qué operación es esta), no sobre el estado previo de cada vía.
+test('set no pisa la fuente de un PCI medido cuando el patch solo trae rodadura', () => {
+  const s = new AttrStore(ways)
+  s.set([0], { pci: 90, fuente: 'medido' })          // inspección real con ficha
+  s.set([0, 1, 2], { fuente: 'heredado', tipo: 'asfalto' })   // bloque, sin pci
+  expect(s.get(0).pci).toBe(90)             // el PCI medido no se toca
+  expect(s.get(0).fuente).toBe('medido')    // ni su procedencia -- el caso que destruía trabajo
+  expect(s.get(0).tipo).toBe('asfalto')     // pero la rodadura sí se aplica
+  expect(s.get(1).fuente).toBe('sin')       // sin PCI previo tampoco toma la fuente...
+  expect(s.get(1).tipo).toBe('asfalto')     // ...aunque la rodadura sí se aplica igual
+})
+
+test('set SI aplica la fuente cuando el patch trae pci, aunque sea null', () => {
+  const s = new AttrStore(ways)
+  s.set([0], { pci: 90, fuente: 'medido' })
+  s.set([0], { pci: null, fuente: 'sin' })   // des-evaluar es una acción real sobre el pci
+  expect(s.get(0).pci).toBeNull()
+  expect(s.get(0).fuente).toBe('sin')
 })
 
 test('la cobertura por municipio cuenta evaluados sobre total', () => {

@@ -54,10 +54,21 @@ export class AttrStore {
    * normaliza el registro resultante del merge (no el patch suelto, para no
    * tumbar un campo válido que el patch no menciona) con el mismo criterio
    * que ya usa loadJSON() — un pci corrupto (NaN, fuera de 0-100) no debe
-   * poder llegar a la data texture como 0 = "Colapsado". */
+   * poder llegar a la data texture como 0 = "Colapsado".
+   *
+   * `fuente` describe la procedencia del PCI, no de la rodadura (fix Task
+   * 19): un patch que no trae la clave `pci` no debe pisar la fuente de un
+   * registro ya medido solo porque de paso cambia el tipo o la nota — si no,
+   * fijar la rodadura en bloque sobre un municipio degrada en silencio el
+   * trabajo de campo de cualquier vía ya inspeccionada que caiga en el lote.
+   * `'pci' in patch` (no `patch.pci != null`) es la prueba correcta: un
+   * `pci: null` explícito SÍ es tocar el campo (des-evaluar a propósito),
+   * omitir la clave es no tocarlo. */
   set (indices: number[], patch: Partial<Registro>) {
+    const { fuente, ...sinFuente } = patch
+    const p = 'pci' in patch ? patch : sinFuente
     for (const i of indices) {
-      const merged = { ...this.regs[i], ...patch, fecha: patch.fecha ?? hoy() }
+      const merged = { ...this.regs[i], ...p, fecha: patch.fecha ?? hoy() }
       this.regs[i] = normalizar(merged).reg
     }
     this.notify()
