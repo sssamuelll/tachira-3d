@@ -47,5 +47,8 @@ export function Terrain ({ grid, meta }: { grid: Int16Array; meta: TerrainMeta }
     },
   }), [meta])
 
-  return <mesh geometry={geometry} material={material} frustumCulled={false} />
+  // name="terrain": PickingPass.tsx lo busca con scene.getObjectByName para
+  // añadir el relieve (solo profundidad) al pase de picking -- sin esto una
+  // vía detrás de una montaña se puede seleccionar igual (Task 16, fix round 1).
+  return <mesh name="terrain" geometry={geometry} material={material} frustumCulled={false} />
 }

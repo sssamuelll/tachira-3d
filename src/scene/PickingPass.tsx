@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect } from 'react'
+import { useMemo, useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
@@ -16,28 +16,42 @@ export const decodeId = (r: number, g: number, b: number): number =>
 // id buffer. Calibrable -- ver task-16-report.md para el valor probado.
 export const PICK_WIDTH = 8
 
+// Mismo patrón que roadsShader.ts: cada ancla se comprueba antes de usarse,
+// incluida la reutilización de ANCLA_VERT sobre el fragment shader (string
+// idéntico, pero shader.fragmentShader es una string distinta de
+// shader.vertexShader -- nada garantiza que ambas cambien juntas en una
+// versión futura de three). Exportadas por si un test quiere confirmarlas
+// contra el LineMaterial real, como ya hace roadsShader.test.ts.
+export const ANCLA_VERT = 'void main() {'
+
+// El brief de esta tarea asumía 'vec4 diffuseColor = vec4( diffuse, opacity );'
+// (la forma de versiones viejas de three). En three@0.185.1 ese main() abre
+// con `float alpha = opacity;` y arma diffuseColor con esa variable local, no
+// con el uniform directo -- confirmado leyendo
+// node_modules/three/examples/jsm/lines/LineMaterial.js:337-338. El string
+// viejo no aparece en esta versión; el ancla real es esta:
+export const ANCLA_FRAG = 'vec4 diffuseColor = vec4( diffuse, alpha );'
+
 function patchPickMaterial (material: THREE.Material) {
   material.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace('void main() {', `
+    if (!shader.vertexShader.includes(ANCLA_VERT)) {
+      throw new Error('PickingPass: no se encontró el ancla del vertex shader de LineMaterial')
+    }
+    shader.vertexShader = shader.vertexShader.replace(ANCLA_VERT, `
       attribute float segId;
       varying float vSegId;
       void main() {
         vSegId = segId;
     `)
-    // Mismo ancla que roadsShader.ts, y por la misma razón: en three@0.185.1
-    // el main() del fragment abre con `float alpha = opacity;` y arma
-    // diffuseColor con esa variable local -- el string de versiones viejas
-    // (`vec4( diffuse, opacity )`) no existe acá. Verificado leyendo
-    // node_modules/three/examples/jsm/lines/LineMaterial.js:337-338. Si un
-    // three futuro cambia este shader, esto debe reventar, no dar un picking
-    // mudo que nunca selecciona nada.
-    const ancla = 'vec4 diffuseColor = vec4( diffuse, alpha );'
-    if (!shader.fragmentShader.includes(ancla)) {
+    if (!shader.fragmentShader.includes(ANCLA_VERT)) {
+      throw new Error('PickingPass: no se encontró el ancla de void main() en el fragment shader de LineMaterial')
+    }
+    if (!shader.fragmentShader.includes(ANCLA_FRAG)) {
       throw new Error('PickingPass: no se encontró el ancla del fragment shader de LineMaterial')
     }
     shader.fragmentShader = shader.fragmentShader
-      .replace('void main() {', 'varying float vSegId;\nvoid main() {')
-      .replace(ancla, `
+      .replace(ANCLA_VERT, 'varying float vSegId;\nvoid main() {')
+      .replace(ANCLA_FRAG, `
         float id = vSegId + 1.0;   // 0 queda reservado para "nada"
         // El id buffer tiene que ser OPACO: cualquier mezcla de color entre
         // dos vías vecinas decodifica como un id que no existe. gl_FragColor
@@ -58,7 +72,7 @@ function patchPickMaterial (material: THREE.Material) {
 export function usePicking (
   { positions, segIds }: { positions: Float32Array; segIds: Float32Array },
 ) {
-  const { gl, camera, size } = useThree()
+  const { gl, scene, camera, size } = useThree()
 
   // Geometría, material y escena del pase de picking: independientes del
   // pase visible (Roads.tsx) porque necesitan su propio ancho de línea y su
@@ -94,9 +108,112 @@ export function usePicking (
     ;(pickLine.material as LineMaterial).resolution.set(size.width, size.height)
   }, [target, pickLine, size.width, size.height])
 
+  // El mesh de solo-profundidad del terreno se engancha perezosamente (al
+  // primer render(), no en el useMemo de arriba): cuando ese useMemo corre,
+  // durante la fase de render de React, <Terrain> puede todavía no haberse
+  // montado en la escena real -- todos los hermanos de un mismo padre
+  // renderizan antes de que cualquiera confirme (commit) su objeto de three.
+  // Al primer clic (render() corre solo bajo demanda) el montaje ya pasó.
+  const depthTerrainRef = useRef<THREE.Mesh | null>(null)
+
   const render = useCallback(() => {
+    // Sin el relieve en el pase de picking no hay nada contra qué ocluir: una
+    // vía detrás de una montaña se seleccionaría igual que una visible. Mismo
+    // criterio que las anclas del shader -- si no aparece, esto debe reventar
+    // ruidosamente, no dar picking sin oclusión en silencio.
+    // scene.getObjectByName tipa Object3D -- este objeto lo nombramos
+    // nosotros mismos en Terrain.tsx y siempre es el <mesh> real, así que el
+    // cast a Mesh (para .geometry) es seguro.
+    const terrainObj = scene.getObjectByName('terrain') as THREE.Mesh | undefined
+    if (!terrainObj) {
+      throw new Error('PickingPass: no se encontró el mesh "terrain" en la escena -- el picking quedaría sin oclusión del relieve')
+    }
+    if (!depthTerrainRef.current) {
+      // Reusa la geometría real (1M de vértices, no se clona) con un
+      // material que solo escribe profundidad -- las vías ocluidas fallan el
+      // depth test sin pintar nada encima del id buffer.
+      //
+      // polygonOffset negativo sesga al terreno un poco más cerca de cámara
+      // de lo que realmente está. Necesario incluso con near/far ya acotados
+      // al alcance real (ver más abajo): quedó un punto de prueba que seguía
+      // filtrando con precisión de sobra (razón far/near ~4.7:1) -- caso
+      // límite de la extrusión en pantalla de LineSegments2 (las vías no son
+      // geometría plana pegada al terreno, son quads que miran a cámara), no
+      // de precisión de depth buffer. Probado en vivo contra los 3 puntos
+      // ciegos del fix round 1 más un control sobre una vía visible real:
+      // -3 ya resuelve los 3 puntos sin tocar el control; -8 ya sobre-ocluye
+      // el control (falso negativo en una vía visible). -4 dado por bueno,
+      // con margen a ambos lados. Calibrable si aparecen más casos.
+      const depthMaterial = new THREE.MeshBasicMaterial({
+        colorWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+      })
+      const depthMesh = new THREE.Mesh(terrainObj.geometry, depthMaterial)
+      depthMesh.frustumCulled = false   // igual que el terreno real (Terrain.tsx)
+      depthMesh.matrixAutoUpdate = false
+      // Objetos opacos con el mismo renderOrder (default 0 los dos) three.js
+      // los ordena por material.id -- orden de creación, no por profundidad
+      // real (WebGLRenderLists.js: painterSortStable). Este material se crea
+      // perezosamente, después del de pickLine, así que sin esto SIEMPRE
+      // dibujaría el terreno después de las vías: la vía ya habría escrito su
+      // color antes de que el terreno "gane" el depth test y solo actualice
+      // profundidad (colorWrite:false no borra lo ya pintado). renderOrder
+      // negativo fuerza que el terreno se dibuje primero pase lo que pase.
+      depthMesh.renderOrder = -1
+      pickScene.add(depthMesh)
+      depthTerrainRef.current = depthMesh
+    }
+    // El terreno no se mueve hoy, pero si alguna vez lo hiciera, la
+    // profundidad quedaría desalineada sin esto -- barato de mantener
+    // sincronizada en cada clic (esto no corre por frame).
+    terrainObj.updateMatrixWorld()
+    depthTerrainRef.current.matrix.copy(terrainObj.matrixWorld)
+
+    // La cámara real usa near=10/far=2.000.000 (App.tsx) para que el cielo de
+    // la atmósfera no se recorte -- con un depth buffer estándar (no
+    // logarítmico) esa razón de 200.000:1 deja tan poca precisión a la
+    // distancia real de cámara que dos superficies a kilómetros de distancia
+    // cuantizan al mismo valor: el terreno ocluye en unos píxeles y en otros
+    // no (confirmado en vivo -- con solo el renderOrder corregido, 1 de 3
+    // clics ciegos de prueba seguía filtrando). Lo que importa es la razón
+    // far/near, no el valor absoluto de far -- angostar solo far (con near
+    // fijo) casi no mejora nada si near queda chico frente al far nuevo.
+    // El picking no necesita ver el cielo: se acotan los dos a la profundidad
+    // de vista real del terreno solo durante este render, y se restauran
+    // después -- mismo patrón que toneMapping/clearColor. Una esfera
+    // envolvente da una cota matemáticamente segura pero floja para un
+    // terreno ancho y chato (147x129 km) visto de frente: su radio es casi
+    // todo extensión horizontal, no profundidad de vista. Las 8 esquinas del
+    // bounding box, proyectadas al eje de la cámara (view-space Z, no
+    // distancia radial), dan la cota óptima -- el mín/máx de una función
+    // lineal sobre un poliedro convexo siempre cae en un vértice.
+    if (!terrainObj.geometry.boundingBox) terrainObj.geometry.computeBoundingBox()
+    const bb = terrainObj.geometry.boundingBox!
+    camera.updateMatrixWorld()
+    let minViewDist = Infinity
+    let maxViewDist = -Infinity
+    for (let i = 0; i < 8; i++) {
+      const corner = new THREE.Vector3(
+        i & 1 ? bb.max.x : bb.min.x,
+        i & 2 ? bb.max.y : bb.min.y,
+        i & 4 ? bb.max.z : bb.min.z,
+      )
+        .applyMatrix4(terrainObj.matrixWorld)
+        .applyMatrix4(camera.matrixWorldInverse)
+      const viewDist = -corner.z   // three.js: la cámara mira hacia -Z en su propio espacio
+      if (viewDist < minViewDist) minViewDist = viewDist
+      if (viewDist > maxViewDist) maxViewDist = viewDist
+    }
+    const prevNear = camera.near
+    const prevFar = camera.far
+    camera.near = Math.max(1, minViewDist)
+    camera.far = Math.max(camera.near + 1, maxViewDist)
+    camera.updateProjectionMatrix()
+
     const prevTarget = gl.getRenderTarget()
     const prevTone = gl.toneMapping
+    const prevClearColor = gl.getClearColor(new THREE.Color())
+    const prevClearAlpha = gl.getClearAlpha()
     gl.toneMapping = THREE.NoToneMapping
     gl.setRenderTarget(target)
     gl.setClearColor(0x000000, 1)
@@ -104,7 +221,11 @@ export function usePicking (
     gl.render(pickScene, camera)
     gl.setRenderTarget(prevTarget)
     gl.toneMapping = prevTone
-  }, [gl, camera, target, pickScene])
+    gl.setClearColor(prevClearColor, prevClearAlpha)
+    camera.near = prevNear
+    camera.far = prevFar
+    camera.updateProjectionMatrix()
+  }, [gl, scene, camera, target, pickScene])
 
   const pickAt = useCallback((x: number, y: number): number | null => {
     render()
