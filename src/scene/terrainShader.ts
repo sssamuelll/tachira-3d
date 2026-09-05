@@ -1,8 +1,17 @@
 export const terrainVert = /* glsl */`
+attribute float elevation;
 varying float vElev;
 varying vec3 vNormalW;
 void main () {
-  vElev = position.y;
+  // NO uses position.y para el color: position.y es el componente "up" de
+  // ENU, que incluye la caida por curvatura terrestre (~750 m en las
+  // esquinas del bbox, a ~97.5 km del origen). uMin/uMax son elevacion
+  // cruda del DEM (terrain.json). Comparar una cosa contra la otra hunde
+  // la hipsometria hacia las bandas bajas conforme te alejas del centro,
+  // sin que la elevacion real cambie -- un error radialmente simetrico
+  // desde ORIGIN, facil de confundir con neblina de AerialPerspective.
+  // Por eso la elevacion viaja como atributo propio, ya crudo.
+  vElev = elevation;
   // normal de objeto, sin normalMatrix: la malla no tiene rotacion/escala
   // (se construye ya en coordenadas de mundo), asi que normal de objeto ==
   // normal de mundo. normalMatrix es la inversa-transpuesta de

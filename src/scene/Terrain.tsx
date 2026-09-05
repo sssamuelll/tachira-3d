@@ -9,13 +9,16 @@ export function Terrain ({ grid, meta }: { grid: Int16Array; meta: TerrainMeta }
     const { width: W, height: H, bbox } = meta
     const frame = makeEnuFrame(meta.origin.lat, meta.origin.lon, meta.origin.h)
     const pos = new Float32Array(W * H * 3)
+    const elevation = new Float32Array(W * H) // DEM crudo, para el shader -- ver comentario en terrainShader.ts
     for (let y = 0; y < H; y++) {
       const lat = bbox.n - (bbox.n - bbox.s) * y / (H - 1)   // fila 0 = norte
       for (let x = 0; x < W; x++) {
         const lon = bbox.w + (bbox.e - bbox.w) * x / (W - 1)
-        const [e, n, u] = geodeticToEnu(frame, lat, lon, grid[y * W + x])
+        const h = grid[y * W + x]
+        const [e, n, u] = geodeticToEnu(frame, lat, lon, h)
         const i = (y * W + x) * 3
         pos[i] = e; pos[i + 1] = u; pos[i + 2] = -n      // ejes de three, igual que pack.mjs
+        elevation[y * W + x] = h
       }
     }
     const idx = new Uint32Array((W - 1) * (H - 1) * 6)
@@ -29,6 +32,7 @@ export function Terrain ({ grid, meta }: { grid: Int16Array; meta: TerrainMeta }
     }
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    g.setAttribute('elevation', new THREE.BufferAttribute(elevation, 1))
     g.setIndex(new THREE.BufferAttribute(idx, 1))
     g.computeVertexNormals()
     return g

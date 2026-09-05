@@ -1,4 +1,5 @@
 import type { RoadsMeta, TerrainMeta, Municipio } from './types'
+import { ORIGIN } from './constants'
 
 async function getOk (path: string) {
   const res = await fetch(path)
@@ -22,6 +23,21 @@ export function checkCoherence (roads: RoadsMeta, positions: Float32Array, segId
   }
 }
 
+// Guarda barata: constants.ts (ORIGIN, usado por Sky.tsx para el rebase de
+// la atmósfera) y terrain.json (meta.origin, usado por Terrain.tsx, escrito
+// por build-data.mjs desde su propia constante) son hoy el mismo punto por
+// coincidencia de mantenimiento, no por una única fuente compartida. Si se
+// regenera la data con otro origen sin tocar constants.ts, cielo y terreno
+// quedan rebaseados a puntos distintos sin que nada lo marque.
+export function checkOrigin (terrainOrigin: TerrainMeta['origin'], expected: typeof ORIGIN) {
+  const EPS = 1e-9
+  if (Math.abs(terrainOrigin.lat - expected.lat) > EPS ||
+      Math.abs(terrainOrigin.lon - expected.lon) > EPS ||
+      Math.abs(terrainOrigin.h - expected.h) > EPS) {
+    throw new Error(`terrain.json origin ${JSON.stringify(terrainOrigin)} no coincide con ORIGIN ${JSON.stringify(expected)}`)
+  }
+}
+
 export async function loadAll () {
   const [terrain, roads, municipios, tBuf, pBuf, sBuf, iBuf] = await Promise.all([
     json<TerrainMeta>('/data/terrain.json'),
@@ -36,6 +52,7 @@ export async function loadAll () {
   const segIds = new Float32Array(sBuf)
   const index = new Uint32Array(iBuf)
   checkCoherence(roads, positions, segIds, index)
+  checkOrigin(terrain.origin, ORIGIN)
   return {
     terrain,
     terrainGrid: new Int16Array(tBuf),

@@ -1,5 +1,6 @@
 import { test, expect, vi, afterEach } from 'vitest'
-import { checkCoherence, loadAll } from './load'
+import { checkCoherence, checkOrigin, loadAll } from './load'
+import { ORIGIN } from './constants'
 import type { RoadsMeta } from './types'
 
 afterEach(() => {
@@ -28,6 +29,15 @@ test('checkCoherence lanza si segIds no trae un id por segmento', () => {
   const segIds = new Float32Array(1) // debería ser 2
   const index = new Uint32Array(3)
   expect(() => checkCoherence(roads, positions, segIds, index)).toThrow()
+})
+
+test('checkOrigin pasa si terrain.origin coincide con ORIGIN', () => {
+  expect(() => checkOrigin({ ...ORIGIN }, ORIGIN)).not.toThrow()
+})
+
+test('checkOrigin lanza con ambos valores si terrain.origin difiere', () => {
+  const distinto = { ...ORIGIN, lat: ORIGIN.lat + 0.001 }
+  expect(() => checkOrigin(distinto, ORIGIN)).toThrow(new RegExp(`${distinto.lat}.*${ORIGIN.lat}`))
 })
 
 test('loadAll nombra la URL y el status cuando un fetch no es ok', async () => {
