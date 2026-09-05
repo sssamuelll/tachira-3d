@@ -51,7 +51,12 @@ export function EditPanel ({ selection, filteredCount, onApply, onSelectAllFilte
           <div>{n.toLocaleString('es-VE')} seleccionada{n === 1 ? '' : 's'}</div>
 
           <label>
-            <input type="checkbox" checked={aplicaPci} onChange={e => setAplicaPci(e.target.checked)} />
+            {/* Al destildar se limpia la fuente elegida: con el selector ya
+                deshabilitado (abajo) un valor previo seguía a la vista como
+                si fuera a aplicarse, aunque store.set() ya lo descarta --
+                inerte de verdad, no solo protegido. */}
+            <input type="checkbox" checked={aplicaPci}
+              onChange={e => { setAplicaPci(e.target.checked); if (!e.target.checked) setFuente('') }} />
             {' '}PCI {pci} — {rango?.label}
           </label>
           {/* step=1: la escala ASTM es de enteros -- un valor fraccionario en

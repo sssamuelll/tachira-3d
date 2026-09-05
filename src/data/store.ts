@@ -63,12 +63,18 @@ export class AttrStore {
    * trabajo de campo de cualquier vía ya inspeccionada que caiga en el lote.
    * `'pci' in patch` (no `patch.pci != null`) es la prueba correcta: un
    * `pci: null` explícito SÍ es tocar el campo (des-evaluar a propósito),
-   * omitir la clave es no tocarlo. */
+   * omitir la clave es no tocarlo.
+   *
+   * `fecha` sigue el mismo criterio, por el mismo motivo (fix Task 19 ronda
+   * 2): fijar la rodadura en bloque tampoco debe reescribir cuándo se midió
+   * un PCI que nadie repitió — la antigüedad de una medición decide si
+   * todavía vale tanto como su procedencia. */
   set (indices: number[], patch: Partial<Registro>) {
-    const { fuente, ...sinFuente } = patch
-    const p = 'pci' in patch ? patch : sinFuente
+    const tocaPci = 'pci' in patch
+    const { fuente, fecha, ...resto } = patch
+    const p = tocaPci ? patch : resto
     for (const i of indices) {
-      const merged = { ...this.regs[i], ...p, fecha: patch.fecha ?? hoy() }
+      const merged = { ...this.regs[i], ...p, fecha: tocaPci ? (fecha ?? hoy()) : this.regs[i].fecha }
       this.regs[i] = normalizar(merged).reg
     }
     this.notify()

@@ -73,6 +73,21 @@ test('set no pisa la fuente de un PCI medido cuando el patch solo trae rodadura'
   expect(s.get(1).tipo).toBe('asfalto')     // ...aunque la rodadura sí se aplica igual
 })
 
+// Mismo defecto conceptual, una capa más abajo (fix Task 19 ronda 2): "fecha"
+// también describe el PCI, no la rodadura. Medir en enero (fecha explícita para no
+// depender del reloj real) y fijar la rodadura en bloque en marzo no debe correr la
+// fecha de la medición -- la antigüedad de un dato de campo es tan parte de su
+// validez como su procedencia (un PCI de hace tres meses no se lee igual que uno de
+// hace tres años).
+test('set no actualiza la fecha de un PCI medido cuando el patch solo trae rodadura', () => {
+  const s = new AttrStore(ways)
+  s.set([0], { pci: 90, fuente: 'medido', fecha: '2026-01-15' })
+  s.set([0, 1, 2], { fuente: 'heredado', tipo: 'asfalto' })   // bloque, sin pci, "en marzo"
+  expect(s.get(0).fecha).toBe('2026-01-15')   // la medición sigue fechada en enero
+  expect(s.get(0).fuente).toBe('medido')
+  expect(s.get(0).tipo).toBe('asfalto')
+})
+
 test('set SI aplica la fuente cuando el patch trae pci, aunque sea null', () => {
   const s = new AttrStore(ways)
   s.set([0], { pci: 90, fuente: 'medido' })
