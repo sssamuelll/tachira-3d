@@ -1,11 +1,14 @@
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { Sky } from './scene/Sky'
 import { Terrain } from './scene/Terrain'
+import { Roads } from './scene/Roads'
 import { FlyTo } from './scene/Camera'
 import { loadAll } from './data/load'
 import { BBOX } from './data/constants'
+import { AttrStore } from './data/store'
+import { AttrTexture } from './data/attrTexture'
 
 type Data = Awaited<ReturnType<typeof loadAll>>
 
@@ -14,6 +17,22 @@ export default function App () {
   const [date] = useState(() => new Date('2026-09-05T14:00:00Z'))
   const [flyTo, setFlyTo] = useState<typeof BBOX | null>(null)
   useEffect(() => { loadAll().then(setData) }, [])
+
+  // Store y textura de atributos (Task 14) se crean una sola vez por carga de
+  // datos: 26.712 registros viven fuera de React a propósito (ver store.ts),
+  // la escena los relee vía onChange, no por re-render de componentes.
+  const { store, attr } = useMemo(() => {
+    if (!data) return { store: null, attr: null }
+    const s = new AttrStore(data.roads.ways)
+    const sembradas = s.seedFromSurface()
+    console.log(`${sembradas} vías con tipo sembrado desde surface`)
+    return { store: s, attr: new AttrTexture(s) }
+  }, [data])
+
+  useEffect(() => {
+    if (!store || !attr) return
+    store.onChange(() => attr.refresh())
+  }, [store, attr])
 
   if (!data) return <div style={{ padding: 24 }}>cargando datos del Táchira…</div>
 
@@ -37,6 +56,7 @@ export default function App () {
         <Suspense fallback={null}>
           <Sky date={date} />
           <Terrain grid={data.terrainGrid} meta={data.terrain} />
+          {attr && <Roads positions={data.positions} segIds={data.segIds} attr={attr} />}
           <OrbitControls makeDefault maxDistance={400000} />
           <FlyTo bbox={flyTo} />
         </Suspense>
