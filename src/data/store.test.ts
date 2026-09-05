@@ -31,6 +31,25 @@ test('set aplica el mismo parche a muchas vias de una', () => {
   expect(s.get(2).fuente).toBe('heredado')
 })
 
+// Fix ronda final: useAutosave (persist.ts) distingue con este contador
+// "montar y cargar el archivo" de "el usuario ya editó" -- si loadJSON o
+// seedFromSurface lo subieran, conectar el archivo dispararía un guardado
+// inmediato que reescribe lo que se acaba de leer; si set() no lo subiera,
+// las ediciones hechas antes de conectar el archivo no llegarían nunca a
+// disco (que era el bug: el indicador decía "guardado" y no había nada).
+test('ediciones solo cuenta set(), no el sembrado ni la carga desde disco', () => {
+  const s = new AttrStore(ways)
+  expect(s.ediciones).toBe(0)
+  s.seedFromSurface()
+  expect(s.ediciones).toBe(0)
+  s.loadJSON({ registros: { '1': { pci: 40, fuente: 'medido', tipo: 'asfalto', fecha: '2026-09-05', nota: '' } } }, ways)
+  expect(s.ediciones).toBe(0)
+  s.set([0], { pci: 50, fuente: 'estimado' })
+  expect(s.ediciones).toBe(1)
+  s.set([1, 2], { tipo: 'tierra' })
+  expect(s.ediciones).toBe(2)
+})
+
 test('set notifica una sola vez por lote', () => {
   const s = new AttrStore(ways)
   let n = 0

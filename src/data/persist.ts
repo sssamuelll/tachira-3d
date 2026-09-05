@@ -156,7 +156,16 @@ export function crearAutoguardado (onEstado: (e: EstadoGuardado) => void, deboun
 export function useAutosave (
   store: AttrStore | null, handle: FileSystemFileHandle | null, version: number,
 ): EstadoGuardado {
-  const primera = useRef(true)
+  // Cuántas ediciones (store.ediciones, que solo sube set()) hay ya escritas
+  // o programadas para escribirse. Reemplaza a un `primera` que se consumía
+  // en la primera corrida con store Y handle no nulos (fix ronda final): si
+  // el usuario editaba ANTES de conectar el archivo -- puede, el panel está
+  // operativo -- al conectar el efecto corría por primera vez, veía `primera`
+  // en true y salía sin guardar. El indicador seguía en su valor inicial
+  // 'guardado', así que la barra mentía y el bloqueo al cerrar tampoco
+  // saltaba. Contar ediciones distingue las dos cosas sin adivinar: montar y
+  // cargar el archivo no suben el contador, editar sí.
+  const guardadas = useRef(0)
   const [estado, setEstado] = useState<EstadoGuardado>('guardado')
   const estadoRef = useRef(estado)
   estadoRef.current = estado
@@ -168,7 +177,8 @@ export function useAutosave (
 
   useEffect(() => {
     if (!store || !handle) return
-    if (primera.current) { primera.current = false; return }   // no guardar solo por montar
+    if (store.ediciones === guardadas.current) return   // nada pendiente: montar o cargar no es editar
+    guardadas.current = store.ediciones
     autoRef.current!.editar(() => writeJSON(handle, store.toJSON()))
   }, [store, handle, version])
 

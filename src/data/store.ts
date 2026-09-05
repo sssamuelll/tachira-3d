@@ -41,12 +41,21 @@ export class AttrStore {
   // en el mismo gesto: el siguiente autoguardado los borraba del archivo sin
   // que el usuario lo pidiera).
   private huerfanos = new Map<string, Registro>()
+  private _ediciones = 0
 
   constructor (private ways: Way[]) {
     this.regs = ways.map(vacio)
   }
 
   get length (): number { return this.regs.length }
+
+  /** Cuántas veces set() cambió algo. Solo set(): ni loadJSON() ni
+   * seedFromSurface() lo suben, porque lo que viene del disco o del sembrado
+   * no es una edición pendiente de guardar. useAutosave (persist.ts) lo usa
+   * para distinguir "acabo de conectar el archivo y cargarlo" de "el usuario
+   * ya había editado antes de conectarlo" -- el segundo caso SÍ tiene que
+   * guardarse, y antes se perdía entero (ver el fix ahí). */
+  get ediciones (): number { return this._ediciones }
 
   /** Referencia viva, no copia: mutarla directamente salta la fecha y el
    * onChange que garantiza set(). Para editar, usar siempre set(). */
@@ -86,6 +95,7 @@ export class AttrStore {
       const merged = { ...this.regs[i], ...p, fecha: tocaPci ? (fecha ?? hoy()) : this.regs[i].fecha }
       this.regs[i] = normalizar(merged).reg
     }
+    this._ediciones++
     this.notify()
   }
 
