@@ -14,7 +14,8 @@ import { loadAll } from './data/load'
 import { BBOX } from './data/constants'
 import { AttrStore } from './data/store'
 import { AttrTexture } from './data/attrTexture'
-import type { Registro } from './data/types'
+import { isFsAccessSupported, pickFile, loadHandle, readJSON, downloadJSON, useAutosave } from './data/persist'
+import type { Registro, Way } from './data/types'
 
 type Data = Awaited<ReturnType<typeof loadAll>>
 // Forma real de lo que devuelve usePicking (Task 16): pickAt para el clic,
@@ -53,6 +54,27 @@ function Picker (
   return null
 }
 
+// Camino compartido entre "cargar al arrancar" (loadHandle recordó el handle
+// de una sesión previa) y "el usuario acaba de elegir el archivo con el
+// botón" -- pickFile() puede apuntar a un pci-tachira.json que YA trae datos
+// (el archivo se versiona en git a propósito, spec §9: abrirlo en un clon o
+// un perfil de navegador nuevo, con IndexedDB vacío, es el caso normal, no
+// uno raro). store.loadJSON() ya distingue huérfanos (ids que ya no existen
+// en la red, no se borran) de inválidos (valores fuera de dominio,
+// normalizados) -- acá solo se avisan por separado, sin fundirlos en un solo
+// número que no diría qué pasó con cada uno.
+async function cargarDesdeArchivo (h: FileSystemFileHandle, store: AttrStore, ways: Way[]) {
+  let obj: unknown
+  try { obj = await readJSON(h) } catch { return }   // archivo vacío/recién creado o ilegible: nada que cargar
+  const { orphans, invalid } = store.loadJSON(obj as any, ways)
+  if (orphans.length) console.warn(
+    `pci-tachira.json: ${orphans.length} id(s) huérfano(s) -- ya no existen en la red vial ` +
+    '(probablemente OSM partió esa vía). No se borraron del archivo, decide tú qué hacer con ellos:', orphans)
+  if (invalid.length) console.warn(
+    `pci-tachira.json: ${invalid.length} registro(s) con un valor fuera de rango -- se normalizaron ` +
+    'a "sin dato" en su campo para no pintarse como si fueran válidos:', invalid)
+}
+
 export default function App () {
   const [data, setData] = useState<Data | null>(null)
   const [date] = useState(() => new Date('2026-09-05T14:00:00Z'))
@@ -66,6 +88,11 @@ export default function App () {
   // el useMemo de la máscara de abajo no volvería a correr tras una edición
   // real: ni `store` (misma instancia) ni `filter` cambiarían.
   const [storeVersion, setStoreVersion] = useState(0)
+  // Handle del archivo en disco (Task 21): null hasta que loadHandle() lo
+  // recuerde de una sesión previa o el usuario lo elija con el botón. Vive
+  // en React, no dentro de persist.ts, porque useAutosave (más abajo) tiene
+  // que re-suscribirse cuando cambia, igual que ya hace con store/storeVersion.
+  const [handle, setHandle] = useState<FileSystemFileHandle | null>(null)
   // Único puente entre el SVG del lazo (fuera del Canvas) y pickRegion
   // (dentro): <Picker> lo rellena en un useEffect al montarse/actualizarse.
   const pickerRef = useRef<PickerApi | null>(null)
@@ -86,6 +113,28 @@ export default function App () {
     if (!store) return
     store.onChange(() => setStoreVersion(v => v + 1))
   }, [store])
+
+  // Task 21: al arrancar, si hubo un archivo elegido en una sesión previa
+  // (loadHandle lo recuerda en IndexedDB y re-pide permiso si el navegador lo
+  // olvidó, persist.ts), se restaura. setHandle va al FINAL, después de
+  // cargarDesdeArchivo -- no al principio -- porque ese propio loadJSON()
+  // sube storeVersion (notify()): si el handle ya fuera visible para
+  // useAutosave en ese momento, vería el handle nuevo y la subida de versión
+  // juntos en la misma vuelta, y los tomaría por una edición real -- justo el
+  // "se guardó solo por abrir la app" que el debounce existe para evitar
+  // (visto de verdad trazando el orden de los effects, no a ojo). [store,
+  // data] y no [] porque cargarDesdeArchivo necesita `ways` (de `data`) para
+  // resolver los ids del JSON contra la red actual.
+  useEffect(() => {
+    if (!store || !data) return
+    loadHandle().then(async h => {
+      if (!h) return
+      await cargarDesdeArchivo(h, store, data.roads.ways)
+      setHandle(h)
+    })
+  }, [store, data])
+
+  useAutosave(store, handle, storeVersion)
 
   // Panel de filtros (Task 18): un byte por vía, mismo índice que `ways` y
   // que la data texture. 26.712 elementos es barato (microsegundos) pero hay
@@ -204,6 +253,24 @@ export default function App () {
     if (m) setFlyTo(municipioBbox(m))
   }, [municipioPorNombre])
 
+  // Task 21: único llamador de pickFile() en la app. El propio diálogo puede
+  // apuntar a un pci-tachira.json ya existente (ver cargarDesdeArchivo,
+  // arriba de App) -- por eso también intenta cargarlo, no solo conecta el
+  // handle en blanco. Cancelar el diálogo rechaza con AbortError: no es un
+  // error real (ningún dato se tocó todavía), así que no se reporta; otro
+  // rechazo (ej. permiso denegado) sí, porque ese sí puede explicar por qué
+  // "no pasó nada" al pulsar el botón.
+  const onPickFile = useCallback(async () => {
+    if (!store || !data) return
+    let h: FileSystemFileHandle | null = null
+    try { h = await pickFile() } catch (e) {
+      if ((e as any)?.name !== 'AbortError') console.error('no se pudo elegir el archivo', e)
+    }
+    if (!h) return
+    await cargarDesdeArchivo(h, store, data.roads.ways)
+    setHandle(h)
+  }, [store, data])
+
   if (!data) return <div style={{ padding: 24 }}>cargando datos del Táchira…</div>
 
   // el terreno vive en ENU local centrado en ORIGIN (bbox ~147×129 km,
@@ -225,6 +292,20 @@ export default function App () {
         <button onClick={() => setLassoOn(o => !o)}>
           {lassoOn ? 'Lazo activo (clic para salir)' : 'Selección por lazo'}
         </button>
+        {/* Task 21: Firefox no implementa la File System Access API (spec
+            §9) -- isFsAccessSupported() decide en cada render cuál de los
+            dos botones mostrar, para que ahí la app no se rompa, solo pierda
+            el autoguardado directo a disco y caiga a descargar el archivo. */}
+        {isFsAccessSupported() ? (
+          <button onClick={onPickFile} title="Elegir o cambiar el pci-tachira.json donde se autoguarda">
+            {handle ? `archivo: ${handle.name}` : 'archivo de datos'}
+          </button>
+        ) : (
+          <button onClick={() => store && downloadJSON(store.toJSON())}
+            title="Este navegador no soporta guardar directo a disco -- descarga el archivo y reemplaza pci-tachira.json a mano">
+            descargar datos
+          </button>
+        )}
       </div>
       <Canvas camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
         <Suspense fallback={null}>
