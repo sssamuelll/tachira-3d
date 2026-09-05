@@ -2479,7 +2479,11 @@ function patchPickMaterial (material: THREE.Material) {
       void main() {
         vSegId = segId;
     `)
-    const ancla = 'vec4 diffuseColor = vec4( diffuse, opacity );'
+    // Mismo ancla que roadsShader.ts, y por la misma razón: en three@0.185.1
+    // el main() del fragment abre con `float alpha = opacity;` y arma
+    // diffuseColor con esa variable local. El string de versiones viejas
+    // (`vec4( diffuse, opacity )`) no aparece.
+    const ancla = 'vec4 diffuseColor = vec4( diffuse, alpha );'
     if (!shader.fragmentShader.includes(ancla)) {
       throw new Error('PickingPass: no se encontró el ancla del fragment shader de LineMaterial')
     }
@@ -2487,6 +2491,11 @@ function patchPickMaterial (material: THREE.Material) {
       .replace('void main() {', 'varying float vSegId;\nvoid main() {')
       .replace(ancla, `
         float id = vSegId + 1.0;   // 0 queda reservado para "nada"
+        // El id buffer tiene que ser OPACO: cualquier mezcla entre dos vías
+        // produce un color que decodifica como un tercer id inexistente.
+        // gl_FragColor saca su alpha de esta variable local, no de
+        // diffuseColor.a, así que hay que asignarla a ella.
+        alpha = 1.0;
         vec4 diffuseColor = vec4(
           floor(mod(id / 65536.0, 256.0)) / 255.0,
           floor(mod(id / 256.0, 256.0)) / 255.0,
