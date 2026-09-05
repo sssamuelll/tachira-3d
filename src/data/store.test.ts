@@ -19,13 +19,33 @@ test('arranca sin evaluar y sin fuente', () => {
 // escribir 'heredado' para marcar que la rodadura venía de OSM metía dos
 // significados en un campo, y el filtro de "Procedencia" mezclaba PCI
 // aplicados en bloque con vías sin PCI cuya rodadura salió del mapa.
-test('seedFromSurface siembra el tipo sin tocar la procedencia, y cuenta cuantas sembro', () => {
+// Tampoco escribe `fecha` (fix hallazgo menor, re-revisión final): mismo
+// criterio, un campo más fino -- `fecha` es cuándo se midió el PCI, y acá
+// tampoco hay ninguna medición.
+test('seedFromSurface siembra el tipo sin tocar la procedencia ni la fecha, y cuenta cuantas sembro', () => {
   const s = new AttrStore(ways)
   expect(s.seedFromSurface()).toBe(1)
   expect(s.get(0).tipo).toBe('asfalto')
   expect(s.get(0).fuente).toBe('sin')      // no hay PCI: no hay procedencia que declarar
+  expect(s.get(0).fecha).toBe('')          // no hay PCI: tampoco hay fecha de medición que poner
   expect(s.get(1).tipo).toBe('sin_definir')
   expect(s.get(1).fuente).toBe('sin')      // sin surface, no se siembra nada
+})
+
+// Caso concreto que motivó el fix: sembrar deja fecha:'' (arriba), pero antes
+// del fix seedFromSurface() escribía fecha:hoy() -- no del todo inerte, a
+// diferencia de fuente ('sin' no cambia si el usuario solo anota). set() con
+// un patch que no toca `pci` no toca `fecha` tampoco (mismo criterio que
+// fuente, fix Task 19 ronda 2): sin el fix, una nota sobre una vía sembrada
+// terminaba persistida con una fecha de medición que nunca ocurrió.
+test('una nota sobre una via sembrada (sin pci) no hereda una fecha de medicion fantasma', () => {
+  const s = new AttrStore(ways)
+  s.seedFromSurface()                          // ways[0]: sembrado a tipo:'asfalto', sin pci
+  s.set([0], { nota: 'revisar esta via' })     // el usuario solo anota -- el patch no trae pci
+  expect(s.get(0).pci).toBeNull()
+  expect(s.get(0).fecha).toBe('')              // sigue sin fecha: nunca hubo medición
+  const out = s.toJSON() as any
+  expect(out.registros['1'].fecha).toBe('')    // y así se persiste
 })
 
 test('set aplica el mismo parche a muchas vias de una', () => {

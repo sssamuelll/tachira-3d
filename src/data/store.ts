@@ -115,13 +115,22 @@ export class AttrStore {
    * que la rodadura venía de OSM, y el FilterPanel lee ese mismo campo bajo
    * la etiqueta "Procedencia": filtrar por `heredado` devolvía PCI aplicados
    * en bloque mezclados con vías sin PCI cuya rodadura salió del mapa. Dos
-   * significados en un campo, y el que importa es el del PCI. */
+   * significados en un campo, y el que importa es el del PCI.
+   *
+   * Tampoco toca `fecha` (fix hallazgo menor, re-revisión final): mismo
+   * criterio exacto, un campo más fino -- `fecha` es cuándo se midió ese PCI
+   * (fix Task 19 ronda 2, ver set() arriba), y sembrar la rodadura no mide
+   * nada. No es del todo inerte como sí lo es dejar `fuente` en 'sin': si el
+   * usuario le agrega una nota a una vía recién sembrada, sin PCI, set() no
+   * toca `fecha` (el patch no trae `pci`) y el registro se persiste con la
+   * fecha de hoy puesta acá -- una fecha de medición sin que haya habido
+   * ninguna medición. */
   seedFromSurface (): number {
     let n = 0
     for (let i = 0; i < this.ways.length; i++) {
       const t = this.ways[i].tipo
       if (t !== 'sin_definir') {
-        this.regs[i] = { ...this.regs[i], tipo: t, fecha: hoy() }
+        this.regs[i] = { ...this.regs[i], tipo: t }
         n++
       }
     }
