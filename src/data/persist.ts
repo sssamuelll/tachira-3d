@@ -103,30 +103,66 @@ export function downloadJSON (obj: unknown, filename = 'pci-tachira.json') {
 
 export type EstadoGuardado = 'guardado' | 'pendiente' | 'guardando'
 
+// Máquina del debounce+guardado, sin React -- separada de useAutosave (que
+// queda como puro pegamento de efectos alrededor) para poder probarla con
+// vitest controlando el tiempo, sin renderizar un hook: este repo no tiene
+// @testing-library/react ni jsdom, y montar esa infraestructura para un solo
+// hook no valía la pena (Task 19/20 ya tomaron el mismo criterio).
+//
+// Guarda de generación (fix Task 21 ronda 4): sin esto, dos escrituras
+// solapadas -- la primera resolviendo DESPUÉS de que la segunda edición ya
+// armó su propio guardado -- dejaban que la resolución vieja pisara
+// 'guardado' encima del 'pendiente' de la edición más nueva, mintiendo hasta
+// que la escritura de verdad terminara. `editar()` sube `gen` cada vez que se
+// llama; el `.then()` de una escritura solo declara 'guardado' si su propia
+// generación sigue siendo la vigente cuando resuelve -- una resolución tardía
+// de una escritura ya superada no tiene autoridad para tocar el estado.
+export function crearAutoguardado (onEstado: (e: EstadoGuardado) => void, debounceMs = 2000) {
+  let gen = 0
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let flush: (() => void) | null = null
+
+  return {
+    // Llamar en cada edición real (subida de version). `write` se evalúa
+    // recién cuando el debounce dispara, no antes -- así siempre lee el
+    // store/handle vigentes al momento de escribir, no uno cerrado sobre el
+    // instante de la edición.
+    editar (write: () => Promise<void>) {
+      if (timer) clearTimeout(timer)
+      onEstado('pendiente')
+      const miGen = ++gen
+      const guardar = () => {
+        timer = null; flush = null
+        onEstado('guardando')
+        write().then(() => { if (gen === miGen) onEstado('guardado') }).catch(console.error)
+      }
+      timer = setTimeout(guardar, debounceMs)
+      flush = guardar
+    },
+    // beforeunload: si hay un debounce armado (no disparado todavía), lo
+    // dispara ya en vez de esperar el resto del tiempo. No-op si no hay nada
+    // pendiente (flush es null: nunca se armó, o ya disparó).
+    flushPendiente () { flush?.() },
+  }
+}
+
 export function useAutosave (
   store: AttrStore | null, handle: FileSystemFileHandle | null, version: number,
 ): EstadoGuardado {
   const primera = useRef(true)
   const [estado, setEstado] = useState<EstadoGuardado>('guardado')
-  // Guarda el "disparar ya" del debounce vigente, o null si no hay ninguno
-  // pendiente -- lo lee el efecto de beforeunload de abajo, que no depende de
-  // `version` y por tanto no puede ver el `t` de este efecto directamente.
-  const flushRef = useRef<(() => void) | null>(null)
   const estadoRef = useRef(estado)
   estadoRef.current = estado
+  // Una sola instancia por vida del componente (inicialización perezosa de
+  // ref, no un useMemo/useEffect: crearAutoguardado no tiene efectos
+  // secundarios propios, solo arma clausuras).
+  const autoRef = useRef<ReturnType<typeof crearAutoguardado> | null>(null)
+  if (!autoRef.current) autoRef.current = crearAutoguardado(setEstado)
 
   useEffect(() => {
     if (!store || !handle) return
     if (primera.current) { primera.current = false; return }   // no guardar solo por montar
-    setEstado('pendiente')
-    const guardar = () => {
-      flushRef.current = null
-      setEstado('guardando')
-      writeJSON(handle, store.toJSON()).then(() => setEstado('guardado')).catch(console.error)
-    }
-    const t = setTimeout(guardar, 2000)
-    flushRef.current = guardar
-    return () => { clearTimeout(t); flushRef.current = null }
+    autoRef.current!.editar(() => writeJSON(handle, store.toJSON()))
   }, [store, handle, version])
 
   // beforeunload vive en un efecto aparte, montado UNA sola vez: si se
@@ -143,7 +179,7 @@ export function useAutosave (
   useEffect(() => {
     const onUnload = (e: BeforeUnloadEvent) => {
       if (estadoRef.current === 'guardado') return   // nada pendiente ni en curso: no bloquea el cierre
-      flushRef.current?.()
+      autoRef.current!.flushPendiente()
       e.preventDefault()
       e.returnValue = ''
     }
