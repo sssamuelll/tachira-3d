@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { PNG } from 'pngjs'
 
@@ -25,12 +25,22 @@ export function tileRangeForBbox (bbox, z) {
 
 async function fetchTile (z, x, y) {
   const path = `${CACHE}/${z}_${x}_${y}.png`
-  if (existsSync(path)) return PNG.sync.read(await readFile(path))
+  if (existsSync(path)) {
+    try {
+      return PNG.sync.read(await readFile(path))
+    } catch (err) {
+      throw new Error(`cache corrupta en ${path} (tile ${z}/${x}/${y}): ${err.message}`)
+    }
+  }
   const res = await fetch(`${BASE}/${z}/${x}/${y}.png`)
   if (!res.ok) throw new Error(`tile ${z}/${x}/${y} devolvió ${res.status}`)
   const buf = Buffer.from(await res.arrayBuffer())
   await mkdir(CACHE, { recursive: true })
-  await writeFile(path, buf)
+  // temporal + rename: si se interrumpe a mitad de escritura (Ctrl+C, corte de
+  // red, suspensión) el .png final nunca queda a medias — o está completo o no existe.
+  const tmp = `${path}.${process.pid}.tmp`
+  await writeFile(tmp, buf)
+  await rename(tmp, path)
   return PNG.sync.read(buf)
 }
 
