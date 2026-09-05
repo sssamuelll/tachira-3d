@@ -1038,16 +1038,37 @@ async function main () {
   console.log('4/9  municipio por punto medio')
   // Un tramo que cruza límite cae en uno solo. Cortar en el límite duplicaría
   // segmentos y rompería los ids, que es lo que ancla los datos del usuario.
+  // un municipio puede ser multipolígono (enclaves), de ahí el .some()
+  const findMunicipio = (lon, lat) =>
+    municipios.find(mm => mm.polygons.some(p => pointInPolygon(lon, lat, p))) ?? null
+
+  let resolvedByVote = 0
   for (const l of lines) {
     const [lon, lat] = l.coords[midpointIndex(l.coords)]
-    // un municipio puede ser multipolígono (enclaves), de ahí el .some()
-    const m = municipios.find(mm => mm.polygons.some(p => pointInPolygon(lon, lat, p)))
-    l.municipio = m ? m.name : null
+    const m = findMunicipio(lon, lat)
+    if (m) { l.municipio = m.name; continue }
+
+    // El punto medio cayó en una grieta de precisión entre fronteras vecinas.
+    // Se resuelve por voto: gana el municipio con más vértices de esta vía.
+    // No "el primer vértice que resuelva" — eso depende del orden del array.
+    // Empate: gana el primero insertado. Arbitrario, pero determinista.
+    const votes = new Map()
+    for (const [vlon, vlat] of l.coords) {
+      const v = findMunicipio(vlon, vlat)
+      if (v) votes.set(v.name, (votes.get(v.name) ?? 0) + 1)
+    }
+    let winner = null, best = 0
+    for (const [name, count] of votes) if (count > best) { winner = name; best = count }
+    l.municipio = winner
+    if (winner) resolvedByVote++
   }
-  const huerfanos = municipios.reduce((s, m) => s + m.orphanFragments, 0)
-  if (huerfanos > 0) console.warn(`     AVISO: ${huerfanos} fragmentos de frontera sin cerrar`)
-  const sinMunicipio = lines.filter(l => !l.municipio).length
-  console.log(`     sin municipio: ${sinMunicipio}`)
+  const unassigned = lines.filter(l => !l.municipio).length
+  console.log(`     ${resolvedByVote} resueltas por voto · sin municipio: ${unassigned}`)
+
+  const totalOrphanFragments = municipios.reduce((s, m) => s + m.orphanFragments, 0)
+  if (totalOrphanFragments > 0) {
+    console.warn(`     AVISO: ${totalOrphanFragments} fragmentos de frontera sin cerrar`)
+  }
 
   console.log('5/9  drapeado y longitudes')
   let vertices = 0
@@ -1096,9 +1117,9 @@ async function main () {
   console.log('9/9  municipios')
   await writeFile(`${OUT}/municipios.json`, JSON.stringify(municipios))
 
-  const sembrados = lines.filter(l => SURFACE_A_TIPO[l.tags.surface]).length
+  const seeded = lines.filter(l => SURFACE_A_TIPO[l.tags.surface]).length
   console.log(`\nlisto. ${lines.length} vías · ${packed.segmentCount} segmentos · ` +
-              `${sembrados} con tipo sembrado desde surface`)
+              `${seeded} con tipo sembrado desde surface`)
 }
 
 main().catch(e => { console.error(e); process.exit(1) })
@@ -1878,7 +1899,7 @@ test('la cobertura por municipio cuenta evaluados sobre total', () => {
 
 test('loadJSON restaura por osmId y reporta huerfanos sin borrarlos', () => {
   const s = new AttrStore(ways)
-  const huerfanos = s.loadJSON({ version: 1, registros: {
+  const orphans = s.loadJSON({ version: 1, registros: {
     '2': { pci: 30, fuente: 'medido', tipo: 'tierra', fecha: '2026-09-05', nota: '' },
     '999': { pci: 50, fuente: 'medido', tipo: 'asfalto', fecha: '2026-09-05', nota: '' },
   } }, ways)
@@ -1967,7 +1988,7 @@ export class AttrStore {
   /** Devuelve los ids que ya no existen en la red. No los borra: los reporta. */
   loadJSON (obj: { registros?: Record<string, Registro> }, ways: Way[]): string[] {
     const porId = new Map(ways.map((w, i) => [String(w.osmId), i]))
-    const huerfanos: string[] = []
+    const orphans: string[] = []
     for (const [id, reg] of Object.entries(obj.registros ?? {})) {
       const i = porId.get(id)
       if (i == null) huerfanos.push(id)

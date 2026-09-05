@@ -349,17 +349,33 @@ Los tiles descargados se cachean en `.cache/` para no volver a bajarlos.
 
 `scripts/verify-data.mjs` corre sobre la salida del pipeline y **falla** si:
 
-1. **La ida y vuelta `geodetic → ENU → geodetic` no reproduce lat/lon con error < 1 m.**
-   Este es el crítico: si la proyección está mal, todo el mapa está mal y no se nota
-   a simple vista.
-2. La suma de km por municipio ≠ el total del estado.
-3. Alguna vía quedó sin municipio asignado.
-4. Alguna altura drapeada cae fuera de 0–4.200 m.
-5. Hay ids en `pci-tachira.json` que no existen en `roads-meta.json`.
-6. La longitud se calculó sobre geometría simplificada (assert de que la simplificada
-   difiere de la original).
+1. **La ida y vuelta `geodetic → ENU → geodetic` no reproduce lat/lon con error < 1 m**,
+   sobre el bbox y el origen reales de `terrain.json` y con altura distinta de cero.
+   Si la proyección está mal, todo el mapa está mal y no se nota a simple vista.
+2. Hay `osmId` repetidos en `roads-meta.json`.
+3. Alguna vía tiene asignado un municipio que no existe en `municipios.json`.
+4. Algún `km` o `km3d` no es finito o no es positivo.
+5. Alguna vía quedó sin municipio asignado.
+6. El terreno está degenerado: rango `max − min` menor de 1.000 m, elevación media fuera
+   de 100–2.000 m, más del 1% de celdas pegadas a cualquiera de los dos topes del clamp,
+   o el tamaño del grid distinto de `width × height`.
+7. El drapeado está plano: menos del 50% de las vías con `km3d > km`, o alguna con
+   `km3d < km`.
+8. Hay ids en `pci-tachira.json` que no existen en `roads-meta.json` — distinguiendo
+   un archivo ausente (se omite) de uno ilegible o corrupto (falla).
 
-Sin framework de tests: asserts en un script ejecutable.
+Sin framework de tests: asserts en un script ejecutable, salida 1 al fallar, y **todos los
+checks se evalúan aunque uno falle**.
+
+> **Corregida durante la ejecución.** La primera versión de esta lista tenía tres checks
+> que no podían fallar nunca. `suma por municipio == total` compara dos sumas del mismo
+> array, así que la asociatividad la hace verdadera aunque la asignación esté mal o una
+> vía esté duplicada. `elevación >= -500` es imposible de violar porque `downsample()` ya
+> clampea a ese valor antes de calcular el mínimo. Y `km3d >= km` pasa con el drapeado
+> completamente plano, porque entonces `km3d == km` exacto. Los umbrales de los checks 6 y
+> 7 se fijaron midiendo el dato real: rango 3.885 m, media 940 m, cero celdas en el clamp,
+> y 78,9% de las vías con desnivel — cada umbral queda holgado frente a lo observado y
+> lejos de lo que produciría el defecto que vigila.
 
 ## 12. Stack
 
