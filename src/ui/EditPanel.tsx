@@ -20,8 +20,9 @@ const box: CSSProperties = {
   borderRadius: 6, padding: 12, display: 'grid', gap: 8,
 }
 
-export function EditPanel ({ selection, filteredCount, onApply, onSelectAllFiltered }: {
+export function EditPanel ({ selection, visibleCount, filteredCount, onApply, onSelectAllFiltered }: {
   selection: number[]
+  visibleCount: number
   filteredCount: number
   onApply: (patch: { pci?: number; fuente?: Fuente; tipo?: Tipo; nota?: string }) => void
   onSelectAllFiltered: () => void
@@ -33,6 +34,14 @@ export function EditPanel ({ selection, filteredCount, onApply, onSelectAllFilte
   const [aplicaPci, setAplicaPci] = useState(true)
 
   const n = selection.length
+  // Fix hallazgo PRINCIPAL (re-revisión final): `n` es cuánto hay
+  // seleccionado, `visibleCount` es cuánto de eso el filtro vigente sigue
+  // mostrando -- App.tsx intersecta contra la máscara antes de aplicar
+  // (visibleSelection, FilterPanel.tsx), así que una selección hecha con un
+  // filtro más permisivo puede traer vías que el filtro de ahora oculta.
+  // Ambos números se ven abajo para que "aplicar a N" nunca contradiga en
+  // silencio al contador de selección -- si difieren, hay un aviso explícito.
+  const oculto = n - visibleCount
   // pciRange (constants.ts) ya resuelve el tramo ASTM -- reimplementar el
   // predicado `pci >= min && pci <= max` acá es justo la duplicación que se
   // eliminó en una task anterior (ver roadsShader.ts, que genera su GLSL
@@ -53,6 +62,21 @@ export function EditPanel ({ selection, filteredCount, onApply, onSelectAllFilte
       ) : (
         <>
           <div>{n.toLocaleString('es-VE')} seleccionada{n === 1 ? '' : 's'}</div>
+
+          {/* Fix hallazgo PRINCIPAL (re-revisión final): visible solo cuando
+              el filtro oculta parte de la selección -- si no, es ruido en el
+              caso normal (selección hecha bajo el filtro vigente, los dos
+              números siempre coinciden). Explica por qué el botón de abajo
+              va a decir un número distinto al de esta línea, en vez de
+              dejar que el usuario lo descubra solo. */}
+          {oculto > 0 && (
+            <div style={{ color: '#f2d43f', fontSize: 12 }}>
+              el filtro oculta {oculto.toLocaleString('es-VE')} de la selección
+              {visibleCount === 0
+                ? ' -- ninguna aplicable: cambia el filtro o la selección'
+                : ` -- aplicar solo tocará las ${visibleCount.toLocaleString('es-VE')} visibles`}
+            </div>
+          )}
 
           <label>
             {/* Al destildar se limpia la fuente elegida: con el selector ya
@@ -101,8 +125,11 @@ export function EditPanel ({ selection, filteredCount, onApply, onSelectAllFilte
           </label>
 
           <button
-            disabled={aplicaPci && !fuente}
-            title={aplicaPci && !fuente ? 'Elige la procedencia antes de aplicar' : ''}
+            disabled={visibleCount === 0 || (aplicaPci && !fuente)}
+            title={
+              visibleCount === 0 ? 'el filtro oculta toda la selección -- nada que aplicar'
+                : aplicaPci && !fuente ? 'Elige la procedencia antes de aplicar' : ''
+            }
             onClick={() => {
               onApply({
                 ...(aplicaPci ? { pci } : {}),
@@ -113,7 +140,7 @@ export function EditPanel ({ selection, filteredCount, onApply, onSelectAllFilte
               setNota('')
             }}
           >
-            aplicar a {n.toLocaleString('es-VE')}
+            aplicar a {visibleCount.toLocaleString('es-VE')}
           </button>
         </>
       )}

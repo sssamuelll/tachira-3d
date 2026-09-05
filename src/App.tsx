@@ -7,7 +7,7 @@ import { Roads } from './scene/Roads'
 import { FlyTo, municipioBbox } from './scene/Camera'
 import { usePicking } from './scene/PickingPass'
 import { LassoOverlay, pointInLasso, type Pt } from './ui/LassoOverlay'
-import { FilterPanel, EMPTY_FILTER, applyFilter } from './ui/FilterPanel'
+import { FilterPanel, EMPTY_FILTER, applyFilter, visibleSelection } from './ui/FilterPanel'
 import { EditPanel } from './ui/EditPanel'
 import { CoverageBar } from './ui/CoverageBar'
 import { loadAll } from './data/load'
@@ -240,6 +240,24 @@ export default function App () {
   // FilterPanel, que también vive en App y re-renderiza este componente.
   const selectionArray = useMemo(() => Array.from(selected), [selected])
 
+  // Fix hallazgo PRINCIPAL (re-revisión final): intersección selección×mask,
+  // recalculada cada vez que cualquiera de las dos cambia. Se elige CONSERVAR
+  // la selección oculta en vez de recortarla sola al cambiar el filtro: el
+  // FilterPanel dispara un cambio de `filter` (y por lo tanto de `mask`) por
+  // cada arrastre de un slider o cada tecla en un <select> -- si `selected`
+  // se recortara automáticamente, mover el rango de PCI de un lado a otro
+  // borraría en el camino una selección armada a mano (clic a clic, o un
+  // lazo grande) sin que el usuario haya pedido nada de eso. La selección es
+  // memoria del usuario (Task 16: "estado de interacción, no un dato de la
+  // vía") y este repo no descarta esa clase de estado en silencio en ningún
+  // otro sitio (huérfanos, inválidos: siempre se conservan y se avisa). Lo
+  // único que de verdad no puede pasar es escribir sobre lo invisible -- y
+  // eso se resuelve aquí, no vaciando `selected`.
+  const selectionVisible = useMemo(
+    () => (mask ? visibleSelection(mask, selectionArray) : []),
+    [mask, selectionArray],
+  )
+
   // add=true (shift-clic) agrega; add=false reemplaza, y en el vacío limpia.
   const onPick = useCallback((i: number | null, add: boolean) => {
     setSelected(prev => {
@@ -277,18 +295,34 @@ export default function App () {
   }, [])
 
   // Task 19: onApply es el único llamador de store.set() en la app. Le pasa
-  // el lote entero de una (selectionArray), nunca un for por vía -- set() ya
-  // normaliza y notifica una sola vez por lote (store.ts); con selecciones
+  // el lote entero de una (selectionVisible), nunca un for por vía -- set()
+  // ya normaliza y notifica una sola vez por lote (store.ts); con selecciones
   // de miles de elementos, notificar por elemento es la diferencia entre
   // instantáneo y colgado. Ese único notify() sube storeVersion (el
   // useEffect de arriba), lo que hace recalcular `mask` (el useMemo de
   // arriba) y en cadena dispara el useEffect de refresh() con el mask y el
   // selected ya vigentes -- repinta sin perder ni el filtro ni la selección.
   // No hace falta otro onChange ni un refresh() manual acá.
+  //
+  // Fix hallazgo PRINCIPAL (re-revisión final): selectionVisible, NO
+  // selectionArray -- ver el comentario junto a selectionVisible (arriba).
+  // Antes se pasaba la selección entera sin intersectar con `mask`: una
+  // selección hecha con un filtro permisivo sobrevive a un filtro nuevo que
+  // oculta esas vías, y este era el único punto de escritura real de la app
+  // (store.set()) -- "aplicar" alcanzaba vías que la pantalla no mostraba,
+  // sin ningún aviso. Reproducido con el mapa completamente vacío: 2.024
+  // seleccionadas de antes, filtro a 0 vías, "aplicar" escribía las 2.024 igual.
+  //
+  // Lote vacío -> no llamar a store.set(): EditPanel ya deshabilita el botón
+  // en ese caso (visibleCount === 0), pero onApply no depende de eso para
+  // estar bien -- un store.set([], patch) no tocaría ningún registro, pero sí
+  // subiría `ediciones` y dispararía notify()/autosave por un lote que no
+  // cambió nada. Sin store.set() de por medio no hay ninguna vía por la que
+  // este guard pueda tocar algo fuera de la máscara.
   const onApply = useCallback((patch: Partial<Registro>) => {
-    if (!store) return
-    store.set(selectionArray, patch)
-  }, [store, selectionArray])
+    if (!store || selectionVisible.length === 0) return
+    store.set(selectionVisible, patch)
+  }, [store, selectionVisible])
 
   // "Seleccionar todo lo filtrado" es el camino principal de edición masiva
   // (26.712 vías, Task 19): arma la selección directo desde `mask`, ya
@@ -496,7 +530,7 @@ export default function App () {
         display: 'flex', alignItems: 'flex-end', gap: 16, pointerEvents: 'none',
       }}>
         <EditPanel
-          selection={selectionArray} filteredCount={count}
+          selection={selectionArray} visibleCount={selectionVisible.length} filteredCount={count}
           onApply={onApply} onSelectAllFiltered={onSelectAllFiltered}
         />
         {store && <CoverageBar store={store} version={storeVersion} onPick={onPickMunicipio} />}

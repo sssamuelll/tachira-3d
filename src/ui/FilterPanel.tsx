@@ -42,6 +42,21 @@ export function applyFilter (ways: Way[], store: AttrStore, f: Filter): Uint8Arr
   return mask
 }
 
+// Fix hallazgo PRINCIPAL (re-revisión final): el buffer de selección ya
+// respeta el filtro (fix anterior, PickingPass.tsx) así que una selección
+// NUEVA no puede incluir vías ocultas -- pero una selección VIEJA sobrevive a
+// un cambio de filtro (es estado de interacción aparte, App.tsx no la limpia
+// sola) y `onApply` llamaba a store.set() con esa selección entera, sin
+// intersectar nunca con la máscara vigente. Mismo daño que el crítico
+// anterior, por la puerta de al lado: filtrar hasta dejar la pantalla vacía
+// con una selección de antes viva y "aplicar" igual escribía sobre las miles
+// de vías que ya no se veían.
+// Pura y testeable sin React (App.tsx no tiene test, este repo no tiene
+// jsdom/testing-library) -- mismo criterio que crearAutoguardado en persist.ts.
+export function visibleSelection (mask: Uint8Array, selection: number[]): number[] {
+  return selection.filter(i => mask[i] === 1)
+}
+
 // 0 segmentos sin más se lee como "la app está rota", no como "tu filtro no
 // deja pasar nada" -- con 26.712 vías y varios controles a la vez hay tres
 // formas concretas de llegar ahí sin querer. Se explica la causa cuando se
