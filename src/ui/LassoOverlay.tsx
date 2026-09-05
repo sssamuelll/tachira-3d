@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 
 export type Pt = { x: number; y: number }
 
@@ -30,7 +30,7 @@ export function LassoOverlay (
   useEffect(() => { if (!active) { setPts([]); drawing.current = false } }, [active])
   if (!active) return null
 
-  const rel = (e: MouseEvent) => {
+  const rel = (e: PointerEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
@@ -38,16 +38,24 @@ export function LassoOverlay (
   return (
     <svg
       // width/height:100% son imprescindibles, no cosmético: <svg> es un
-      // elemento reemplazado (como <img>) -- position:absolute + inset:0 NO
-      // lo estira solo, colapsa a su tamaño intrínseco por defecto (300x150,
+      // elemento reemplazado (como <img>) -- position:fixed + inset:0 NO lo
+      // estira solo, colapsa a su tamaño intrínseco por defecto (300x150,
       // arriba-izquierda). Sin esto el polígono se calcula bien (rel() resta
       // el propio getBoundingClientRect, que en ese cuadro de 300x150 en
       // (0,0) da el mismo número por coincidencia) pero se dibuja fuera del
       // recorte del SVG -- invisible. Lo encontró la verificación visual de
       // esta task, no el predicado (que ya tenía sus tests en verde).
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', cursor: 'crosshair', zIndex: 10 }}
-      onMouseDown={e => { drawing.current = true; setPts([rel(e)]) }}
-      onMouseMove={e => {
+      // position:fixed (no absolute): ancla al viewport sin depender de que
+      // ningún ancestro (#root, body) siga sin scroll -- la Task 18 mete un
+      // panel de filtros que puede desplazar el layout, y un lazo "casi bien"
+      // alineado (corrido unos px) es peor que uno obviamente roto.
+      style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', cursor: 'crosshair', zIndex: 10 }}
+      onPointerDown={e => {
+        drawing.current = true
+        e.currentTarget.setPointerCapture(e.pointerId)
+        setPts([rel(e)])
+      }}
+      onPointerMove={e => {
         if (!drawing.current) return
         // rel(e) se calcula YA, fuera del actualizador: React invalida
         // e.currentTarget en cuanto termina de despachar el evento, y un
@@ -58,7 +66,7 @@ export function LassoOverlay (
         const pt = rel(e)
         setPts(p => [...p, pt])
       }}
-      onMouseUp={() => {
+      onPointerUp={() => {
         drawing.current = false
         if (pts.length >= 3) onFinish(pts)
         setPts([])

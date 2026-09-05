@@ -103,7 +103,7 @@ export default function App () {
   // arrastre, que en LassoOverlay solo dibuja el polígono en SVG (gratis).
   const onLassoFinish = useCallback((pts: Pt[]) => {
     const picker = pickerRef.current
-    if (!picker) return
+    if (!picker) { console.warn('lazo: pickRegion aún no está listo, se ignora este trazo'); return }
     const xs = pts.map(p => p.x)
     const ys = pts.map(p => p.y)
     // bbox en enteros de píxel de pantalla, acotado al viewport: un arrastre
