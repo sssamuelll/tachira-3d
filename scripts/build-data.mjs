@@ -12,12 +12,17 @@ const GRID = 1024
 const OUT = 'public/data'
 
 // El surface de OSM siembra el tipo de rodadura (spec §3.2)
+// wood, metal y asfalto_y_grava quedan fuera a propósito: los dos primeros son
+// superficie de puente, no rodadura de carretera, y el tercero es un valor
+// libre inventado por un mapeador que no pertenece al esquema de OSM. Meterlos
+// en una categoría que no les toca es peor que dejarlos en sin_definir.
 const SURFACE_A_TIPO = {
-  asphalt: 'asfalto', paved: 'asfalto',
-  concrete: 'concreto', concrete_plates: 'concreto',
+  asphalt: 'asfalto', paved: 'asfalto', chipseal: 'asfalto',
+  concrete: 'concreto', 'concrete:plates': 'concreto', 'concrete:lanes': 'concreto',
   gravel: 'granzon', compacted: 'granzon', fine_gravel: 'granzon', unpaved: 'granzon',
-  ground: 'tierra', dirt: 'tierra', earth: 'tierra', mud: 'tierra',
+  ground: 'tierra', dirt: 'tierra', earth: 'tierra', mud: 'tierra', grass: 'tierra',
   sett: 'empedrado', cobblestone: 'empedrado', paving_stones: 'empedrado',
+  unhewn_cobblestone: 'empedrado', pebblestone: 'empedrado',
 }
 
 async function main () {

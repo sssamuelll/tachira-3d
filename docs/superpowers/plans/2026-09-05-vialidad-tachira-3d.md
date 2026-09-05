@@ -1004,12 +1004,19 @@ const OUT = 'public/data'
 
 // El surface de OSM siembra el tipo de rodadura (spec §3.2)
 const SURFACE_A_TIPO = {
-  asphalt: 'asfalto', paved: 'asfalto',
-  concrete: 'concreto', concrete_plates: 'concreto',
+  asphalt: 'asfalto', paved: 'asfalto', chipseal: 'asfalto',
+  concrete: 'concreto', 'concrete:plates': 'concreto', 'concrete:lanes': 'concreto',
   gravel: 'granzon', compacted: 'granzon', fine_gravel: 'granzon', unpaved: 'granzon',
-  ground: 'tierra', dirt: 'tierra', earth: 'tierra', mud: 'tierra',
+  ground: 'tierra', dirt: 'tierra', earth: 'tierra', mud: 'tierra', grass: 'tierra',
   sett: 'empedrado', cobblestone: 'empedrado', paving_stones: 'empedrado',
+  unhewn_cobblestone: 'empedrado', pebblestone: 'empedrado',
 }
+// `wood`, `metal` y `asfalto_y_grava` quedan en sin_definir a propósito. Los dos
+// primeros son superficies de puente, no rodadura de carretera; el tercero es un valor
+// libre que inventó un mapeador y no pertenece al esquema de OSM. Meterlos en una
+// categoría que no les toca es peor que dejar que el usuario los clasifique.
+// (La primera versión de esta tabla escribía `concrete_plates` con guión bajo. El valor
+//  real de OSM lleva dos puntos, así que esa entrada nunca coincidió con nada.)
 
 async function main () {
   await mkdir(OUT, { recursive: true })
