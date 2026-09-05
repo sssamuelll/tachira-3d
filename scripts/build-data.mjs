@@ -39,16 +39,28 @@ async function main () {
   console.log('4/9  municipio por punto medio')
   // Un tramo que cruza límite cae en uno solo. Cortar en el límite duplicaría
   // segmentos y rompería los ids, que es lo que ancla los datos del usuario.
+  const buscaMunicipio = (lon, lat) =>
+    // un municipio puede ser multipolígono (enclaves), de ahí el .some()
+    municipios.find(mm => mm.polygons.some(p => pointInPolygon(lon, lat, p)))
+  let porVertice = 0
   for (const l of lines) {
     const [lon, lat] = l.coords[midpointIndex(l.coords)]
-    // un municipio puede ser multipolígono (enclaves), de ahí el .some()
-    const m = municipios.find(mm => mm.polygons.some(p => pointInPolygon(lon, lat, p)))
+    let m = buscaMunicipio(lon, lat)
+    if (!m) {
+      // el punto medio cayó en una grieta de precisión entre municipios vecinos
+      // (frontera compartida, puente internacional): probar el resto de los
+      // vértices antes de rendirse, en vez de dejar la vía sin municipio.
+      for (const [vlon, vlat] of l.coords) {
+        m = buscaMunicipio(vlon, vlat)
+        if (m) { porVertice++; break }
+      }
+    }
     l.municipio = m ? m.name : null
   }
   const huerfanos = municipios.reduce((s, m) => s + m.orphanFragments, 0)
   if (huerfanos > 0) console.warn(`     AVISO: ${huerfanos} fragmentos de frontera sin cerrar`)
   const sinMunicipio = lines.filter(l => !l.municipio).length
-  console.log(`     sin municipio: ${sinMunicipio}`)
+  console.log(`     resueltas por vértice: ${porVertice} · sin municipio: ${sinMunicipio}`)
 
   console.log('5/9  drapeado y longitudes')
   let vertices = 0
