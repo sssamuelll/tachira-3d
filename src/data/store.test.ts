@@ -115,6 +115,24 @@ test('loadJSON restaura por osmId y reporta huerfanos sin borrarlos', () => {
   expect(invalid).toEqual([])
 })
 
+// CRITICO, fix Task 21 ronda 3: `regs` esta indexado 1:1 contra `ways`, que
+// por definicion no tiene el id de un huerfano -- antes, loadJSON() lo
+// reportaba y lo descartaba en el mismo `continue`, asi que toJSON() nunca
+// podia volver a emitirlo: el proximo autoguardado lo borraba del archivo sin
+// que el usuario lo pidiera, exactamente lo que la regla de huerfanos existe
+// para impedir. Este test reproduce el recorrido real que encontro el
+// revisor: cargar un huerfano, editar OTRA via sin relacion, y comprobar que
+// sigue en toJSON() -- intacto, sin que nada lo haya tocado ni interpretado.
+test('un huerfano cargado sobrevive a toJSON() despues de editar otra via, sin alterarse', () => {
+  const s = new AttrStore(ways)
+  const huerfano = { pci: 55, fuente: 'medido' as const, tipo: 'asfalto' as const, fecha: '2026-01-01', nota: 'ficha de campo antigua' }
+  const { orphans } = s.loadJSON({ registros: { '999': huerfano } }, ways)
+  expect(orphans).toEqual(['999'])
+  s.set([0], { pci: 10, fuente: 'estimado' })   // edita OTRA via, sin relacion con el huerfano
+  const out = s.toJSON() as any
+  expect(out.registros['999']).toEqual(huerfano)   // sigue presente, campo por campo, sin alterarse
+})
+
 test('loadJSON normaliza una fuente invalida a sin y reporta el id', () => {
   const s = new AttrStore(ways)
   const { invalid } = s.loadJSON({ registros: {
@@ -207,4 +225,19 @@ test('toJSON SI serializa cuando el usuario cambia la rodadura sembrada a otra d
   const out = s.toJSON() as any
   expect(out.registros['1']).toBeDefined()    // ya no coincide con ways[0].tipo -- es dato real, se guarda
   expect(out.registros['1'].tipo).toBe('granzon')
+})
+
+// Menor, pedido explicito del coordinador: faltaba el caso "solo nota" del
+// corte del sembrado. Una nota sobre una via con la rodadura TAL CUAL la
+// sembro seedFromSurface (sin cambiarla) es dato real del usuario -- soloSembrado
+// exige `!r.nota`, asi que una nota presente basta para que no se excluya,
+// aunque tipo/fuente sigan identicos al sembrado.
+test('toJSON SI serializa una nota sobre una via con la rodadura sembrada intacta', () => {
+  const s = new AttrStore(ways)
+  s.seedFromSurface()                         // ways[0]: sembrado a tipo:'asfalto', fuente:'heredado'
+  s.set([0], { nota: 'hueco grande cerca del puente' })   // solo nota, tipo no cambia
+  expect(s.get(0).tipo).toBe('asfalto')       // la rodadura sigue siendo la sembrada, sin cambiar
+  const out = s.toJSON() as any
+  expect(out.registros['1']).toBeDefined()    // la nota es dato real -- no se excluye pese a tipo==ways[0].tipo
+  expect(out.registros['1'].nota).toBe('hueco grande cerca del puente')
 })

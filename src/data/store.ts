@@ -32,6 +32,15 @@ function normalizar (reg: Registro): { reg: Registro; corrupto: boolean } {
 export class AttrStore {
   private regs: Registro[]
   private listeners: Array<() => void> = []
+  // Registros de loadJSON() cuyo id ya no existe en `ways` (OSM partió esa vía
+  // entre una exportación y la siguiente). Separado de `regs` porque `regs`
+  // está indexado 1:1 contra `ways` -- no hay una posición ahí para un id que
+  // `ways` no contiene. Guardados tal cual llegaron del JSON, sin pasar por
+  // normalizar(): un huérfano no se toca ni se interpreta, solo sobrevive
+  // (fix Task 21 ronda 3 -- antes, `continue` los reportaba y los descartaba
+  // en el mismo gesto: el siguiente autoguardado los borraba del archivo sin
+  // que el usuario lo pidiera).
+  private huerfanos = new Map<string, Registro>()
 
   constructor (private ways: Way[]) {
     this.regs = ways.map(vacio)
@@ -131,13 +140,19 @@ export class AttrStore {
       const soloSembrado = r.pci == null && !r.nota && r.fuente === 'heredado' && r.tipo === this.ways[i].tipo
       if (tieneDato && !soloSembrado) registros[String(this.ways[i].osmId)] = r
     }
+    // Los huérfanos vuelven a salir siempre, intactos -- toJSON() no es quien
+    // decide su destino (fix Task 21 ronda 3): el usuario los ve en el aviso
+    // de carga y decide él, en su propio tiempo, qué hacer con ese id.
+    for (const [id, reg] of this.huerfanos) registros[id] = reg
     return { version: 1, actualizado: hoy(), registros }
   }
 
   /** Restaura por osmId el mismo objeto que produce toJSON(). Nunca descarta
    * en silencio, en dos frentes distintos:
    *  - orphans: ids que ya no existen en la red (una vía partida en OSM) —
-   *    el registro no se toca, el usuario decide qué hacer con él.
+   *    el registro se guarda tal cual en `huerfanos` (no se toca, no se
+   *    interpreta) y toJSON() lo vuelve a emitir siempre; el usuario decide
+   *    qué hacer con él, en su tiempo, no el próximo autoguardado.
    *  - invalid: ids cuyo fuente/tipo/pci está fuera de dominio (JSON editado
    *    a mano) — se normalizan al "sin dato" de su campo y se cargan igual;
    *    un registro corrupto no le cuesta el archivo entero a los otros. */
@@ -147,7 +162,7 @@ export class AttrStore {
     const invalid: string[] = []
     for (const [id, reg] of Object.entries(obj.registros ?? {})) {
       const i = porId.get(id)
-      if (i == null) { orphans.push(id); continue }
+      if (i == null) { orphans.push(id); this.huerfanos.set(id, reg); continue }
       const { reg: limpio, corrupto } = normalizar(reg)
       if (corrupto) invalid.push(id)
       this.regs[i] = { ...vacio(), ...limpio }

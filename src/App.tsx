@@ -14,7 +14,7 @@ import { loadAll } from './data/load'
 import { BBOX } from './data/constants'
 import { AttrStore } from './data/store'
 import { AttrTexture } from './data/attrTexture'
-import { isFsAccessSupported, pickFile, loadHandle, readJSON, downloadJSON, useAutosave } from './data/persist'
+import { isFsAccessSupported, pickFile, checkHandle, reconnectHandle, readJSON, downloadJSON, useAutosave } from './data/persist'
 import type { Registro, Way } from './data/types'
 
 type Data = Awaited<ReturnType<typeof loadAll>>
@@ -54,18 +54,25 @@ function Picker (
   return null
 }
 
-// Camino compartido entre "cargar al arrancar" (loadHandle recordó el handle
-// de una sesión previa) y "el usuario acaba de elegir el archivo con el
-// botón" -- pickFile() puede apuntar a un pci-tachira.json que YA trae datos
+// Camino compartido entre "cargar al arrancar" (checkHandle recordó el handle
+// de una sesión previa, con permiso vigente) y "el usuario acaba de elegir el
+// archivo con el botón" -- pickFile() puede apuntar a un pci-tachira.json que YA trae datos
 // (el archivo se versiona en git a propósito, spec §9: abrirlo en un clon o
 // un perfil de navegador nuevo, con IndexedDB vacío, es el caso normal, no
 // uno raro). store.loadJSON() ya distingue huérfanos (ids que ya no existen
 // en la red, no se borran) de inválidos (valores fuera de dominio,
 // normalizados) -- acá solo se avisan por separado, sin fundirlos en un solo
 // número que no diría qué pasó con cada uno.
-async function cargarDesdeArchivo (h: FileSystemFileHandle, store: AttrStore, ways: Way[]) {
+// Devuelve conteos (no los arreglos completos, que sí van a consola) para que
+// App los muestre en la interfaz -- fix Task 21 ronda 3: antes solo había un
+// console.warn, y quien usa esto es personal técnico de vialidad, no alguien
+// con las herramientas de desarrollo abiertas. null si no hay nada que avisar
+// (archivo limpio, o vacío/ilegible -- ver el catch de abajo).
+async function cargarDesdeArchivo (
+  h: FileSystemFileHandle, store: AttrStore, ways: Way[],
+): Promise<{ orphans: number; invalid: number } | null> {
   let obj: unknown
-  try { obj = await readJSON(h) } catch { return }   // archivo vacío/recién creado o ilegible: nada que cargar
+  try { obj = await readJSON(h) } catch { return null }   // archivo vacío/recién creado o ilegible: nada que cargar
   const { orphans, invalid } = store.loadJSON(obj as any, ways)
   if (orphans.length) console.warn(
     `pci-tachira.json: ${orphans.length} id(s) huérfano(s) -- ya no existen en la red vial ` +
@@ -73,6 +80,8 @@ async function cargarDesdeArchivo (h: FileSystemFileHandle, store: AttrStore, wa
   if (invalid.length) console.warn(
     `pci-tachira.json: ${invalid.length} registro(s) con un valor fuera de rango -- se normalizaron ` +
     'a "sin dato" en su campo para no pintarse como si fueran válidos:', invalid)
+  if (!orphans.length && !invalid.length) return null
+  return { orphans: orphans.length, invalid: invalid.length }
 }
 
 export default function App () {
@@ -88,11 +97,22 @@ export default function App () {
   // el useMemo de la máscara de abajo no volvería a correr tras una edición
   // real: ni `store` (misma instancia) ni `filter` cambiarían.
   const [storeVersion, setStoreVersion] = useState(0)
-  // Handle del archivo en disco (Task 21): null hasta que loadHandle() lo
-  // recuerde de una sesión previa o el usuario lo elija con el botón. Vive
+  // Handle del archivo en disco (Task 21): null hasta que checkHandle() lo
+  // recuerde de una sesión previa (con permiso vigente) o el usuario lo elija
+  // con el botón. Vive
   // en React, no dentro de persist.ts, porque useAutosave (más abajo) tiene
   // que re-suscribirse cuando cambia, igual que ya hace con store/storeVersion.
   const [handle, setHandle] = useState<FileSystemFileHandle | null>(null)
+  // Handle recordado en IndexedDB cuyo permiso el navegador olvidó (fix Task
+  // 21 ronda 3): distinto de `handle` a propósito -- este NO se pasa a
+  // useAutosave (nadie debe autoguardar sobre un archivo sin autorización
+  // vigente). Solo existe para que la interfaz ofrezca un botón de
+  // reconectar; se vacía en cuanto se conecta algo (por reconexión o por
+  // elegir un archivo nuevo).
+  const [pendingHandle, setPendingHandle] = useState<FileSystemFileHandle | null>(null)
+  // Cuántos huérfanos/inválidos trajo la última carga, para mostrarlos en la
+  // interfaz (fix Task 21 ronda 3) -- antes solo había un console.warn.
+  const [avisoCarga, setAvisoCarga] = useState<{ orphans: number; invalid: number } | null>(null)
   // Único puente entre el SVG del lazo (fuera del Canvas) y pickRegion
   // (dentro): <Picker> lo rellena en un useEffect al montarse/actualizarse.
   const pickerRef = useRef<PickerApi | null>(null)
@@ -114,27 +134,41 @@ export default function App () {
     store.onChange(() => setStoreVersion(v => v + 1))
   }, [store])
 
-  // Task 21: al arrancar, si hubo un archivo elegido en una sesión previa
-  // (loadHandle lo recuerda en IndexedDB y re-pide permiso si el navegador lo
-  // olvidó, persist.ts), se restaura. setHandle va al FINAL, después de
-  // cargarDesdeArchivo -- no al principio -- porque ese propio loadJSON()
-  // sube storeVersion (notify()): si el handle ya fuera visible para
-  // useAutosave en ese momento, vería el handle nuevo y la subida de versión
-  // juntos en la misma vuelta, y los tomaría por una edición real -- justo el
-  // "se guardó solo por abrir la app" que el debounce existe para evitar
-  // (visto de verdad trazando el orden de los effects, no a ojo). [store,
-  // data] y no [] porque cargarDesdeArchivo necesita `ways` (de `data`) para
-  // resolver los ids del JSON contra la red actual.
+  // Task 21: al arrancar, si hubo un archivo elegido en una sesión previa,
+  // checkHandle() lo recuerda de IndexedDB y solo CONSULTA el permiso
+  // (queryPermission, sin gesto de usuario -- fix ronda 3: requestPermission
+  // exige uno real, y llamarlo acá, sin ningún clic de por medio, devolvía el
+  // estado vigente sin preguntar nada tras un reinicio del navegador). Si el
+  // permiso sigue vigente (ej. un F5, que sí lo conserva), se restaura solo;
+  // si no, se deja en `pendingHandle` para que el botón de reconectar pida el
+  // permiso de verdad, con un clic real detrás (más abajo, onReconnect).
+  //
+  // setHandle va al FINAL, después de cargarDesdeArchivo -- no al principio
+  // -- porque ese propio loadJSON() sube storeVersion (notify()): si el
+  // handle ya fuera visible para useAutosave en ese momento, vería el handle
+  // nuevo y la subida de versión juntos en la misma vuelta, y los tomaría por
+  // una edición real -- justo el "se guardó solo por abrir la app" que el
+  // debounce existe para evitar (visto de verdad trazando el orden de los
+  // effects, no a ojo). [store, data] y no [] porque cargarDesdeArchivo
+  // necesita `ways` (de `data`) para resolver los ids del JSON contra la red
+  // actual.
   useEffect(() => {
     if (!store || !data) return
-    loadHandle().then(async h => {
-      if (!h) return
-      await cargarDesdeArchivo(h, store, data.roads.ways)
-      setHandle(h)
+    checkHandle().then(async res => {
+      if (!res) return
+      if (!res.granted) { setPendingHandle(res.handle); return }
+      const aviso = await cargarDesdeArchivo(res.handle, store, data.roads.ways)
+      setAvisoCarga(aviso)
+      setHandle(res.handle)
     })
   }, [store, data])
 
-  useAutosave(store, handle, storeVersion)
+  // Task 21 ronda 3: useAutosave ahora devuelve el estado del guardado
+  // ('pendiente'/'guardando'/'guardado') para que la interfaz le diga al
+  // usuario cuándo puede cerrar tranquilo -- antes no había ninguna señal más
+  // que el color cambiando al instante en memoria, sin indicar que el disco
+  // iba detrás.
+  const estadoGuardado = useAutosave(store, handle, storeVersion)
 
   // Panel de filtros (Task 18): un byte por vía, mismo índice que `ways` y
   // que la data texture. 26.712 elementos es barato (microsegundos) pero hay
@@ -259,7 +293,8 @@ export default function App () {
   // handle en blanco. Cancelar el diálogo rechaza con AbortError: no es un
   // error real (ningún dato se tocó todavía), así que no se reporta; otro
   // rechazo (ej. permiso denegado) sí, porque ese sí puede explicar por qué
-  // "no pasó nada" al pulsar el botón.
+  // "no pasó nada" al pulsar el botón. Limpia pendingHandle: elegir un
+  // archivo nuevo resuelve cualquier reconexión pendiente de un handle viejo.
   const onPickFile = useCallback(async () => {
     if (!store || !data) return
     let h: FileSystemFileHandle | null = null
@@ -267,9 +302,30 @@ export default function App () {
       if ((e as any)?.name !== 'AbortError') console.error('no se pudo elegir el archivo', e)
     }
     if (!h) return
-    await cargarDesdeArchivo(h, store, data.roads.ways)
+    const aviso = await cargarDesdeArchivo(h, store, data.roads.ways)
+    setAvisoCarga(aviso)
     setHandle(h)
+    setPendingHandle(null)
   }, [store, data])
+
+  // Task 21 ronda 3: único llamador de reconnectHandle() -- vive detrás de un
+  // clic real, que es el único lugar donde requestPermission() de verdad le
+  // pregunta algo al usuario (ver persist.ts). Si el navegador deniega, se
+  // limpia pendingHandle igual: insistir con el mismo handle no cambiaría
+  // nada, y el botón "archivo de datos" sigue disponible para elegir de cero.
+  const onReconnect = useCallback(async () => {
+    if (!pendingHandle || !store || !data) return
+    const ok = await reconnectHandle(pendingHandle)
+    if (!ok) {
+      console.warn('permiso denegado para el archivo recordado -- usa "archivo de datos" para elegir de nuevo')
+      setPendingHandle(null)
+      return
+    }
+    const aviso = await cargarDesdeArchivo(pendingHandle, store, data.roads.ways)
+    setAvisoCarga(aviso)
+    setHandle(pendingHandle)
+    setPendingHandle(null)
+  }, [pendingHandle, store, data])
 
   if (!data) return <div style={{ padding: 24 }}>cargando datos del Táchira…</div>
 
@@ -287,7 +343,7 @@ export default function App () {
           se activa su propio overlay tapa este botón y "clic para salir" deja
           de poder hacer clic en nada -- se detectó arrastrando de verdad en
           el navegador, no en los tests del predicado. */}
-      <div style={{ position: 'fixed', top: 12, left: 12, zIndex: 20, display: 'flex', gap: 8 }}>
+      <div style={{ position: 'fixed', top: 12, left: 12, zIndex: 20, display: 'flex', gap: 8, alignItems: 'center' }}>
         <button onClick={() => setFlyTo(BBOX)}>Encuadrar Táchira</button>
         <button onClick={() => setLassoOn(o => !o)}>
           {lassoOn ? 'Lazo activo (clic para salir)' : 'Selección por lazo'}
@@ -306,7 +362,47 @@ export default function App () {
             descargar datos
           </button>
         )}
+        {/* Fix Task 21 ronda 3: el permiso del handle recordado no sobrevive
+            siempre a un reinicio del navegador, y requestPermission() exige
+            un clic real para preguntar de verdad (persist.ts) -- sin este
+            botón, esa reconexión pasaba en silencio dentro de un efecto de
+            montaje y nunca preguntaba nada. */}
+        {pendingHandle && (
+          <button onClick={onReconnect}
+            title="El navegador olvidó el permiso de este archivo -- un clic para volver a autorizarlo">
+            reconectar {pendingHandle.name}
+          </button>
+        )}
+        {/* Fix Task 21 ronda 3: única señal de si el disco ya tiene la última
+            edición o todavía va detrás -- antes el único indicio era el color
+            cambiando al instante en memoria, sin avisar que cerrar la
+            pestaña en esos 2 s de debounce podía perder la edición. */}
+        {handle && (
+          <span style={{ fontSize: 12, color: '#8b98a8' }}>
+            {estadoGuardado === 'guardando' ? 'guardando…'
+              : estadoGuardado === 'pendiente' ? 'cambios sin guardar'
+              : 'guardado'}
+          </span>
+        )}
       </div>
+      {/* Fix Task 21 ronda 3: huérfanos e inválidos ahora se avisan en la
+          interfaz, no solo en consola -- quien usa esto es personal técnico
+          de vialidad, no alguien con las herramientas de desarrollo abiertas.
+          Huérfanos: ids que ya no existen en la red (OSM partió la vía), se
+          conservan tal cual, el usuario decide qué hacer con ellos. Inválidos:
+          valores fuera de dominio, ya normalizados a "sin dato". */}
+      {avisoCarga && (
+        <div style={{
+          position: 'fixed', top: 48, left: 12, zIndex: 20, maxWidth: 420, fontSize: 12,
+          color: '#f2d43f', background: 'rgba(14,20,28,0.92)', border: '1px solid #2a3644',
+          borderRadius: 6, padding: '6px 10px',
+        }}>
+          {avisoCarga.orphans > 0 &&
+            `${avisoCarga.orphans} vía(s) huérfana(s) (ya no existen en la red, se conservaron -- decide qué hacer con ellas). `}
+          {avisoCarga.invalid > 0 &&
+            `${avisoCarga.invalid} registro(s) con datos fuera de rango, normalizados a "sin dato".`}
+        </div>
+      )}
       <Canvas camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
         <Suspense fallback={null}>
           <Sky date={date} />
