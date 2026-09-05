@@ -1,5 +1,5 @@
 import { useMemo, type CSSProperties } from 'react'
-import type { AttrStore } from '../data/store'
+import { SIN_MUNICIPIO, type AttrStore } from '../data/store'
 
 // Hijo del contenedor flex fixed que arma App.tsx abajo, junto a EditPanel
 // (Task 20 fix round 1). Antes tenía su propio `left` calculado a mano (16 +
@@ -22,11 +22,13 @@ const bar: CSSProperties = {
   borderRadius: 6, padding: '8px 12px', display: 'flex', gap: 6, overflowX: 'auto',
 }
 
-// Mismo string literal que store.ts usa como fallback de las vías sin
-// municipio asignado (coverageByMunicipio) -- no es una constante compartida
-// porque store.ts pertenece a otra task en curso en esta sesión (Task 21);
-// si algún día se comparte, esta es la otra mitad.
-const SIN_MUNICIPIO = 'sin municipio'
+// Los 29 nombres de OSM empiezan TODOS por "Municipio " ("Municipio Andrés
+// Bello", "Municipio Ayacucho"…): con el ancho de la fila y el recorte por
+// elipsis los 29 botones se pintaban como "Municipio…", indistinguibles. El
+// prefijo no distingue nada acá -- toda la barra son municipios -- así que se
+// quita para pintar, y el nombre completo (el que usa el filtro, y el que
+// aparece en municipios.json) va en el title junto al conteo.
+const nombreCorto = (name: string) => name.replace(/^Municipio /, '')
 
 // Extraída del componente para poder probar el bucket 'sin municipio' sin
 // renderizar JSX -- este repo no tiene @testing-library/react (mismo criterio
@@ -41,6 +43,7 @@ export function filasCobertura (store: AttrStore) {
   return [...store.coverageByMunicipio()]
     .map(([name, c]) => ({
       name, ...c, pct: c.total ? c.evaluados / c.total : 0,
+      corto: nombreCorto(name),
       // 'sin municipio' no tiene geometría propia (no está en
       // municipios.json) ni es un valor que FilterPanel pueda producir --
       // pulsarlo no puede filtrar ni volar a ningún lado. Hoy es un caso
@@ -73,7 +76,7 @@ export function CoverageBar (
         const contenido = (
           <>
             <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {f.name}
+              {f.corto}
             </div>
             <div style={{ height: 4, background: '#22303f', borderRadius: 2, marginTop: 3 }}>
               <div style={{
@@ -88,9 +91,13 @@ export function CoverageBar (
           borderRadius: 4, padding: '4px 6px', color: '#e8eaed',
           textAlign: 'left', fontSize: 11, cursor: f.clickable ? 'pointer' : 'default',
         }
+        // El nombre completo va acá: el de la fila viene recortado por el
+        // ancho, y antes el title solo traía el conteo -- no había forma de
+        // saber qué municipio era ninguno de los 29.
+        const conteo = `${f.evaluados.toLocaleString('es-VE')} de ${f.total.toLocaleString('es-VE')}`
         const title = f.clickable
-          ? `${f.evaluados.toLocaleString('es-VE')} de ${f.total.toLocaleString('es-VE')}`
-          : `${f.evaluados.toLocaleString('es-VE')} de ${f.total.toLocaleString('es-VE')} — sin municipio asignado, no se puede filtrar ni volar a estas vías`
+          ? `${f.name} — ${conteo} evaluadas`
+          : `${f.name} — ${conteo} evaluadas; sin municipio asignado, no se puede filtrar ni volar a estas vías`
         // No-pulsable como <div> informativo, no <button disabled>: acá no es
         // "esta acción no está disponible ahora", es "esto nunca fue una
         // acción" -- disabled sugeriría lo primero.

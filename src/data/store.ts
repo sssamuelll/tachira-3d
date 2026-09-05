@@ -1,6 +1,13 @@
 import { FUENTES, TIPOS } from './constants'
 import type { Way, Registro } from './types'
 
+// Bucket de las vías sin municipio asignado (coverageByMunicipio, abajo).
+// Compartido con CoverageBar.tsx, que lo usa para NO hacer pulsable ese
+// bucket -- estaba duplicado como literal en los dos archivos, así que
+// cambiarlo en uno solo devolvía el bug ya arreglado (un botón que promete
+// filtrar y volar a un municipio que no existe).
+export const SIN_MUNICIPIO = 'sin municipio'
+
 const hoy = () => new Date().toISOString().slice(0, 10)
 const vacio = (): Registro => ({ pci: null, fuente: 'sin', tipo: 'sin_definir', fecha: '', nota: '' })
 
@@ -117,7 +124,7 @@ export class AttrStore {
   coverageByMunicipio (): Map<string, { total: number; evaluados: number }> {
     const out = new Map<string, { total: number; evaluados: number }>()
     for (let i = 0; i < this.ways.length; i++) {
-      const m = this.ways[i].municipio ?? 'sin municipio'
+      const m = this.ways[i].municipio ?? SIN_MUNICIPIO
       const e = out.get(m) ?? { total: 0, evaluados: 0 }
       e.total++
       if (this.regs[i].pci != null) e.evaluados++
