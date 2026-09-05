@@ -20,7 +20,11 @@ export function bboxCenterAndSpan (bbox: { s: number; w: number; n: number; e: n
 
 /** Encuadra un bbox geodésico moviendo cámara y target de OrbitControls. */
 export function FlyTo ({ bbox }: { bbox: { s: number; w: number; n: number; e: number } | null }) {
-  const { camera, controls } = useThree() as any
+  const { camera, controls: rawControls } = useThree()
+  // controls tipa en RootState como THREE.EventDispatcher | null -- sin
+  // .target/.update() del OrbitControlsImpl real de drei. any acotado solo
+  // a esto; camera ya tipa bien por si solo (Ortho|PerspectiveCamera).
+  const controls = rawControls as any
   useEffect(() => {
     if (!bbox) return
     const { center, span } = bboxCenterAndSpan(bbox)
