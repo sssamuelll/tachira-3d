@@ -34,6 +34,7 @@ export function LassoOverlay (
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
+  const stopDrawing = () => { drawing.current = false; setPts([]) }
 
   return (
     <svg
@@ -67,10 +68,17 @@ export function LassoOverlay (
         setPts(p => [...p, pt])
       }}
       onPointerUp={() => {
-        drawing.current = false
         if (pts.length >= 3) onFinish(pts)
-        setPts([])
+        stopDrawing()
       }}
+      // Un atajo del SO, la pestaña perdiendo foco, o el navegador
+      // reinterpretando el gesto como scroll cancelan el puntero en vez de
+      // soltarlo -- ahí nunca llega pointerup. setPointerCapture solo
+      // garantiza el pointerup cuando el gesto termina normal; sin este
+      // espejo, drawing.current queda pegado en true y el polígono sigue
+      // creciendo con el mouse suelto. No llama a onFinish: un gesto
+      // cancelado no es un lazo terminado.
+      onPointerCancel={stopDrawing}
     >
       {pts.length > 1 && (
         <polygon
