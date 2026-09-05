@@ -23,6 +23,11 @@ type Data = Awaited<ReturnType<typeof loadAll>>
 // desincroniza en silencio si PickingPass.tsx cambia la forma del retorno.
 type PickerApi = ReturnType<typeof usePicking>
 
+// Cuánto puede moverse el puntero entre presionar y soltar y seguir contando
+// como clic. Calibrable: 5 px absorbe el temblor de una mano sobre un trackpad
+// sin tragarse un clic deliberado (una órbita real mueve decenas de píxeles).
+const UMBRAL_CLIC_PX = 5
+
 // Traduce el clic del DOM a un id de vía a través del id buffer (Task 16) y
 // se lo pasa a App. Vive dentro de <Canvas> porque usePicking necesita
 // gl/camera/size de useThree(). Además sube {pickAt, pickRegion} a un ref que
@@ -44,12 +49,25 @@ function Picker (
 
   useEffect(() => {
     const el = gl.domElement
-    const h = (ev: MouseEvent) => {
+    // Arrastrar para orbitar termina disparando `click` igual, en el punto
+    // donde soltaste: sin umbral, mirar lo que acabas de seleccionar lo
+    // borraba (el picking devuelve null sobre el terreno vacío y onPick con
+    // add=false limpia). Visto de verdad en el navegador: 4.817 seleccionadas
+    // -> una órbita -> nada. De paso ahorra un pase completo de picking por
+    // cada órbita, que hoy se pagaba entero.
+    let desde: { x: number; y: number } | null = null
+    const onDown = (ev: PointerEvent) => { desde = { x: ev.clientX, y: ev.clientY } }
+    const onClick = (ev: MouseEvent) => {
+      if (desde && Math.hypot(ev.clientX - desde.x, ev.clientY - desde.y) > UMBRAL_CLIC_PX) return
       const r = el.getBoundingClientRect()
       onPick(pickAt(ev.clientX - r.left, ev.clientY - r.top), ev.shiftKey)
     }
-    el.addEventListener('click', h)
-    return () => el.removeEventListener('click', h)
+    el.addEventListener('pointerdown', onDown)
+    el.addEventListener('click', onClick)
+    return () => {
+      el.removeEventListener('pointerdown', onDown)
+      el.removeEventListener('click', onClick)
+    }
   }, [gl, pickAt, onPick])
   return null
 }
