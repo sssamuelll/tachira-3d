@@ -68,15 +68,23 @@ check(draped / meta.ways.length >= 0.5,
   `vías con km3d > km: ${draped} de ${meta.ways.length} (${(draped / meta.ways.length * 100).toFixed(1)}%, umbral >= 50%)`)
 check(inverted.length === 0, `vías con km3d menor que km: ${inverted.length}`)
 
-// 8. todo id en pci-tachira.json existe en roads-meta.json.
-// Ausente se omite; ilegible o con JSON inválido falla (no aborta el script); presente y válido se verifica.
+// 8. cuántos ids de pci-tachira.json ya no existen en roads-meta.json.
+// INFORMA, no falla: un huérfano dejó de ser un defecto de datos. La app los
+// conserva a propósito, los re-emite en cada guardado y avisa en la interfaz
+// para que el usuario decida en su tiempo qué hacer con ellos (store.ts,
+// App.tsx) -- eso es el comportamiento correcto del sistema, y una puerta de
+// verificación que se pone roja ante lo correcto se aprende a ignorar, y con
+// ella los otros doce checks.
+// Ausente se omite; ilegible o con JSON inválido sí falla (no aborta el script).
 if (existsSync('pci-tachira.json')) {
   try {
     const pci = JSON.parse(await readFile('pci-tachira.json', 'utf8'))
     const knownIds = new Set(meta.ways.map(w => String(w.osmId)))
     const orphanIds = Object.keys(pci.registros ?? {}).filter(id => !knownIds.has(id))
-    check(orphanIds.length === 0,
-      `ids huérfanos en pci-tachira.json: ${orphanIds.length}${orphanIds.length ? ' → ' + orphanIds.slice(0, 5).join(', ') : ''}`)
+    console.log(orphanIds.length === 0
+      ? '  --   ids huérfanos en pci-tachira.json: 0'
+      : `  --   ids huérfanos en pci-tachira.json: ${orphanIds.length} → ${orphanIds.slice(0, 5).join(', ')}` +
+        `${orphanIds.length > 5 ? ', …' : ''} (se conservan, decide tú qué hacer con ellos)`)
   } catch (e) {
     check(false, `pci-tachira.json existe pero no se pudo leer/parsear: ${e.message}`)
   }
