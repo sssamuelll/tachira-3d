@@ -4,6 +4,12 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { useThree } from '@react-three/fiber'
+// Las anclas del LineMaterial son las mismas para los dos pases y viven en un
+// solo sitio (roadsShader.ts), donde roadsShader.test.ts las comprueba contra
+// el material real: duplicarlas acá dejaba este pase sin cobertura, así que
+// una actualización de three que las moviera ponía roja la suite por el otro
+// lado, se arreglaba allá, y el picking quedaba roto hasta el primer clic.
+import { ANCLA_VERT, ANCLA_FRAG } from './roadsShader'
 
 export const encodeId = (i: number): [number, number, number] =>
   [(i >> 16) & 255, (i >> 8) & 255, i & 255]
@@ -15,22 +21,6 @@ export const decodeId = (r: number, g: number, b: number): number =>
 // una vía fina. Demasiado ancho y las vías paralelas se tapan entre sí en el
 // id buffer. Calibrable -- ver task-16-report.md para el valor probado.
 export const PICK_WIDTH = 8
-
-// Mismo patrón que roadsShader.ts: cada ancla se comprueba antes de usarse,
-// incluida la reutilización de ANCLA_VERT sobre el fragment shader (string
-// idéntico, pero shader.fragmentShader es una string distinta de
-// shader.vertexShader -- nada garantiza que ambas cambien juntas en una
-// versión futura de three). Exportadas por si un test quiere confirmarlas
-// contra el LineMaterial real, como ya hace roadsShader.test.ts.
-export const ANCLA_VERT = 'void main() {'
-
-// El brief de esta tarea asumía 'vec4 diffuseColor = vec4( diffuse, opacity );'
-// (la forma de versiones viejas de three). En three@0.185.1 ese main() abre
-// con `float alpha = opacity;` y arma diffuseColor con esa variable local, no
-// con el uniform directo -- confirmado leyendo
-// node_modules/three/examples/jsm/lines/LineMaterial.js:337-338. El string
-// viejo no aparece en esta versión; el ancla real es esta:
-export const ANCLA_FRAG = 'vec4 diffuseColor = vec4( diffuse, alpha );'
 
 function patchPickMaterial (material: THREE.Material) {
   material.onBeforeCompile = (shader) => {

@@ -1,9 +1,14 @@
 import * as THREE from 'three'
 import { PCI_RANGES, SIN_EVALUAR, FUENTES } from '../data/constants'
 
-// Exportadas para que roadsShader.test.ts las use contra el LineMaterial real
-// instalado, en vez de duplicar los strings en el test (la misma clase de
-// desincronización silenciosa que este archivo ya evita para la paleta).
+// Las anclas del LineMaterial de three viven SOLO acá: las consumen este
+// módulo, PickingPass.tsx (el pase de ids parchea el mismo material) y
+// roadsShader.test.ts, que las comprueba contra el LineMaterial real
+// instalado. Estaban duplicadas en PickingPass.tsx, con test en un solo lado:
+// cuando three moviera el shader, la suite se ponía roja por acá, alguien
+// actualizaba esta constante, todo volvía a verde -- y el picking seguía roto
+// hasta el primer clic. Misma clase de desincronización silenciosa que este
+// archivo ya evita para la paleta.
 export const ANCLA_VERT = 'void main() {'
 
 // El brief de esta tarea asumía 'vec4 diffuseColor = vec4( diffuse, opacity );'
