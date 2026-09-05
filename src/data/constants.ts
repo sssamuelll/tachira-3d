@@ -19,8 +19,12 @@ export const SIN_EVALUAR: [number, number, number] = [0.45, 0.45, 0.45]
 export const FUENTES = ['sin', 'heredado', 'estimado', 'medido'] as const
 export const TIPOS = ['sin_definir', 'asfalto', 'concreto', 'granzon', 'tierra', 'empedrado'] as const
 
+export function pciRange (pci: number | null): typeof PCI_RANGES[number] | null {
+  if (pci == null) return null
+  return PCI_RANGES.find(x => pci >= x.min && pci <= x.max) ?? null
+}
+
 export function pciColor (pci: number | null): [number, number, number] {
-  if (pci == null) return SIN_EVALUAR
-  const r = PCI_RANGES.find(x => pci >= x.min && pci <= x.max)
-  return r ? [...r.color] as [number, number, number] : SIN_EVALUAR
+  const r = pciRange(pci)
+  return r ? [...r.color] as [number, number, number] : [...SIN_EVALUAR] as [number, number, number]
 }
