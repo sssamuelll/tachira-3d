@@ -1,25 +1,23 @@
 import { useMemo, type CSSProperties } from 'react'
 import type { AttrStore } from '../data/store'
 
-// position:fixed, abajo-derecha del EditPanel: la esquina superior-izquierda
-// ya la ocupa la barra de botones (top:12,left:12, App.tsx), la
-// superior-derecha el FilterPanel (Task 18, top:12,right:12,ancho 240) y
-// abajo-izquierda el EditPanel (Task 19, bottom:16,left:16,ancho 260) -- las
-// tres esquinas ya están tomadas. left:318, no 292: sin reset de box-sizing
-// (index.html no trae uno, box-sizing:content-box es el default del
-// navegador) el ancho renderizado de EditPanel no es sus 260px de `width` --
-// suma padding (12+12) y borde (1+1) encima, 286px reales, borde derecho en
-// left:16 + 286 = 302. left:292 (16+260, el cálculo "de papel" que ignora
-// padding/borde) dejaba 10px de solape real con EditPanel, medido con
-// getBoundingClientRect() en el navegador -- no se ve a simple vista porque
-// ambos fondos son el mismo rgba(14,20,28,0.92) casi opaco, un panel tapa
-// literalmente el borde del otro. left:318 = 302 + 16 (misma separación que
-// EditPanel guarda de los bordes de la ventana). Mismo bottom:16 para alinear
-// el borde inferior con él; ninguno de los dos paneles crece hacia abajo
-// (EditPanel crece hacia arriba con la selección, este hacia los lados con
-// overflowX), así que no se pisan pase lo que pase con su contenido.
+// Hijo del contenedor flex fixed que arma App.tsx abajo, junto a EditPanel
+// (Task 20 fix round 1). Antes tenía su propio `left` calculado a mano (16 +
+// ancho de EditPanel + separación) para no solaparlo -- un cálculo "de papel"
+// que ignoraba que sin reset de box-sizing (index.html no trae uno) el ancho
+// renderizado de EditPanel suma padding y borde por fuera de su `width`, lo
+// que dejaba 10px de solape real e invisible (mismo fondo casi opaco en los
+// dos paneles -- apareció midiendo con getBoundingClientRect(), no a ojo).
+// flex:1 elimina el número: EditPanel se queda con su ancho fijo
+// (flexShrink:0, ver EditPanel.tsx) y esta barra toma todo lo que sobra, se
+// reparta como se reparta -- si EditPanel cambia de ancho algún día, nada
+// que actualizar acá. minWidth:0 es necesario: sin él, un flex item con
+// overflow-x:auto adentro no se encoge por debajo del ancho de su contenido
+// (los 29 botones en fila) y desborda el contenedor en vez de activar su
+// propio scroll interno. pointerEvents:'auto' porque el contenedor padre es
+// pointerEvents:'none'.
 const bar: CSSProperties = {
-  position: 'fixed', left: 318, right: 16, bottom: 16, zIndex: 20,
+  flex: 1, minWidth: 0, pointerEvents: 'auto',
   background: 'rgba(14,20,28,0.92)', border: '1px solid #2a3644',
   borderRadius: 6, padding: '8px 12px', display: 'flex', gap: 6, overflowX: 'auto',
 }

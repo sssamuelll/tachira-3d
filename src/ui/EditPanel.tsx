@@ -2,16 +2,20 @@ import { useState, type CSSProperties } from 'react'
 import { pciRange, TIPOS } from '../data/constants'
 import type { Fuente, Tipo } from '../data/types'
 
-// position:fixed, abajo-izquierda: la esquina superior-izquierda ya la ocupa
-// la barra de botones (top:12,left:12, App.tsx) y la superior-derecha el
-// FilterPanel (Task 18, top:12,right:12, ancho 240) -- top:16,right:16 (como
-// proponía el brief de esta task) habría quedado encimado sobre el panel de
-// filtros, ambos peleando la misma esquina. Abajo-izquierda es la única
-// esquina libre y no depende de la altura variable del panel de filtros
-// (la lista de municipios puede crecer). Visto encimado en el navegador, no
-// en el predicado -- ningún test cubre layout.
+// Hijo del contenedor flex fixed que arma App.tsx abajo (junto a
+// CoverageBar, Task 20 fix round 1) -- este panel ya no fija su propia
+// posición. Arriba siguen la barra de botones (top:12,left:12) y el
+// FilterPanel (Task 18, top:12,right:12), así que "abajo" sigue siendo la
+// única franja libre, pero el reparto de ancho con CoverageBar ahora lo
+// resuelve el flex del padre, no un left/right calculado a mano: ese cálculo
+// fue justo lo que causó el solape invisible del fix round 1 (EditPanel y
+// CoverageBar se desincronizaban en silencio si cualquiera cambiaba de
+// tamaño). width fijo + flexShrink:0 para que sea CoverageBar (flex:1) quien
+// ceda espacio, nunca al revés. pointerEvents:'auto' porque el contenedor
+// padre es pointerEvents:'none' (deja pasar el lazo/clic por los huecos
+// entre paneles) -- sin esto este panel tampoco respondería a clics.
 const box: CSSProperties = {
-  position: 'fixed', bottom: 16, left: 16, zIndex: 20, width: 260,
+  width: 260, flexShrink: 0, pointerEvents: 'auto',
   background: 'rgba(14,20,28,0.92)', border: '1px solid #2a3644',
   borderRadius: 6, padding: 12, display: 'grid', gap: 8,
 }

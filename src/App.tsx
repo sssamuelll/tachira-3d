@@ -241,11 +241,30 @@ export default function App () {
       </Canvas>
       <LassoOverlay active={lassoOn} onFinish={onLassoFinish} />
       <FilterPanel ways={data.roads.ways} filter={filter} onChange={setFilter} count={count} km={km} />
-      <EditPanel
-        selection={selectionArray} filteredCount={count}
-        onApply={onApply} onSelectAllFiltered={onSelectAllFiltered}
-      />
-      {store && <CoverageBar store={store} version={storeVersion} onPick={onPickMunicipio} />}
+      {/* Fix round 1 (Task 20): EditPanel y CoverageBar ya no calculan su
+          propia coordenada para no solaparse -- un left calculado a mano
+          (16 + ancho de EditPanel + separación) se desincronizaba en
+          silencio si cualquiera de los dos cambiaba de tamaño, y así se
+          coló un solape real de 10px, invisible porque ambos comparten el
+          mismo fondo casi opaco (encontrado con getBoundingClientRect(), no
+          a ojo). Este contenedor los reparte con flex: EditPanel fijo
+          (flexShrink:0, en su propio estilo), CoverageBar toma el resto
+          (flex:1). pointerEvents:'none' acá y 'auto' en cada panel (sus
+          propios estilos) para que el hueco entre los dos y el margen a la
+          derecha sigan dejando pasar el lazo y el clic sobre el lienzo --
+          sin esto la franja inferior entera dejaría de responder al lazo.
+          alignItems:'flex-end' para que ambos compartan el borde inferior
+          aunque EditPanel crezca hacia arriba con la selección. */}
+      <div style={{
+        position: 'fixed', left: 16, right: 16, bottom: 16, zIndex: 20,
+        display: 'flex', alignItems: 'flex-end', gap: 16, pointerEvents: 'none',
+      }}>
+        <EditPanel
+          selection={selectionArray} filteredCount={count}
+          onApply={onApply} onSelectAllFiltered={onSelectAllFiltered}
+        />
+        {store && <CoverageBar store={store} version={storeVersion} onPick={onPickMunicipio} />}
+      </div>
     </>
   )
 }
