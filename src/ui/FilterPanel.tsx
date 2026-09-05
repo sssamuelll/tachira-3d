@@ -16,6 +16,12 @@ export const EMPTY_FILTER: Filter = {
   municipio: null, highway: null, pciMin: 0, pciMax: 100, fuente: null, soloSinEvaluar: false,
 }
 
+// true si el rango de PCI recorta algo (el default 0-100 deja pasar todo).
+// Una sola expresión, usada por applyFilter y por zeroReason -- que no se
+// desincronicen es más barato con una función que con dos copias del mismo
+// booleano.
+const rangoActivo = (f: Filter) => f.pciMin > 0 || f.pciMax < 100
+
 // Un byte por vía, mismo índice que `ways` y que AttrStore -- es la forma que
 // espera AttrTexture.refresh(visible, selected) (Task 14): 1 = pasa el
 // filtro, 0 = discard en el shader (roadsShader.ts, canal B, bit 0). Recorre
@@ -23,17 +29,29 @@ export const EMPTY_FILTER: Filter = {
 // tiene que memoizarlo: sin eso correría de nuevo en cada render.
 export function applyFilter (ways: Way[], store: AttrStore, f: Filter): Uint8Array {
   const mask = new Uint8Array(ways.length)
-  const rangoActivo = f.pciMin > 0 || f.pciMax < 100
+  const activo = rangoActivo(f)
   for (let i = 0; i < ways.length; i++) {
     const w = ways[i], r = store.get(i)
     if (f.municipio && w.municipio !== f.municipio) continue
     if (f.highway && w.highway !== f.highway) continue
     if (f.fuente && r.fuente !== f.fuente) continue
     if (f.soloSinEvaluar && r.pci != null) continue
-    if (rangoActivo && (r.pci == null || r.pci < f.pciMin || r.pci > f.pciMax)) continue
+    if (activo && (r.pci == null || r.pci < f.pciMin || r.pci > f.pciMax)) continue
     mask[i] = 1
   }
   return mask
+}
+
+// 0 segmentos sin más se lee como "la app está rota", no como "tu filtro no
+// deja pasar nada" -- con 26.712 vías y varios controles a la vez hay tres
+// formas concretas de llegar ahí sin querer. Se explica la causa cuando se
+// puede saber; si no, un genérico (ej. un municipio y un tipo que no se
+// cruzan nunca). No clampa nada -- el usuario pone lo que quiera y la
+// interfaz le explica el resultado, en vez de que un control le mueva otro.
+function zeroReason (f: Filter): string {
+  if (f.pciMin > f.pciMax) return 'el PCI mínimo es mayor que el máximo'
+  if (f.soloSinEvaluar && rangoActivo(f)) return '"solo sin evaluar" es incompatible con un rango de PCI'
+  return 'ninguna vía cumple esa combinación de filtros'
 }
 
 // position:fixed, no relativo a ningún layout: el lazo (LassoOverlay.tsx)
@@ -94,14 +112,14 @@ export function FilterPanel ({ ways, filter, onChange, count, km }: {
         </select>
       </label>
 
-      <label>PCI {filter.pciMin} a {filter.pciMax}
+      <label style={field}>PCI {filter.pciMin} a {filter.pciMax}
         <input type="range" min={0} max={100} value={filter.pciMin} aria-label="PCI mínimo"
           onChange={e => set({ pciMin: +e.target.value })} />
         <input type="range" min={0} max={100} value={filter.pciMax} aria-label="PCI máximo"
           onChange={e => set({ pciMax: +e.target.value })} />
       </label>
 
-      <label>
+      <label style={field}>
         <input type="checkbox" checked={filter.soloSinEvaluar}
           onChange={e => set({ soloSinEvaluar: e.target.checked })} /> solo sin evaluar
       </label>
@@ -109,6 +127,7 @@ export function FilterPanel ({ ways, filter, onChange, count, km }: {
       <div style={{ borderTop: '1px solid #2a3644', paddingTop: 8, fontVariantNumeric: 'tabular-nums' }}>
         {count.toLocaleString('es-VE')} segmentos · {km.toFixed(1)} km
       </div>
+      {count === 0 && <div style={{ fontSize: 12, opacity: 0.7 }}>{zeroReason(filter)}</div>}
     </div>
   )
 }
