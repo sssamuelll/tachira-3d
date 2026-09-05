@@ -1,5 +1,20 @@
 import { test, expect } from 'vitest'
-import { crearAutoguardado, type EstadoGuardado } from './persist'
+import { crearAutoguardado, readJSON, type EstadoGuardado } from './persist'
+
+// Fix ronda final: "archivo recién creado, vacío" y "JSON roto" caían en el
+// mismo catch. El segundo conectaba el handle igual, el store quedaba solo
+// con la siembra, y la primera edición escribía {"registros":{}} encima:
+// todo el trabajo, borrado. Y editar este archivo a mano es un flujo
+// documentado en el spec -- una coma de más es el caso previsto.
+const conTexto = (texto: string) =>
+  ({ getFile: async () => ({ text: async () => texto }) }) as unknown as FileSystemFileHandle
+
+test('readJSON devuelve null si el archivo esta vacio y lanza si es ilegible', async () => {
+  expect(await readJSON(conTexto(''))).toBeNull()             // recién creado por showSaveFilePicker
+  expect(await readJSON(conTexto('   \n  '))).toBeNull()      // solo espacios: tampoco hay nada que cargar
+  expect(await readJSON(conTexto('{"registros":{}}'))).toEqual({ registros: {} })
+  await expect(readJSON(conTexto('{"registros":,}'))).rejects.toThrow()   // la coma de más
+})
 
 // Fix Task 21 ronda 4: dos escrituras solapadas -- la primera resolviendo
 // DESPUÉS de que la segunda edición ya armó su propio guardado -- no deben

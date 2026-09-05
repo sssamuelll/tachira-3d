@@ -84,13 +84,20 @@ export async function writeJSON (handle: FileSystemFileHandle, obj: unknown) {
 // pickFile() -- el diálogo puede apuntar a un pci-tachira.json que YA trae
 // datos (el archivo se versiona en git a propósito, spec §9: abrirlo en un
 // clon o un perfil de navegador nuevo, con IndexedDB vacío, es el caso de uso
-// normal, no uno raro). Un archivo recién creado por showSaveFilePicker está
-// vacío -- JSON.parse('') lanza, y el caller trata esa excepción como "nada
-// que cargar todavía", igual que un archivo editado a mano que quedó
-// ilegible: no es un motivo para romper el arranque de la app.
-export async function readJSON (handle: FileSystemFileHandle): Promise<unknown> {
-  const file = await handle.getFile()
-  return JSON.parse(await file.text())
+// normal, no uno raro).
+//
+// Devuelve null si el archivo está VACÍO (cero bytes o solo espacios: lo que
+// deja showSaveFilePicker al crearlo) -- eso no es un error, simplemente no
+// hay nada que cargar. Lanza si tiene contenido y no parsea. La distinción es
+// el fix: antes ambos casos caían en el mismo catch, así que un JSON roto
+// conectaba el handle igual, el store quedaba solo con la siembra, y la
+// primera edición escribía {"registros":{}} encima -- todo el trabajo,
+// borrado. Y el spec documenta editar este archivo a mano como flujo normal:
+// una coma de más es el caso previsto, no uno raro.
+export async function readJSON (handle: FileSystemFileHandle): Promise<unknown | null> {
+  const texto = await (await handle.getFile()).text()
+  if (!texto.trim()) return null
+  return JSON.parse(texto)
 }
 
 // ponytail: File System Access API; Firefox no lo soporta y cae a descarga manual

@@ -85,12 +85,27 @@ function Picker (
 // App los muestre en la interfaz -- fix Task 21 ronda 3: antes solo había un
 // console.warn, y quien usa esto es personal técnico de vialidad, no alguien
 // con las herramientas de desarrollo abiertas. null si no hay nada que avisar
-// (archivo limpio, o vacío/ilegible -- ver el catch de abajo).
+// (archivo limpio, o vacío/recién creado).
+//
+// 'ilegible' es su propio caso, no un null más (fix ronda final): un archivo
+// con contenido que no parsea NO se conecta para escritura -- si se conectara,
+// la primera edición escribiría el store recién sembrado encima y borraría
+// todo lo que había. El usuario ve el aviso, arregla la coma de más a mano y
+// vuelve a elegir el archivo.
+type AvisoCarga =
+  | { tipo: 'ilegible'; detalle: string }
+  | { tipo: 'carga'; orphans: number; invalid: number }
+
 async function cargarDesdeArchivo (
   h: FileSystemFileHandle, store: AttrStore, ways: Way[],
-): Promise<{ orphans: number; invalid: number } | null> {
+): Promise<AvisoCarga | null> {
   let obj: unknown
-  try { obj = await readJSON(h) } catch { return null }   // archivo vacío/recién creado o ilegible: nada que cargar
+  try { obj = await readJSON(h) } catch (e) {
+    const detalle = (e as Error)?.message ?? String(e)
+    console.error(`${h.name}: tiene contenido pero no se pudo leer como JSON -- no se conectó para escritura`, e)
+    return { tipo: 'ilegible', detalle }
+  }
+  if (obj == null) return null    // archivo vacío/recién creado: nada que cargar
   const { orphans, invalid } = store.loadJSON(obj as any, ways)
   if (orphans.length) console.warn(
     `pci-tachira.json: ${orphans.length} id(s) huérfano(s) -- ya no existen en la red vial ` +
@@ -99,7 +114,7 @@ async function cargarDesdeArchivo (
     `pci-tachira.json: ${invalid.length} registro(s) con un valor fuera de rango -- se normalizaron ` +
     'a "sin dato" en su campo para no pintarse como si fueran válidos:', invalid)
   if (!orphans.length && !invalid.length) return null
-  return { orphans: orphans.length, invalid: invalid.length }
+  return { tipo: 'carga', orphans: orphans.length, invalid: invalid.length }
 }
 
 export default function App () {
@@ -130,7 +145,7 @@ export default function App () {
   const [pendingHandle, setPendingHandle] = useState<FileSystemFileHandle | null>(null)
   // Cuántos huérfanos/inválidos trajo la última carga, para mostrarlos en la
   // interfaz (fix Task 21 ronda 3) -- antes solo había un console.warn.
-  const [avisoCarga, setAvisoCarga] = useState<{ orphans: number; invalid: number } | null>(null)
+  const [avisoCarga, setAvisoCarga] = useState<AvisoCarga | null>(null)
   // Único puente entre el SVG del lazo (fuera del Canvas) y pickRegion
   // (dentro): <Picker> lo rellena en un useEffect al montarse/actualizarse.
   const pickerRef = useRef<PickerApi | null>(null)
@@ -177,6 +192,7 @@ export default function App () {
       if (!res.granted) { setPendingHandle(res.handle); return }
       const aviso = await cargarDesdeArchivo(res.handle, store, data.roads.ways)
       setAvisoCarga(aviso)
+      if (aviso?.tipo === 'ilegible') return   // no conectar: el autoguardado lo sobrescribiría
       setHandle(res.handle)
     })
   }, [store, data])
@@ -322,8 +338,9 @@ export default function App () {
     if (!h) return
     const aviso = await cargarDesdeArchivo(h, store, data.roads.ways)
     setAvisoCarga(aviso)
-    setHandle(h)
     setPendingHandle(null)
+    if (aviso?.tipo === 'ilegible') return   // no conectar: el autoguardado lo sobrescribiría
+    setHandle(h)
   }, [store, data])
 
   // Task 21 ronda 3: único llamador de reconnectHandle() -- vive detrás de un
@@ -341,8 +358,9 @@ export default function App () {
     }
     const aviso = await cargarDesdeArchivo(pendingHandle, store, data.roads.ways)
     setAvisoCarga(aviso)
-    setHandle(pendingHandle)
     setPendingHandle(null)
+    if (aviso?.tipo === 'ilegible') return   // no conectar: el autoguardado lo sobrescribiría
+    setHandle(pendingHandle)
   }, [pendingHandle, store, data])
 
   if (!data) return <div style={{ padding: 24 }}>cargando datos del Táchira…</div>
@@ -415,10 +433,20 @@ export default function App () {
           color: '#f2d43f', background: 'rgba(14,20,28,0.92)', border: '1px solid #2a3644',
           borderRadius: 6, padding: '6px 10px',
         }}>
-          {avisoCarga.orphans > 0 &&
-            `${avisoCarga.orphans} vía(s) huérfana(s) (ya no existen en la red, se conservaron -- decide qué hacer con ellas). `}
-          {avisoCarga.invalid > 0 &&
-            `${avisoCarga.invalid} registro(s) con datos fuera de rango, normalizados a "sin dato".`}
+          {avisoCarga.tipo === 'ilegible' ? (
+            <>
+              El archivo tiene contenido pero no es JSON válido ({avisoCarga.detalle}).
+              {' '}NO se conectó para escritura, para no sobrescribirlo: arréglalo a mano
+              {' '}y vuelve a elegirlo con "archivo de datos".
+            </>
+          ) : (
+            <>
+              {avisoCarga.orphans > 0 &&
+                `${avisoCarga.orphans} vía(s) huérfana(s) (ya no existen en la red, se conservaron -- decide qué hacer con ellas). `}
+              {avisoCarga.invalid > 0 &&
+                `${avisoCarga.invalid} registro(s) con datos fuera de rango, normalizados a "sin dato".`}
+            </>
+          )}
         </div>
       )}
       <Canvas camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
