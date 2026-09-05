@@ -7,6 +7,7 @@ import { Roads } from './scene/Roads'
 import { FlyTo } from './scene/Camera'
 import { usePicking } from './scene/PickingPass'
 import { LassoOverlay, pointInLasso, type Pt } from './ui/LassoOverlay'
+import { FilterPanel, EMPTY_FILTER, applyFilter } from './ui/FilterPanel'
 import { loadAll } from './data/load'
 import { BBOX } from './data/constants'
 import { AttrStore } from './data/store'
@@ -55,6 +56,12 @@ export default function App () {
   const [flyTo, setFlyTo] = useState<typeof BBOX | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [lassoOn, setLassoOn] = useState(false)
+  const [filter, setFilter] = useState(EMPTY_FILTER)
+  // Se incrementa en cada notify() del store (Task 21 lo disparará vía
+  // store.set()). applyFilter lee pci/fuente del store, no de `ways` -- sin
+  // este contador el useMemo de la máscara de abajo no volvería a correr tras
+  // una edición real: ni `store` (misma instancia) ni `filter` cambiarían.
+  const [storeVersion, setStoreVersion] = useState(0)
   // Único puente entre el SVG del lazo (fuera del Canvas) y pickRegion
   // (dentro): <Picker> lo rellena en un useEffect al montarse/actualizarse.
   const pickerRef = useRef<PickerApi | null>(null)
@@ -72,20 +79,38 @@ export default function App () {
   }, [data])
 
   useEffect(() => {
-    if (!store || !attr) return
-    store.onChange(() => attr.refresh())
-  }, [store, attr])
+    if (!store) return
+    store.onChange(() => setStoreVersion(v => v + 1))
+  }, [store])
+
+  // Panel de filtros (Task 18): un byte por vía, mismo índice que `ways` y
+  // que la data texture. 26.712 elementos es barato (microsegundos) pero hay
+  // que memoizar -- sin esto correría en cada render, varias veces por
+  // pulsación de tecla. El conteo suma `way.km` (longitud cartográfica, el
+  // valor convencional), no `km3d`.
+  const { mask, count, km } = useMemo(() => {
+    if (!data || !store) return { mask: null, count: 0, km: 0 }
+    const ways = data.roads.ways
+    const mask = applyFilter(ways, store, filter)
+    let count = 0, km = 0
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] === 1) { count++; km += ways[i].km }
+    }
+    return { mask, count, km }
+  }, [data, store, filter, storeVersion])
 
   // La selección (Task 16) es estado de interacción, no un dato de la vía:
   // se repinta como una máscara aparte en cada cambio, sin pasar por
   // store.set() (eso marcaría fecha/fuente como si fuera una edición real).
+  // Sube junto con la máscara del filtro en un solo refresh(): si cada una
+  // llamara a refresh() por su cuenta, la segunda pisaría a la primera con
+  // los valores por defecto (todo visible, nada seleccionado).
   useEffect(() => {
-    if (!store || !attr) return
-    const visibleMask = new Uint8Array(store.length).fill(1)
+    if (!store || !attr || !mask) return
     const selectedMask = new Uint8Array(store.length)
     for (const i of selected) selectedMask[i] = 1
-    attr.refresh(visibleMask, selectedMask)
-  }, [store, attr, selected])
+    attr.refresh(mask, selectedMask)
+  }, [store, attr, mask, selected])
 
   // add=true (shift-clic) agrega; add=false reemplaza, y en el vacío limpia.
   const onPick = useCallback((i: number | null, add: boolean) => {
@@ -159,6 +184,7 @@ export default function App () {
         </Suspense>
       </Canvas>
       <LassoOverlay active={lassoOn} onFinish={onLassoFinish} />
+      <FilterPanel ways={data.roads.ways} filter={filter} onChange={setFilter} count={count} km={km} />
     </>
   )
 }
