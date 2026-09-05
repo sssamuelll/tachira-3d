@@ -499,7 +499,20 @@ git commit -m "feat: longitud geodesica por ECEF, punto medio y point-in-polygon
   - `QUERY_MUNICIPIOS` (string) — relaciones `admin_level=6` con geometría
   - `QUERY_VIAS` (string) — ways con `highway` y geometría
   - `waysToLines(json) → Array<{ osmId, tags, coords }>` — `coords` en `[[lon, lat], …]`
-  - `relationsToPolygons(json) → Array<{ osmId, name, polygon }>`
+  - `assembleRings(members, role) → { rings, orphanFragments }` — encadena los fragmentos
+    de un rol por extremos compartidos (tolerancia `1e-7` grados) y devuelve solo anillos
+    **cerrados**; los que no cierran se cuentan como huérfanos, nunca se cierran con una
+    cuerda arbitraria
+  - `relationsToPolygons(json) → Array<{ osmId, name, polygons, orphanFragments }>` —
+    `polygons` es un array de polígonos y cada polígono es `[exterior, ...huecos]`
+
+> **Corregido durante la ejecución.** La primera versión de esta tarea trataba cada
+> miembro `outer` como un anillo cerrado independiente. En OSM los bordes administrativos
+> vienen partidos porque los tramos de frontera se comparten entre municipios vecinos:
+> verificado contra Overpass el 2026-09-05, **los 29 municipios del Táchira tienen 2 o más
+> miembros `outer`** — 1.001 fragmentos en total, hasta 68 en uno solo (Cárdenas), y ningún
+> rol `inner`. Sin ensamblado, del segundo fragmento en adelante se trataban como huecos y
+> la asignación de municipio de las 26.712 vías salía mal sin que nada fallara.
 
 - [ ] **Step 1: Escribir los tests**
 
@@ -951,7 +964,8 @@ git commit -m "feat: empaquetado de vias a binarios con ejes de three"
   - `terrain.json` — `{ width, height, bbox: {s,w,n,e}, min, max, origin: {lat, lon, h} }`
   - `roads-pos.bin`, `roads-segid.bin`, `roads-index.bin`
   - `roads-meta.json` — `{ count, ways: Array<{ osmId, ref, name, highway, surface, municipio, km, km3d }> }`
-  - `municipios.json` — `Array<{ osmId, name, polygon }>`
+  - `municipios.json` — `Array<{ osmId, name, polygons }>`, donde `polygons` es un array
+    de polígonos y cada polígono es `[exterior, ...huecos]` (ver la nota en la Task 4)
 
 - [ ] **Step 1: Escribir el pipeline**
 
@@ -1000,9 +1014,12 @@ async function main () {
   // segmentos y rompería los ids, que es lo que ancla los datos del usuario.
   for (const l of lines) {
     const [lon, lat] = l.coords[midpointIndex(l.coords)]
-    const m = municipios.find(mm => pointInPolygon(lon, lat, mm.polygon))
+    // un municipio puede ser multipolígono (enclaves), de ahí el .some()
+    const m = municipios.find(mm => mm.polygons.some(p => pointInPolygon(lon, lat, p)))
     l.municipio = m ? m.name : null
   }
+  const huerfanos = municipios.reduce((s, m) => s + m.orphanFragments, 0)
+  if (huerfanos > 0) console.warn(`     AVISO: ${huerfanos} fragmentos de frontera sin cerrar`)
   const sinMunicipio = lines.filter(l => !l.municipio).length
   console.log(`     sin municipio: ${sinMunicipio}`)
 
