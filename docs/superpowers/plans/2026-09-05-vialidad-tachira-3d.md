@@ -1396,7 +1396,14 @@ export interface TerrainMeta {
   min: number; max: number
   origin: { lat: number; lon: number; h: number }
 }
-export interface Municipio { osmId: number; name: string; polygon: number[][][] }
+// `polygons` en plural y con un nivel más de anidamiento: un municipio puede ser
+// multipolígono, y cada polígono es [exterior, ...huecos]. Ver la nota de la Task 4.
+export interface Municipio {
+  osmId: number
+  name: string
+  polygons: number[][][][]
+  orphanFragments: number
+}
 
 export interface Registro { pci: number | null; fuente: Fuente; tipo: Tipo; fecha: string; nota: string }
 ```
@@ -1476,36 +1483,44 @@ createRoot(document.getElementById('root')!).render(<App />)
 
 - [ ] **Step 2: Crear el wrapper del cielo**
 
-Los nombres exactos de los props de `<Atmosphere>` están en la documentación del paquete; si alguno
-no existe en la versión instalada, quitarlo y dejar los valores por defecto antes que inventar.
+> **Corregido durante la ejecución.** La primera versión de este bloque tenía tres errores
+> que solo se ven abriendo `node_modules/@takram/three-atmosphere/`:
+>
+> 1. **`<AerialPerspective>` iba anidado directo dentro de `<Atmosphere>`.** Es un efecto de
+>    post-proceso: fuera de un `<EffectComposer>` se construye pero nunca se engancha a un
+>    render pass. **No lanza error — simplemente no hace nada.**
+> 2. **El prop es `date`, no `referenceDate`**, que me lo inventé. Y `<Atmosphere date={...}>`
+>    ya reacciona solo al cambio, así que el `useRef` + `useFrame` + `updateByDate` sobraba.
+> 3. **Los props `sky`/`sunLight`/`skyLight` de `<AerialPerspective>` existen**, pero
+>    pertenecen al modo de iluminación por post-proceso, documentado como incompatible con
+>    usar `<SunLight>`/`<SkyLight>` de escena a la vez — que es lo que hace este componente.
+>
+> Los siete nombres de componente sí existían; el error estaba en cómo los compuse.
 
 ```tsx
 // src/scene/Sky.tsx
-import { useRef } from 'react'
 import { Atmosphere, Sky as TakramSky, SunLight, SkyLight, AerialPerspective }
   from '@takram/three-atmosphere/r3f'
-import type { AtmosphereApi } from '@takram/three-atmosphere/r3f'
-import { useFrame } from '@react-three/fiber'
+import { EffectComposer } from '@react-three/postprocessing'
 import { ORIGIN } from '../data/constants'
 
+// <Atmosphere> no expone un prop de origen: su marco de referencia es ECEF fijo.
+// ORIGIN se reexporta aquí para que la Task 11 rebase terreno y cámara contra el
+// mismo punto que usa el cielo.
+export const SKY_ORIGIN = ORIGIN
+
 export function Sky ({ date }: { date: Date }) {
-  const api = useRef<AtmosphereApi>(null)
-  useFrame(() => { api.current?.updateByDate(date) })
   return (
-    <Atmosphere ref={api} referenceDate={date}
-      // el scattering necesita saber dónde estamos de verdad, aunque
-      // la escena esté rebaseada al origen local
-      correctAltitude
-    >
+    <Atmosphere date={date} correctAltitude>
       <TakramSky />
       <SunLight />
       <SkyLight />
-      <AerialPerspective sky sunLight skyLight />
+      <EffectComposer>
+        <AerialPerspective />
+      </EffectComposer>
     </Atmosphere>
   )
 }
-
-export const SKY_ORIGIN = ORIGIN
 ```
 
 - [ ] **Step 3: Crear el App shell**
