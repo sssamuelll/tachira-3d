@@ -550,18 +550,36 @@ test('waysToLines descarta ways sin geometria o con menos de dos nodos', () => {
   expect(waysToLines(json)).toHaveLength(0)
 })
 
-test('relationsToPolygons arma el anillo exterior desde los members outer', () => {
+// El caso real: la frontera viene partida en fragmentos abiertos, uno de ellos
+// con los puntos en orden invertido. Un test con un único member ya cerrado
+// pasa aunque el ensamblado no exista — es el caso que nunca ocurre.
+const frag = (...pts) => ({ type: 'way', role: 'outer', geometry: pts.map(([lon, lat]) => ({ lat, lon })) })
+
+test('relationsToPolygons encadena los fragmentos partidos de la frontera', () => {
   const json = { elements: [{
     type: 'relation', id: 7, tags: { name: 'Municipio Junín' },
-    members: [{ type: 'way', role: 'outer', geometry: [
-      { lat: 0, lon: 0 }, { lat: 0, lon: 1 }, { lat: 1, lon: 1 }, { lat: 1, lon: 0 }, { lat: 0, lon: 0 },
-    ] }],
+    members: [
+      frag([0, 0], [0, 1]),
+      frag([1, 1], [1, 0], [0, 0]),   // este cierra el anillo
+      frag([0, 1], [1, 1]),
+    ],
   }] }
   const [m] = relationsToPolygons(json)
   expect(m.osmId).toBe(7)
   expect(m.name).toBe('Municipio Junín')
-  expect(m.polygon[0]).toHaveLength(5)
-  expect(m.polygon[0][0]).toEqual([0, 0])
+  expect(m.polygons).toHaveLength(1)
+  expect(m.polygons[0][0][0]).toEqual(m.polygons[0][0].at(-1))   // anillo cerrado
+  expect(m.orphanFragments).toBe(0)
+})
+
+test('un fragmento que no cierra se cuenta como huerfano, no se cierra solo', () => {
+  const json = { elements: [{
+    type: 'relation', id: 8, tags: { name: 'X' },
+    members: [frag([0, 0], [0, 1]), frag([5, 5], [6, 6])],
+  }] }
+  const [m] = relationsToPolygons(json)
+  expect(m.polygons).toHaveLength(0)
+  expect(m.orphanFragments).toBeGreaterThan(0)
 })
 ```
 
