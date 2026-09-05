@@ -8,10 +8,12 @@ import { FlyTo } from './scene/Camera'
 import { usePicking } from './scene/PickingPass'
 import { LassoOverlay, pointInLasso, type Pt } from './ui/LassoOverlay'
 import { FilterPanel, EMPTY_FILTER, applyFilter } from './ui/FilterPanel'
+import { EditPanel } from './ui/EditPanel'
 import { loadAll } from './data/load'
 import { BBOX } from './data/constants'
 import { AttrStore } from './data/store'
 import { AttrTexture } from './data/attrTexture'
+import type { Registro } from './data/types'
 
 type Data = Awaited<ReturnType<typeof loadAll>>
 // Forma real de lo que devuelve usePicking (Task 16): pickAt para el clic,
@@ -57,10 +59,11 @@ export default function App () {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [lassoOn, setLassoOn] = useState(false)
   const [filter, setFilter] = useState(EMPTY_FILTER)
-  // Se incrementa en cada notify() del store (Task 21 lo disparará vía
-  // store.set()). applyFilter lee pci/fuente del store, no de `ways` -- sin
-  // este contador el useMemo de la máscara de abajo no volvería a correr tras
-  // una edición real: ni `store` (misma instancia) ni `filter` cambiarían.
+  // Se incrementa en cada notify() del store -- onApply (Task 19, más abajo)
+  // es el primer caller real de store.set() fuera de seedFromSurface().
+  // applyFilter lee pci/fuente del store, no de `ways` -- sin este contador
+  // el useMemo de la máscara de abajo no volvería a correr tras una edición
+  // real: ni `store` (misma instancia) ni `filter` cambiarían.
   const [storeVersion, setStoreVersion] = useState(0)
   // Único puente entre el SVG del lazo (fuera del Canvas) y pickRegion
   // (dentro): <Picker> lo rellena en un useEffect al montarse/actualizarse.
@@ -112,6 +115,13 @@ export default function App () {
     attr.refresh(mask, selectedMask)
   }, [store, attr, mask, selected])
 
+  // number[] para EditPanel y para store.set(), que esperan un arreglo, no
+  // el Set que onPick/onLassoFinish necesitan para add() en O(1). Memoizado
+  // por la misma razón que la máscara del filtro (arriba): sin esto se
+  // reconstruye en cada render -- varias veces por arrastre de un slider del
+  // FilterPanel, que también vive en App y re-renderiza este componente.
+  const selectionArray = useMemo(() => Array.from(selected), [selected])
+
   // add=true (shift-clic) agrega; add=false reemplaza, y en el vacío limpia.
   const onPick = useCallback((i: number | null, add: boolean) => {
     setSelected(prev => {
@@ -147,6 +157,30 @@ export default function App () {
       return next
     })
   }, [])
+
+  // Task 19: onApply es el único llamador de store.set() en la app. Le pasa
+  // el lote entero de una (selectionArray), nunca un for por vía -- set() ya
+  // normaliza y notifica una sola vez por lote (store.ts); con selecciones
+  // de miles de elementos, notificar por elemento es la diferencia entre
+  // instantáneo y colgado. Ese único notify() sube storeVersion (el
+  // useEffect de arriba), lo que hace recalcular `mask` (el useMemo de
+  // arriba) y en cadena dispara el useEffect de refresh() con el mask y el
+  // selected ya vigentes -- repinta sin perder ni el filtro ni la selección.
+  // No hace falta otro onChange ni un refresh() manual acá.
+  const onApply = useCallback((patch: Partial<Registro>) => {
+    if (!store) return
+    store.set(selectionArray, patch)
+  }, [store, selectionArray])
+
+  // "Seleccionar todo lo filtrado" es el camino principal de edición masiva
+  // (26.712 vías, Task 19): arma la selección directo desde `mask`, ya
+  // calculado por el useMemo de arriba -- no vuelve a filtrar.
+  const onSelectAllFiltered = useCallback(() => {
+    if (!mask) return
+    const next = new Set<number>()
+    for (let i = 0; i < mask.length; i++) if (mask[i] === 1) next.add(i)
+    setSelected(next)
+  }, [mask])
 
   if (!data) return <div style={{ padding: 24 }}>cargando datos del Táchira…</div>
 
@@ -185,6 +219,10 @@ export default function App () {
       </Canvas>
       <LassoOverlay active={lassoOn} onFinish={onLassoFinish} />
       <FilterPanel ways={data.roads.ways} filter={filter} onChange={setFilter} count={count} km={km} />
+      <EditPanel
+        selection={selectionArray} filteredCount={count}
+        onApply={onApply} onSelectAllFiltered={onSelectAllFiltered}
+      />
     </>
   )
 }
