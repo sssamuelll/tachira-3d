@@ -1656,7 +1656,13 @@ varying float vElev;
 varying vec3 vNormalW;
 void main () {
   vElev = position.y;
-  vNormalW = normalize(normalMatrix * normal);
+  // Normal de objeto, SIN normalMatrix. La malla se construye ya en coordenadas de
+  // mundo (no tiene rotación ni escala), así que normal de objeto == normal de mundo.
+  // normalMatrix es la inversa-transpuesta de modelViewMatrix: multiplicar por ella
+  // daría la normal en espacio de CÁMARA, que rota en cada frame de OrbitControls.
+  // Contra un uSun fijo, eso hace que la luz gire pegada a la cámara y el sombreado
+  // cambie de lado al orbitar. Es el bug que traía la primera versión de este plan.
+  vNormalW = normalize(normal);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`
 
@@ -1761,7 +1767,11 @@ export default function App () {
         <Sky date={date} />
         <Terrain grid={data.terrainGrid} meta={data.terrain} />
         <OrbitControls maxDistance={400000} />
-        <EffectComposer />
+        {/* NO poner un <EffectComposer/> aquí: el composer real vive dentro de
+            <Sky>, envolviendo <AerialPerspective> y <ToneMapping>. Uno vacío
+            aquí es un segundo composer que compite por el render. La primera
+            versión de este plan lo tenía, reintroduciendo el bug que la Task 10
+            ya había corregido. */}
       </Suspense>
     </Canvas>
   )
