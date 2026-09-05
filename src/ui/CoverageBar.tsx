@@ -22,17 +22,42 @@ const bar: CSSProperties = {
   borderRadius: 6, padding: '8px 12px', display: 'flex', gap: 6, overflowX: 'auto',
 }
 
+// Mismo string literal que store.ts usa como fallback de las vías sin
+// municipio asignado (coverageByMunicipio) -- no es una constante compartida
+// porque store.ts pertenece a otra task en curso en esta sesión (Task 21);
+// si algún día se comparte, esta es la otra mitad.
+const SIN_MUNICIPIO = 'sin municipio'
+
+// Extraída del componente para poder probar el bucket 'sin municipio' sin
+// renderizar JSX -- este repo no tiene @testing-library/react (mismo criterio
+// que ya aplicó la Task 19 a EditPanel/FilterPanel: una dependencia nueva
+// para un solo test de render no vale la pena). El municipio menos evaluado
+// va primero -- esta barra ES la cola de trabajo, no un adorno -- y en caso
+// de empate, alfabético: sin esto el desempate sale del orden de inserción
+// del Map (el orden en que aparece cada municipio en `ways`), y con los 29
+// en 0% al arrancar eso deja la lista entera en un orden arbitrario para
+// quien la ve por primera vez.
+export function filasCobertura (store: AttrStore) {
+  return [...store.coverageByMunicipio()]
+    .map(([name, c]) => ({
+      name, ...c, pct: c.total ? c.evaluados / c.total : 0,
+      // 'sin municipio' no tiene geometría propia (no está en
+      // municipios.json) ni es un valor que FilterPanel pueda producir --
+      // pulsarlo no puede filtrar ni volar a ningún lado. Hoy es un caso
+      // inerte (build-data.mjs/verify-data.mjs exigen 0 vías sin municipio
+      // en el dato real) pero si alguna vez deja de serlo, prometer un clic
+      // que no hace nada es peor que no mostrarlo -- se muestra, sin acción.
+      clickable: name !== SIN_MUNICIPIO,
+    }))
+    .sort((a, b) => a.pct - b.pct || a.name.localeCompare(b.name, 'es'))
+}
+
 export function CoverageBar (
   { store, version, onPick }: { store: AttrStore; version: number; onPick: (m: string) => void },
 ) {
-  // El municipio menos evaluado va primero: con 26.712 vías y una sola persona
-  // cargándolas, esta barra ES la cola de trabajo, no un adorno -- ordenar por
-  // nombre o por total dejaría lo que falta enterrado en medio de la lista.
   const filas = useMemo(() => {
     void version   // fuerza el recálculo cuando el store notifica un cambio (App.tsx, storeVersion)
-    return [...store.coverageByMunicipio()]
-      .map(([name, c]) => ({ name, ...c, pct: c.total ? c.evaluados / c.total : 0 }))
-      .sort((a, b) => a.pct - b.pct)
+    return filasCobertura(store)
   }, [store, version])
 
   const totalPct = filas.reduce((s, f) => s + f.evaluados, 0) /
@@ -44,25 +69,41 @@ export function CoverageBar (
         <strong>{(totalPct * 100).toFixed(1)}%</strong><br />
         <span style={{ color: '#8b98a8', fontSize: 11 }}>evaluado</span>
       </div>
-      {filas.map(f => (
-        <button key={f.name} onClick={() => onPick(f.name)}
-          title={`${f.evaluados.toLocaleString('es-VE')} de ${f.total.toLocaleString('es-VE')}`}
-          style={{
-            minWidth: 74, background: 'none', border: '1px solid #2a3644',
-            borderRadius: 4, padding: '4px 6px', color: '#e8eaed', cursor: 'pointer',
-            textAlign: 'left', fontSize: 11,
-          }}>
-          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {f.name}
+      {filas.map(f => {
+        const contenido = (
+          <>
+            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {f.name}
+            </div>
+            <div style={{ height: 4, background: '#22303f', borderRadius: 2, marginTop: 3 }}>
+              <div style={{
+                height: '100%', width: `${f.pct * 100}%`, borderRadius: 2,
+                background: f.pct > 0.66 ? '#22a04f' : f.pct > 0.33 ? '#f2d43f' : '#c9422a',
+              }} />
+            </div>
+          </>
+        )
+        const filaStyle: CSSProperties = {
+          minWidth: 74, background: 'none', border: '1px solid #2a3644',
+          borderRadius: 4, padding: '4px 6px', color: '#e8eaed',
+          textAlign: 'left', fontSize: 11, cursor: f.clickable ? 'pointer' : 'default',
+        }
+        const title = f.clickable
+          ? `${f.evaluados.toLocaleString('es-VE')} de ${f.total.toLocaleString('es-VE')}`
+          : `${f.evaluados.toLocaleString('es-VE')} de ${f.total.toLocaleString('es-VE')} — sin municipio asignado, no se puede filtrar ni volar a estas vías`
+        // No-pulsable como <div> informativo, no <button disabled>: acá no es
+        // "esta acción no está disponible ahora", es "esto nunca fue una
+        // acción" -- disabled sugeriría lo primero.
+        return f.clickable ? (
+          <button key={f.name} onClick={() => onPick(f.name)} title={title} style={filaStyle}>
+            {contenido}
+          </button>
+        ) : (
+          <div key={f.name} title={title} style={filaStyle}>
+            {contenido}
           </div>
-          <div style={{ height: 4, background: '#22303f', borderRadius: 2, marginTop: 3 }}>
-            <div style={{
-              height: '100%', width: `${f.pct * 100}%`, borderRadius: 2,
-              background: f.pct > 0.66 ? '#22a04f' : f.pct > 0.33 ? '#f2d43f' : '#c9422a',
-            }} />
-          </div>
-        </button>
-      ))}
+        )
+      })}
     </div>
   )
 }
