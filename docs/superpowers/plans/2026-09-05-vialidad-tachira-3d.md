@@ -1904,7 +1904,7 @@ test('loadJSON restaura por osmId y reporta huerfanos sin borrarlos', () => {
     '999': { pci: 50, fuente: 'medido', tipo: 'asfalto', fecha: '2026-09-05', nota: '' },
   } }, ways)
   expect(s.get(1).pci).toBe(30)
-  expect(huerfanos).toEqual(['999'])
+  expect(orphans).toEqual(['999'])
 })
 
 test('toJSON solo serializa lo que tiene dato', () => {
@@ -1991,11 +1991,11 @@ export class AttrStore {
     const orphans: string[] = []
     for (const [id, reg] of Object.entries(obj.registros ?? {})) {
       const i = porId.get(id)
-      if (i == null) huerfanos.push(id)
+      if (i == null) orphans.push(id)
       else this.regs[i] = { ...vacio(), ...reg }
     }
     this.notify()
-    return huerfanos
+    return orphans
   }
 }
 ```
