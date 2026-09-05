@@ -30,14 +30,14 @@ type PickerApi = ReturnType<typeof usePicking>
 // Canvas, en un SVG superpuesto (LassoOverlay.tsx) sin ningún padre común en
 // el árbol de React salvo App -- el ref es el único puente entre los dos.
 function Picker (
-  { positions, segIds, onPick, pickerRef }:
+  { positions, segIds, attr, onPick, pickerRef }:
   {
-    positions: Float32Array; segIds: Float32Array
+    positions: Float32Array; segIds: Float32Array; attr: AttrTexture
     onPick: (i: number | null, add: boolean) => void
     pickerRef: RefObject<PickerApi | null>
   },
 ) {
-  const { pickAt, pickRegion } = usePicking({ positions, segIds })
+  const { pickAt, pickRegion } = usePicking({ positions, segIds, attr })
   const { gl } = useThree()
 
   useEffect(() => { pickerRef.current = { pickAt, pickRegion } }, [pickerRef, pickAt, pickRegion])
@@ -408,7 +408,15 @@ export default function App () {
           <Sky date={date} />
           <Terrain grid={data.terrainGrid} meta={data.terrain} />
           {attr && <Roads positions={data.positions} segIds={data.segIds} attr={attr} />}
-          <Picker positions={data.positions} segIds={data.segIds} onPick={onPick} pickerRef={pickerRef} />
+          {/* attr también acá, no solo en <Roads>: el buffer de ids lee la
+              misma textura para descartar lo que el filtro oculta
+              (PickingPass.tsx) -- si el pase de picking dibujara las 26.712
+              vías siempre, la selección devolvería vías que no están en
+              pantalla. */}
+          {attr && (
+            <Picker positions={data.positions} segIds={data.segIds} attr={attr}
+              onPick={onPick} pickerRef={pickerRef} />
+          )}
           {/* enabled=false mientras el lazo está activo: arrastrar para dibujar
               y arrastrar para orbitar son el mismo gesto -- si OrbitControls
               también escucha, el lazo sale torcido y la vista se mueve sola. */}

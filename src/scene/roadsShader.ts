@@ -39,6 +39,33 @@ export const PCI_COLOR_GLSL = `
   }
 `
 
+/** Reemplazo de ANCLA_VERT que declara segId y deja en `vAttr` el texel de
+ * atributos de esa vía (AttrTexture, Task 14). Deja main() ABIERTO -- es un
+ * reemplazo de `void main() {`, no un bloque suelto.
+ *
+ * Compartido con el pase de picking (PickingPass.tsx): el id buffer tiene que
+ * leer exactamente la misma textura que el pase visible, o devuelve ids de
+ * vías que el filtro está ocultando. */
+export const ATTR_VERT_GLSL = `
+      attribute float segId;
+      uniform sampler2D uAttr;
+      uniform float uAttrSize;
+      varying vec4 vAttr;
+      void main() {
+        vAttr = texture2D(uAttr, (vec2(
+          mod(segId, uAttrSize), floor(segId / uAttrSize)) + 0.5) / uAttrSize);
+`
+
+/** Canal B, bit 0 de la textura de atributos: la máscara del filtro
+ * (applyFilter en FilterPanel.tsx). Los DOS pases descartan con este mismo
+ * bloque -- si solo lo hiciera el visible, el buffer de ids seguiría
+ * dibujando las 26.712 vías y la selección devolvería vías que no están en
+ * pantalla, listas para que una edición masiva les escriba PCI encima. */
+export const DISCARD_OCULTAS_GLSL = `
+        float visible = mod(floor(vAttr.b * 255.0 + 0.5), 2.0);
+        if (visible < 0.5) discard;
+`
+
 // FUENTES (constants.ts) también es fuente única: se resuelve el índice acá
 // en vez de repetir 2.0/3.0 sueltos y sin nombre dentro del shader.
 const F_ESTIMADO = FUENTES.indexOf('estimado').toFixed(1)
@@ -62,15 +89,7 @@ export function patchLineMaterial (
     if (!shader.vertexShader.includes(ANCLA_VERT)) {
       throw new Error('roadsShader: no se encontró el ancla del vertex shader de LineMaterial')
     }
-    shader.vertexShader = shader.vertexShader.replace(ANCLA_VERT, `
-      attribute float segId;
-      uniform sampler2D uAttr;
-      uniform float uAttrSize;
-      varying vec4 vAttr;
-      void main() {
-        vAttr = texture2D(uAttr, (vec2(
-          mod(segId, uAttrSize), floor(segId / uAttrSize)) + 0.5) / uAttrSize);
-    `)
+    shader.vertexShader = shader.vertexShader.replace(ANCLA_VERT, ATTR_VERT_GLSL)
 
     // Mismo patrón que el vertex shader arriba: cada ancla se comprueba antes
     // de usarse, incluida esta reutilización de ANCLA_VERT sobre el fragment
@@ -90,11 +109,10 @@ export function patchLineMaterial (
         void main() {
       `)
       .replace(ANCLA_FRAG, `
+        ${DISCARD_OCULTAS_GLSL}
         float pci = vAttr.r * 255.0;
         float fuente = floor(vAttr.g * 255.0 + 0.5);
-        float visible = mod(floor(vAttr.b * 255.0 + 0.5), 2.0);
         float selected = floor(mod(floor(vAttr.b * 255.0 + 0.5), 4.0) / 2.0);
-        if (visible < 0.5) discard;
         // la procedencia modula la opacidad final: medido sólido, estimado
         // semitransparente, heredado (y sin dato) tenue. Ojo: three@0.185.1
         // saca el alpha de salida de la variable local alpha (ver

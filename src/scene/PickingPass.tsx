@@ -9,7 +9,9 @@ import { useThree } from '@react-three/fiber'
 // el material real: duplicarlas acá dejaba este pase sin cobertura, así que
 // una actualización de three que las moviera ponía roja la suite por el otro
 // lado, se arreglaba allá, y el picking quedaba roto hasta el primer clic.
-import { ANCLA_VERT, ANCLA_FRAG } from './roadsShader'
+import { ANCLA_VERT, ANCLA_FRAG, ATTR_VERT_GLSL, DISCARD_OCULTAS_GLSL } from './roadsShader'
+import { ATTR_SIZE } from '../data/constants'
+import type { AttrTexture } from '../data/attrTexture'
 
 export const encodeId = (i: number): [number, number, number] =>
   [(i >> 16) & 255, (i >> 8) & 255, i & 255]
@@ -22,15 +24,27 @@ export const decodeId = (r: number, g: number, b: number): number =>
 // id buffer. Calibrable -- ver task-16-report.md para el valor probado.
 export const PICK_WIDTH = 8
 
-function patchPickMaterial (material: THREE.Material) {
+/** El buffer de ids lee la MISMA textura de atributos que el pase visible y
+ * descarta con el MISMO bloque (roadsShader.ts): una vía que el filtro oculta
+ * no puede escribir su id acá. Sin esto el buffer dibujaba las 26.712 vías
+ * siempre, filtradas o no -- un clic o un lazo sobre un mapa vacío devolvían
+ * miles de vías invisibles, y el panel de edición les escribía PCI con marca
+ * de procedencia encima. Se arregla en el buffer y no en onPick/onLassoFinish
+ * a propósito: así cualquier consumidor futuro hereda la corrección en vez de
+ * tener que acordarse de intersectar con la máscara. */
+export function patchPickMaterial (
+  material: THREE.Material, attrTexture: THREE.DataTexture, attrSize: number,
+) {
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.uAttr = { value: attrTexture }
+    shader.uniforms.uAttrSize = { value: attrSize }
+
     if (!shader.vertexShader.includes(ANCLA_VERT)) {
       throw new Error('PickingPass: no se encontró el ancla del vertex shader de LineMaterial')
     }
     shader.vertexShader = shader.vertexShader.replace(ANCLA_VERT, `
-      attribute float segId;
       varying float vSegId;
-      void main() {
+      ${ATTR_VERT_GLSL}
         vSegId = segId;
     `)
     if (!shader.fragmentShader.includes(ANCLA_VERT)) {
@@ -40,8 +54,9 @@ function patchPickMaterial (material: THREE.Material) {
       throw new Error('PickingPass: no se encontró el ancla del fragment shader de LineMaterial')
     }
     shader.fragmentShader = shader.fragmentShader
-      .replace(ANCLA_VERT, 'varying float vSegId;\nvoid main() {')
+      .replace(ANCLA_VERT, 'varying float vSegId;\nvarying vec4 vAttr;\nvoid main() {')
       .replace(ANCLA_FRAG, `
+        ${DISCARD_OCULTAS_GLSL}
         float id = vSegId + 1.0;   // 0 queda reservado para "nada"
         // El id buffer tiene que ser OPACO: cualquier mezcla de color entre
         // dos vías vecinas decodifica como un id que no existe. gl_FragColor
@@ -60,7 +75,8 @@ function patchPickMaterial (material: THREE.Material) {
 }
 
 export function usePicking (
-  { positions, segIds }: { positions: Float32Array; segIds: Float32Array },
+  { positions, segIds, attr }:
+  { positions: Float32Array; segIds: Float32Array; attr: AttrTexture },
 ) {
   const { gl, scene, camera, size } = useThree()
 
@@ -74,13 +90,13 @@ export function usePicking (
     geometry.setPositions(positions)
     geometry.setAttribute('segId', new THREE.InstancedBufferAttribute(segIds, 1))
     const material = new LineMaterial({ linewidth: PICK_WIDTH, worldUnits: false })
-    patchPickMaterial(material)
+    patchPickMaterial(material, attr.texture, ATTR_SIZE)
     const pickLine = new LineSegments2(geometry, material)
     pickLine.frustumCulled = false     // el bbox de una geometría instanciada no es fiable (Roads.tsx)
     const pickScene = new THREE.Scene()
     pickScene.add(pickLine)
     return { pickScene, pickLine }
-  }, [positions, segIds])
+  }, [positions, segIds, attr])
 
   // Render target sin antialiasing ni mipmaps: un texel debe decodificar a un
   // id exacto, no a un promedio entre vecinos. Se crea una sola vez;
