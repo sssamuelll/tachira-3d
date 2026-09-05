@@ -4,11 +4,12 @@ import { OrbitControls } from '@react-three/drei'
 import { Sky } from './scene/Sky'
 import { Terrain } from './scene/Terrain'
 import { Roads } from './scene/Roads'
-import { FlyTo } from './scene/Camera'
+import { FlyTo, municipioBbox } from './scene/Camera'
 import { usePicking } from './scene/PickingPass'
 import { LassoOverlay, pointInLasso, type Pt } from './ui/LassoOverlay'
 import { FilterPanel, EMPTY_FILTER, applyFilter } from './ui/FilterPanel'
 import { EditPanel } from './ui/EditPanel'
+import { CoverageBar } from './ui/CoverageBar'
 import { loadAll } from './data/load'
 import { BBOX } from './data/constants'
 import { AttrStore } from './data/store'
@@ -182,6 +183,27 @@ export default function App () {
     setSelected(next)
   }, [mask])
 
+  // Task 20: Way.municipio y Municipio.name son el mismo string (build-data.mjs
+  // los siembra desde la misma relación de OSM) -- un Map una sola vez por
+  // carga de datos evita recorrer las 29 municipios por cada clic en la barra.
+  const municipioPorNombre = useMemo(() => {
+    if (!data) return null
+    return new Map(data.municipios.map(m => [m.name, m]))
+  }, [data])
+
+  // CoverageBar (Task 20) ordena los 29 municipios por avance ascendente y
+  // pulsar uno debe hacer dos cosas a la vez: acotar el filtro a ese municipio
+  // (mismo campo que ya usa FilterPanel) y volar la cámara a su bbox. Update
+  // funcional de `filter` (no `{ ...filter, municipio }` cerrado sobre el
+  // filter del render en que se creó este callback) para no pisar en silencio
+  // los demás campos que el usuario haya tocado desde entonces -- mismo motivo
+  // que onPick (arriba) usa `setSelected(prev => ...)`.
+  const onPickMunicipio = useCallback((nombre: string) => {
+    setFilter(f => ({ ...f, municipio: nombre }))
+    const m = municipioPorNombre?.get(nombre)
+    if (m) setFlyTo(municipioBbox(m))
+  }, [municipioPorNombre])
+
   if (!data) return <div style={{ padding: 24 }}>cargando datos del Táchira…</div>
 
   // el terreno vive en ENU local centrado en ORIGIN (bbox ~147×129 km,
@@ -223,6 +245,7 @@ export default function App () {
         selection={selectionArray} filteredCount={count}
         onApply={onApply} onSelectAllFiltered={onSelectAllFiltered}
       />
+      {store && <CoverageBar store={store} version={storeVersion} onPick={onPickMunicipio} />}
     </>
   )
 }

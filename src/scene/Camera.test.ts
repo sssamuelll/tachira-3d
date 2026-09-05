@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest'
-import { enuOf, bboxCenterAndSpan } from './Camera'
+import { enuOf, bboxCenterAndSpan, municipioBbox } from './Camera'
 import { ORIGIN, BBOX } from '../data/constants'
+import type { Municipio } from '../data/types'
 
 test('el origen del proyecto cae en el cero de la escena', () => {
   const v = enuOf(ORIGIN.lat, ORIGIN.lon, 0)
@@ -31,4 +32,24 @@ test('mover al este/norte/arriba solo mueve el eje que le corresponde', () => {
   const arriba = enuOf(ORIGIN.lat, ORIGIN.lon, 1000)
   expect(arriba.y).toBeGreaterThan(999) // altura -> +Y
   expect(arriba.y).toBeLessThan(1001)
+})
+
+// Ningún municipio del dato real (public/data/municipios.json) tiene hoy más
+// de un polígono, así que este caso no se puede ver a ojo en el navegador --
+// un municipio sintético con dos polígonos separados (y un hueco con un punto
+// fuera de su propio anillo exterior, algo que nunca pasaría en un GeoJSON
+// real pero que fija que solo se lee ring[0]) es la única forma de probar que
+// municipioBbox no se queda solo con polygons[0].
+test('el bbox de un municipio multipoligono cubre todos los poligonos e ignora los huecos', () => {
+  const m: Municipio = {
+    osmId: 1, name: 'Test', orphanFragments: 0,
+    polygons: [
+      [
+        [[-72.0, 8.0], [-71.9, 8.0], [-71.9, 8.1], [-72.0, 8.1]], // anillo exterior
+        [[-73.0, 5.0]],                                            // hueco fuera de rango -- debe ignorarse
+      ],
+      [[[-70.0, 9.0], [-69.9, 9.0], [-69.9, 9.1], [-70.0, 9.1]]], // segundo poligono (enclave)
+    ],
+  }
+  expect(municipioBbox(m)).toEqual({ s: 8.0, w: -72.0, n: 9.1, e: -69.9 })
 })
