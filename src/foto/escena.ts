@@ -290,8 +290,8 @@ const SOL_LEJOS = 1e7
 // claras se queman. Va junto con CIELO_INTENSIDAD: los dos suben y bajan la
 // misma exposición, lo que reparten es cuánto contraste hay entre lo que da el
 // sol y lo que da el cielo (o sea, qué tan profundas salen las sombras).
-export const SOL_INTENSIDAD = 3.2
-export const CIELO_INTENSIDAD = 0.9
+export const SOL_INTENSIDAD = 5.5
+export const CIELO_INTENSIDAD = 0.55
 
 // Luz solar directa: cálida y ligeramente desaturada, no blanco puro.
 const SOL_COLOR = 0xfff2e0

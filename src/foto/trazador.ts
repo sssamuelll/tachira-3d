@@ -52,8 +52,8 @@ export interface Foto {
 //
 // El sol NO va en el cielo: es el DirectionalLight de escena.ts. Ponerlo
 // también acá lo contaría dos veces.
-const CIELO_ARRIBA = 0x5f8fc9
-const CIELO_ABAJO = 0xd8cbb4
+const CIELO_ARRIBA = 0x3572bd
+const CIELO_ABAJO = 0xb9b2a4
 
 function cielo (): GradientEquirectTexture {
   const t = new GradientEquirectTexture(256)
@@ -61,7 +61,7 @@ function cielo (): GradientEquirectTexture {
   t.bottomColor.set(CIELO_ABAJO)
   // Por debajo de 1 el azul del cenit baja demasiado sobre el horizonte y la
   // escena entera se tiñe. Calibrable.
-  t.exponent = 1.6
+  t.exponent = 0.6
   t.update()
   return t
 }
@@ -153,10 +153,14 @@ export async function trazar ({ vista, camera, lienzo, date, muestras, onAvance,
 
   let foto: Foto | null = null
   try {
-    onAvance({ fase: 'armando', muestras: 0, objetivo: muestras, progreso: 0, recuento })
-    await trazador.setSceneAsync(escena, cam, {
-      onProgress: p => onAvance({ fase: 'armando', muestras: 0, objetivo: muestras, progreso: p, recuento }),
-    })
+    onAvance({ fase: 'armando', muestras: 0, objetivo: muestras, progreso: 0.5, recuento })
+    // setScene y no setSceneAsync: la versión asíncrona de three-gpu-pathtracer
+    // EXIGE un worker de BVH (setBVHWorker, o revienta con "must be called
+    // before generateAsync"), y montar ese worker con Vite es otra pieza de
+    // build para ahorrar un congelón de uno o dos segundos que ya está
+    // anunciado en el panel. Si el relieve crece y esto pasa a molestar, el
+    // camino es ParallelMeshBVHWorker de three-mesh-bvh/worker.
+    trazador.setScene(escena, cam)
     if (cancelado()) return null
 
     onAvance({ fase: 'compilando', muestras: 0, objetivo: muestras, progreso: 0, recuento })
@@ -180,6 +184,19 @@ export async function trazar ({ vista, camera, lienzo, date, muestras, onAvance,
     if (!blob) throw new Error('el lienzo no devolvió un PNG')
     foto = { blob, ancho, alto, ms: performance.now() - t0, recuento }
   } finally {
+    // Cancelar cae, casi siempre, mientras three todavía está compilando el
+    // shader del trazador: su compileAsync sondea el programa con setTimeout
+    // cada 10 ms y, si el contexto ya se perdió, ese sondeo revienta con
+    // "Cannot read properties of undefined (reading 'isReady')" -- una vez por
+    // material, en la consola de quien esté depurando otra cosa. No rompe
+    // nada, pero un error suelto y sin dueño es peor que esperar unos cuadros.
+    // El tope existe porque esto es un bucle de espera dentro de un finally:
+    // si la compilación no terminara nunca, sin él la foto no se soltaría
+    // jamás y el candado de Foto.tsx se quedaría echado.
+    // `isCompiling` existe en el JS de WebGLPathTracer (un getter) pero no en
+    // su index.d.ts: el cast es para el compilador, no para el runtime.
+    const compilando = () => (trazador as unknown as { isCompiling: boolean }).isCompiling
+    for (let i = 0; i < 300 && compilando(); i++) await espera()
     trazador.dispose()
     // Nada de recorrer la escena llamando a dispose(): las mallas del relieve
     // COMPARTEN los BufferAttribute con las que están dibujando en pantalla
