@@ -43,13 +43,34 @@ const CASCADAS = 3
 const SOMBRA_MAX = 5000
 const SOMBRA_PX = 1024
 
-// Cuánto se separa del relieve el punto que se compara contra el shadow map,
-// en texeles de la cascada que le toca. 1,5 texeles es el mínimo que quita el
-// acné en las laderas rasantes del Táchira sin que la sombra se despegue del
-// pie de la montaña (peter-panning). Se calcula por cascada, no de una vez,
-// porque un texel mide 0,1 m en la primera y kilómetros en la última: un solo
-// número o deja acné lejos o despega las sombras de cerca. Calibrable.
-const SESGO_TEXELES = 1.5
+// Cuánto se separa del relieve, a lo largo de su normal, el punto que se
+// compara contra el shadow map. Va en TÉXELES de la cascada que le toca, no en
+// metros, y esa es la parte que importa: un téxel mide un par de metros en la
+// primera cascada y 7,6 km / 1024 = 7,4 m en la última, así que un sesgo en
+// téxeles se traduce en aproximadamente el mismo error EN PANTALLA a cualquier
+// distancia. Un número fijo en metros deja acné lejos o despega la sombra de
+// cerca; no hay valor que sirva para las dos.
+//
+// 12 téxeles salió de barrer 0, 1,5, 4, 8, 12, 24 y 40 sobre la Carretera La
+// Grita - Pregonero (Uribante, laderas de 40°) mirando a rasante, con el sol
+// real de la escena y también con el sol bajado a mano a 15° de altura para que
+// hubiera sombras proyectadas de verdad que juzgar:
+//   0    acné a rayas por toda la ladera, más bandas negras anchas en las
+//        crestas (ahí la superficie queda casi de canto contra el sol y
+//        cualquier error de profundidad se traduce en sombra).
+//   1,5  las rayas se van, la banda negra de las crestas se queda.
+//   4    queda una línea negra fina pegada a cada cresta.
+//   12   limpio. A 15° de sol, las sombras de las lomas siguen naciendo al pie
+//        de la cresta, sin despegarse.
+//   40   también limpio, pero son 300 m de sesgo en la última cascada y no
+//        compra nada que 12 no dé.
+//
+// El sesgo de profundidad constante acompaña al de normal: en las crestas la
+// normal apunta casi perpendicular a la luz y desplazarse a lo largo de ella no
+// aleja nada del plano de comparación. Es lo que remata la línea de la cresta.
+// Los dos son calibrables.
+const SESGO_TEXELES = 12
+const SESGO_PROFUNDIDAD = -0.0008
 
 // La cámara puede llegar a 400 km (maxDistance de OrbitControls); la luz tiene
 // que quedar detrás del terreno más alto de la cascada para que su plano near
@@ -57,6 +78,20 @@ const SESGO_TEXELES = 1.5
 // nivel del mar y el valle de la cuenca del Uribante baja a ~150 m, así que
 // 6 km de margen cubre cualquier pareja emisor/receptor.
 const MARGEN_LUZ = 6000
+
+/**
+ * normalBias por cascada, en metros, sacado del tamaño del téxel de SU cámara
+ * ortográfica (ver SESGO_TEXELES). CSM no tiene un parámetro para esto -- solo
+ * shadowBias, que es común a las tres y va en el constructor -- así que se
+ * escribe a mano, y hay que rehacerlo cada vez que updateFrustums() mueve los
+ * planos, porque el téxel cambia de tamaño con ellos.
+ */
+function sesgar (csm: CSM) {
+  for (const luz of csm.lights) {
+    const cam = luz.shadow.camera
+    luz.shadow.normalBias = SESGO_TEXELES * (cam.right - cam.left) / SOMBRA_PX
+  }
+}
 
 /**
  * El relieve por niveles de detalle. Cada cuadro elige qué nodos del
@@ -113,17 +148,10 @@ export function TerrainLod ({ meta, municipios, date }: { meta: TerrainMeta; mun
       // lightFar tiene que cubrir el margen más el desnivel que quepa en la
       // cascada más grande; el shadow map es ortográfico, así que su
       // profundidad es lineal y estirarlo no cuesta precisión.
-      lightNear: 1, lightFar: MARGEN_LUZ * 3,
+      lightNear: 1, lightFar: MARGEN_LUZ * 3, shadowBias: SESGO_PROFUNDIDAD,
       lightDirection: sol.clone().negate(),
     })
-    // Sesgo por cascada, en metros, proporcional a lo que mide un texel de esa
-    // cascada (ver SESGO_TEXELES). El shadow.bias global de CSM se queda en su
-    // valor por defecto: normalBias trabaja en unidades de mundo y es el que
-    // se puede razonar contra el tamaño de un texel.
-    for (const luz of c.lights) {
-      const cam = luz.shadow.camera
-      luz.shadow.normalBias = SESGO_TEXELES * (cam.right - cam.left) / SOMBRA_PX
-    }
+    sesgar(c)
     return c
   }, [camera, scene, sol])
   useEffect(() => () => { csm.remove(); csm.dispose() }, [csm])
@@ -186,7 +214,7 @@ export function TerrainLod ({ meta, municipios, date }: { meta: TerrainMeta; mun
   // Las cascadas se reparten sobre el frustum de la cámara: si cambia la
   // relación de aspecto (redimensionar la ventana) hay que rehacerlas, o los
   // shadow maps quedan encuadrando el frustum viejo.
-  useEffect(() => { csm.updateFrustums() }, [csm, size])
+  useEffect(() => { csm.updateFrustums(); sesgar(csm) }, [csm, size])
 
   useFrame(() => {
     if (!grupo.current) return
