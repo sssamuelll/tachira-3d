@@ -27,6 +27,7 @@ import type { Way } from '../data/types'
 import { nivelDe } from './roadStyle'
 import { marcasPermitidas, PEATONALES } from './calzada'
 import { SELECCION } from '../data/constants'
+import { POROSIDAD } from './mojado'
 import {
   ASFALTO_DESDE_PX, ASFALTO_HASTA_PX, AMBIENTE, SOL_DIF, AMB_SUELO, NIVEL_CERCA,
 } from './asfalto'
@@ -218,7 +219,7 @@ export const SECCION_CUERPO_GLSL = `
     // cuadrilátero no se ensanchó y no hay nada que pintar.
     if (abs(vBordeM) > 0.0) {
       float bordeAbs = abs(vBordeM);
-      float semi = max(vCalzadaPx * vMpp, 1e-3) * 0.5;   // media calzada, en metros
+      float semi = max(vCalzadaM, 1e-3) * 0.5;           // media calzada, en metros
       float dm = (abs(t) - 1.0) * semi;                  // metros al filo de la calzada
       float e = max(vMpp, 1e-6);                         // un píxel, en metros
       float fuera = smoothstep(0.0, e, dm);              // el filo, con un píxel de suavizado
@@ -265,11 +266,21 @@ export const SECCION_CUERPO_GLSL = `
       // salen de asfalto.ts) pero SIN especular: ni la grava ni el concreto
       // seco tienen lustre. Si los dos no promediaran el mismo brillo, la
       // franja daría un salto de exposición contra la calzada.
-      vec3 Nf = normalSeccion(vTerrW, vDirW, t, vCalzadaPx * vMpp, vBordeM);
+      vec3 Nf = normalSeccion(vTerrW, vDirW, t, vCalzadaM, vBordeM);
       float cielo = 0.5 + 0.5 * Nf.y;
       float luzF = (${f2(AMBIENTE)} * mix(${f2(AMB_SUELO)}, 1.0, cielo)
                   + ${f2(SOL_DIF)} * max(dot(Nf, uSol), 0.0)) * ${f2(NIVEL_CERCA)};
-      vec3 franja = tinte * val * luzF;
+      // Mojada, la franja oscurece como la calzada (Lagarde, sobre el ALBEDO
+      // y no sobre el radiado: elevar la luz a la potencia oscurecería de más
+      // a la sombra). Grava, tierra y concreto están entre lo que MÁS oscurece
+      // mojado; sin esto, con Lluvia la calzada se apagaba y a cada lado
+      // quedaba una banda clara seca, el salto de exposición que esta franja
+      // existe para no dar. Misma rampa que mojado.ts y el fundido \`cerca\`
+      // para acompañar a la calzada en la banda de 12 a 26 px. Sin espejo ni
+      // charco: la grava no embalsa y el brocal drena hacia la calzada.
+      float humedoF = smoothstep(0.0, 0.55, uMojado) * cerca;
+      vec3 albF = pow(max(tinte * val, vec3(0.0)), vec3(1.0 + ${f2(POROSIDAD)} * humedoF));
+      vec3 franja = albF * luzF;
       base = mix(base * ao, franja, fuera * apaga);
     }
 `

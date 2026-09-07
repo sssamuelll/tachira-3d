@@ -196,6 +196,9 @@ export const ATTR_VERT_GLSL = `
       // recalcular el smoothstep del vertex y sin arriesgarse a que los dos no
       // coincidan (seccion.ts).
       varying float vBordeM;
+      // La calzada en metros, afín en z: lo que mide metros en el fragment
+      // lo lee de acá y no de vCalzadaPx * vMpp (ver el colofón).
+      varying float vCalzadaM;
       // El marco de la calzada en ejes del MUNDO, para iluminar el asfalto
       // (asfalto.ts). Se declaran acá porque el bloque de extrusión se
       // comparte con el pase de ids y allá no existen; los rellena el colofón
@@ -368,7 +371,7 @@ export const MARCAS_CUERPO_GLSL = `
       // scripts/lib/road-meta.mjs). Se dibujan en METROS sobre la calzada
       // real, con el mismo piso de píxeles que el resto de la pintura.
       if (unico > 0.5) {
-        float calzadaM = vCalzadaPx * vMpp;
+        float calzadaM = vCalzadaM;
         float u = mod(vDist - ${f2(FLECHA_DESDE_M)}, ${f2(FLECHA_CICLO_M)});   // metros desde el arranque de la flecha
         float tallo = max(${f2(TALLO_M)}, ${f2(MARCA_MIN_PX)} * vMpp) * 0.5;
         float cuello = ${f2(FLECHA_M - CABEZA_M)};
@@ -477,6 +480,16 @@ export function patchLineMaterial (
         vAnchoPx = anchoM / mppV;
         vMpp = mppV;
         vBordeM = bordeM;
+        // La calzada en METROS, aparte y no como vCalzadaPx * vMpp en el
+        // fragment: vCalzadaPx es ∝ 1/z y vMpp ∝ z, y el producto de dos
+        // varyings no se interpola con corrección de perspectiva -- en la
+        // mitad de un tramo que va de z0 a z1 vale calzada·(z0+z1)²/(4·z0·z1),
+        // un 28 % de más entre 12 y 33 m -- y con la sección todo lo que mide
+        // metros de calzada (el filo del hombrillo, la línea blanca de borde,
+        // uvM) se abombaba en la mitad de cada tramo. anchoBase es afín en z
+        // en cada rama de su max, y donde la rama cambia entre los dos
+        // extremos el cuadrilátero también es la recta entre ellos.
+        vCalzadaM = anchoBase;
         // La distancia recorrida tiene que seguir CORRIENDO por las tapas.
         //
         // ATTR_VERT_GLSL la resuelve con la misma prueba que el eje
@@ -529,6 +542,7 @@ export function patchLineMaterial (
         varying float vCanales;
         varying float vDist;
         varying float vBordeM;
+        varying float vCalzadaM;
         varying vec3 vDirW;
         varying vec3 vTerrW;
         varying vec3 vPosW;
@@ -538,6 +552,19 @@ export function patchLineMaterial (
         void main() {
       `)
       .replace(ANCLA_FRAG, `
+        // La tapa de ARRANQUE de cada tramo no se dibuja. Las dos tapas tienen
+        // el mismo radio (hw), así que en una junta cualquiera de las dos
+        // remata el hueco de la curva; pero la de arranque se rasteriza
+        // DESPUÉS del cuerpo del tramo anterior y cae encima de él (misma
+        // instancia siguiente, depthWrite false, alpha 1), y con sección
+        // (seccion.ts) pinta su hombrillo o brocal GIRADO sobre el asfalto del
+        // otro en cada quiebre de una curva: cuñas de grava de metros en el
+        // interior de cada junta de una carretera de montaña. La tapa final
+        // queda debajo del cuerpo siguiente y no hace daño. Lo que se pierde:
+        // el remate redondo al ARRANQUE de una vía sin empalme, que casi no
+        // existe (OSM parte las vías en los cruces). Va antes de todo: es
+        // media tapa que no se paga.
+        if ( vUv.y < -1.0 ) discard;
         ${ENFOQUE_GLSL}
         float pci = vAttr.r * 255.0;
         float fuente = floor(vAttr.g * 255.0 + 0.5);
@@ -573,7 +600,7 @@ export function patchLineMaterial (
         // centro de "calzada + hombrillos" en vez de en el centro de la
         // calzada. El asfalto y las marcas están escritas sobre [-1, 1] y no se
         // tocan; |t| > 1 es la franja de seccion.ts.
-        float t = vUv.x * (1.0 + 2.0 * abs(vBordeM) / max(vCalzadaPx * vMpp, 1e-6));
+        float t = vUv.x * (1.0 + 2.0 * abs(vBordeM) / max(vCalzadaM, 1e-6));
         // Antialiasing del filo, también en las tapas redondas: three descarta
         // fuera del círculo a secas, y a 400 px de ancho el escalón se nota en
         // cada final de vía.

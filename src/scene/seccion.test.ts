@@ -135,12 +135,32 @@ test('los dos pases comparten el ensanchamiento: el clic sobre el hombrillo sele
 
 test('t se remapea para que la calzada siga ocupando [-1, 1] y la franja quede fuera', () => {
   const r = relleno()
+  // Con la calzada en metros como varying PROPIO, no como vCalzadaPx * vMpp:
+  // vCalzadaPx es ∝ 1/z y vMpp ∝ z, y ese producto no se interpola con
+  // corrección de perspectiva -- en la mitad de un tramo que va de z0 a z1
+  // vale calzada·(z0+z1)²/(4·z0·z1), un 28 % de más entre 12 y 33 m -- así
+  // que el filo de la franja y la línea blanca de borde se abombaban en la
+  // mitad de cada tramo. anchoBase es afín en z y llega exacto.
+  expect(r.vertexShader).toContain('vCalzadaM = anchoBase;')
   expect(r.fragmentShader).toMatch(
-    /float t = vUv\.x \* \(1\.0 \+ 2\.0 \* abs\(vBordeM\) \/ max\(vCalzadaPx \* vMpp, 1e-6\)\);/)
+    /float t = vUv\.x \* \(1\.0 \+ 2\.0 \* abs\(vBordeM\) \/ max\(vCalzadaM, 1e-6\)\);/)
+  expect(codigo(r.fragmentShader)).not.toContain('vCalzadaPx * vMpp')
   // Y el remapeo va ANTES del asfalto y de las marcas, que están escritas sobre
   // una calzada en [-1, 1] y no se tocan.
   expect(r.fragmentShader.indexOf('float t = vUv.x *'))
     .toBeLessThan(r.fragmentShader.indexOf('vec2 uvM'))
+})
+
+test('la franja se moja con la calzada: grava y concreto oscurecen con uMojado según Lagarde', () => {
+  const c = codigo(SECCION_CUERPO_GLSL)
+  // Sobre el ALBEDO (tinte · val), antes de iluminar: elevar el radiado
+  // metería la luz en la potencia y una franja a la sombra se oscurecería de
+  // más. Misma rampa y misma porosidad que la calzada (mojado.ts), y con el
+  // fundido `cerca` para que en la banda de 12 a 26 px la franja se oscurezca
+  // en la misma proporción en que la calzada mezcla su asfalto.
+  expect(c).toContain('float humedoF = smoothstep(0.0, 0.55, uMojado) * cerca;')
+  expect(c).toMatch(/vec3 albF = pow\(max\(tinte \* val, vec3\(0\.0\)\), vec3\(1\.0 \+ 0\.45 \* humedoF\)\);/)
+  expect(c).toContain('vec3 franja = albF * luzF;')
 })
 
 // ------------------------------------------------------------------ el bombeo

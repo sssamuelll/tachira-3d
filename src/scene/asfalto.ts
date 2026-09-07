@@ -357,8 +357,11 @@ export const ASFALTO_UNIFORMS_GLSL = `
  */
 export const ASFALTO_CUERPO_GLSL = `
     // Coordenadas de calzada, en metros: a lo largo los metros recorridos, a
-    // lo ancho los metros al eje. vCalzadaPx * vMpp es la calzada en metros.
-    float calzadaM = vCalzadaPx * vMpp;
+    // lo ancho los metros al eje. La calzada en metros llega como varying
+    // propio (roadsShader.ts): vCalzadaPx * vMpp daría lo mismo en los
+    // vértices, pero no entre ellos -- uno es ∝ 1/z y el otro ∝ z, y el
+    // producto de dos varyings no se interpola con corrección de perspectiva.
+    float calzadaM = vCalzadaM;
     vec2 uvM = vec2(vDist, t * calzadaM * 0.5);
 
     // 255 es el centinela de "sin evaluar" (encodeAttr): se dibuja con
@@ -388,7 +391,15 @@ export const ASFALTO_CUERPO_GLSL = `
     // repeticiones). A esa distancia el cuello es el relieve rellenando
     // teselas, no este shader. Se deja porque es una constante y quita trabajo
     // cuyo resultado no se ve; no porque se haya medido una ganancia.
-    if (cerca > ${f2(CORTE_TEMPRANO)}) {
+    //
+    // Y tampoco corre en la franja de hombrillo o brocal (|t| > 1, seccion.ts),
+    // que la pinta encima entera: era un tercio de los fragmentos de una
+    // troncal pagando seis samplers, un Voronoi y el cuenco del bache para un
+    // color que se tiraba. Queda el margen de 2 px (un píxel son 2/vCalzadaPx
+    // en unidades de t) que el antialiasing del filo sí necesita. \`cerca\` no
+    // se toca: también pesa la mezcla final y la lámina del mojado, y fundirlo
+    // dejaría un píxel de color plano en el filo.
+    if (cerca > ${f2(CORTE_TEMPRANO)} && abs(t) < 1.0 + 4.0 / max(vCalzadaPx, 1.0)) {
       // Sin dato de canales (una trocha) se supone uno: la huella de rodadura
       // existe igual, por el medio.
       float canalesA = max(abs(vCanales), 1.0);
