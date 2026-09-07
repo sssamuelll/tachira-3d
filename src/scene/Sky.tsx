@@ -1,13 +1,12 @@
 import { useLayoutEffect, useRef } from 'react'
-import { Matrix4, Vector3 } from 'three'
 import {
   Atmosphere, Sky as TakramSky, SunLight, SkyLight, AerialPerspective,
   type AtmosphereApi,
 } from '@takram/three-atmosphere/r3f'
-import { EffectComposer, ToneMapping } from '@react-three/postprocessing'
+import { EffectComposer, N8AO, ToneMapping } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
 import { ORIGIN } from '../data/constants'
-import { makeEnuFrame } from '../data/enu'
+import { worldToEcefMatrix } from './sol'
 
 // Nota: <Atmosphere> no expone un prop de origen — su marco de referencia es
 // ECEF fijo (README, "Limitations": "The reference frame is fixed to ECEF
@@ -25,21 +24,9 @@ export const SKY_ORIGIN = ORIGIN
 // elipsoide sólido (radio ~6.371 km) y el scattering sale negro — el
 // diagnóstico que usó la Task 10 para explicar la pantalla negra de entonces.
 //
-// Ejes iguales a los de Terrain.tsx (mismo ORIGIN): mundo X=este, Y=arriba,
-// Z=-norte. East/Up/-North se derivan de los senos/cosenos que ya calcula
-// makeEnuFrame, no de Ellipsoid.getEastNorthUpVectors() de takram: da
-// idéntico resultado (mismo a/b WGS84, verificado contra
-// node_modules/@takram/three-geospatial/src/Ellipsoid.ts), pero reusar nuestro
-// propio frame deja una sola fuente de verdad con el terreno en vez de dos
-// implementaciones que "deberían" coincidir.
-function worldToEcefMatrix (): Matrix4 {
-  const f = makeEnuFrame(ORIGIN.lat, ORIGIN.lon, ORIGIN.h)
-  const east = new Vector3(-f.sLon, f.cLon, 0)
-  const up = new Vector3(f.cLat * f.cLon, f.cLat * f.sLon, f.sLat)
-  const south = new Vector3(f.sLat * f.cLon, f.sLat * f.sLon, -f.cLat)
-  const [x, y, z] = f.origin
-  return new Matrix4().makeBasis(east, up, south).setPosition(x, y, z)
-}
+// La matriz vive en sol.ts, con la base este/arriba/sur de la que también sale
+// la dirección del sol que ilumina el relieve: una sola fuente de verdad para
+// las dos. Ver el comentario de allá.
 
 export function Sky ({ date }: { date: Date }) {
   const ref = useRef<AtmosphereApi>(null)
@@ -70,7 +57,17 @@ export function Sky ({ date }: { date: Date }) {
           SkyLightProbe.update() multiplican la posición mundial del
           target/probe por worldToECEFMatrix — antes del rebase esa
           posición caía en el centro de la Tierra. */}
-      <SunLight />
+      {/* visible={false} a propósito, y no quitado: la luz direccional de la
+          escena la ponen las cascadas de CSM (una por cascada, TerrainLod.tsx)
+          y sumar además esta sería un cuarto sol, sin sombra, doblando la
+          iluminación. Pero <SunLight> sigue haciendo falta montado: su
+          useFrame llama a SunDirectionalLight.update() sin mirar `visible`, y
+          eso es lo que calcula el color del sol contra la transmitancia de la
+          atmósfera (getSunLightColor) para esta fecha y esta posición.
+          TerrainLod lo busca por su nombre y copia ese color a las cascadas.
+          Sin el nombre, la luz del terreno sería un blanco inventado que no
+          casaría con el cielo dibujado. */}
+      <SunLight name="sol" visible={false} />
       <SkyLight />
       {/* ToneMapping es obligatorio, no cosmético: EffectComposer fuerza
           gl.toneMapping = NoToneMapping mientras está activo (three.js no
@@ -83,6 +80,24 @@ export function Sky ({ date }: { date: Date }) {
           siempre emparejan el efecto con ToneMappingEffect(AGX); acá es
           el mismo par, vía el componente r3f. */}
       <EffectComposer>
+        {/* Oclusión ambiental. Va ANTES de AerialPerspective: la oclusión
+            oscurece la luz que llega del cielo a los pliegues del relieve, y
+            eso pasa en el terreno, antes de que la neblina de la atmósfera se
+            sume por delante. Oscurecer después apagaría la neblina, que no
+            está ocluida por nada.
+
+            N8AO y no el GTAO del core de three: sobre el relieve, GTAO deja un
+            halo claro alrededor de cada cresta contra el cielo (su
+            reconstrucción de profundidad no distingue el borde del fondo).
+            Es un Pass entero, no un Effect, así que parte la cadena en dos
+            EffectPass -- por eso va de primero, donde solo cuesta el corte.
+
+            aoRadius en METROS de mundo: 60 m es el orden de una quebrada o del
+            pie de un talud del Táchira. screenSpaceRadius lo haría depender
+            del zoom y la oclusión cambiaría al acercarse. halfRes porque a
+            este radio la señal es de baja frecuencia y no se nota, y ahorra
+            tres cuartos del coste. Calibrables los tres. */}
+        <N8AO halfRes aoRadius={60} distanceFalloff={1} intensity={1.6} />
         <AerialPerspective />
         <ToneMapping mode={ToneMappingMode.AGX} />
       </EffectComposer>

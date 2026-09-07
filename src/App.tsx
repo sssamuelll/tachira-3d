@@ -405,14 +405,20 @@ export default function App () {
   // AerialPerspective satura el terreno entero.
   return (
     <>
-      <Canvas camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
+      {/* shadows="soft" = PCFSoftShadowMap. Probado contra VSM: VSM difumina
+          con un blur separable sobre el propio mapa, y con cascadas de tamaño
+          tan distinto (0,1 m por texel la primera, kilómetros la última) el
+          mismo radio de blur o no suaviza nada lejos o sangra luz por debajo
+          de las crestas cerca. PCFSoft trabaja en el espacio del receptor y se
+          porta igual en las tres. */}
+      <Canvas shadows="soft" camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
         <Suspense fallback={null}>
           <Sky date={date} />
-          <TerrainLod meta={data.terrain} municipios={data.municipios} />
+          <TerrainLod meta={data.terrain} municipios={data.municipios} date={date} />
           {attr && (
             <Roads
               positions={data.positions} segIds={data.segIds} index={data.index}
-              ways={data.roads.ways} attr={attr} normals={data.normals}
+              ways={data.roads.ways} attr={attr} normals={data.normals} date={date}
             />
           )}
           <Picker

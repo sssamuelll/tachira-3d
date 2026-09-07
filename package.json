@@ -34,6 +34,7 @@
     "@takram/three-atmosphere": "0.19.1",
     "@takram/three-geospatial": "0.9.1",
     "@takram/three-geospatial-effects": "0.6.4",
+    "n8ao": "^2.0.1",
     "postprocessing": "^6.39.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
