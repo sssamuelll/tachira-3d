@@ -417,14 +417,23 @@ export default function App () {
   // AerialPerspective satura el terreno entero.
   return (
     <>
-      <Canvas camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
+      {/* shadows="percentage" = PCFShadowMap, y no es una elección de sabor:
+          three 0.185 deprecó PCFSoftShadowMap y lo degrada a PCF de todos
+          modos ("PCFSoftShadowMap has been deprecated. Using PCFShadowMap
+          instead", visto en la consola de Chrome), así que pedir "soft" solo
+          añadía un aviso por cuadro.
+          VSM tampoco sirve acá, por una razón concreta: con VSM todo receptor
+          de sombra pasa a ser también emisor (así lo documenta three), y eso
+          anularía el corte por distancia de TerrainLod -- el relieve entero
+          volvería a los tres shadow maps y con él la caída a 20 fps. */}
+      <Canvas shadows="percentage" camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
         <Suspense fallback={null}>
           <Sky date={date} />
-          <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen} />
+          <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen} date={date} />
           {attr && (
             <Roads
               positions={data.positions} segIds={data.segIds} index={data.index}
-              ways={data.roads.ways} attr={attr} normals={data.normals}
+              ways={data.roads.ways} attr={attr} normals={data.normals} date={date}
             />
           )}
           <Picker

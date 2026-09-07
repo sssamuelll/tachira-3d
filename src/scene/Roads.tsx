@@ -6,6 +6,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { useThree, useFrame } from '@react-three/fiber'
 import { patchLineMaterial } from './roadsShader'
 import { TEXTURAS, TEXTURAS_BASE, type Asfalto } from './asfalto'
+import { direccionSol } from './sol'
 import { NIVELES, repartirPorNivel, metrosPorPixel, presencia } from './roadStyle'
 import { anchoCalzada, carrilesDe, sentidoUnico, marcasPermitidas } from './calzada'
 import { ATTR_SIZE } from '../data/constants'
@@ -18,14 +19,19 @@ import type { Way } from '../data/types'
 // decide cuánto refinar (quadtree.ts).
 
 export function Roads (
-  { positions, segIds, index, ways, attr, normals }: {
+  { positions, segIds, index, ways, attr, normals, date }: {
     positions: Float32Array; segIds: Float32Array; index: Uint32Array
     ways: Way[]; attr: AttrTexture
     /** Normal del terreno en cada extremo de tramo (roads-nrm.bin). */
     normals: Int8Array
+    /** Fecha de la escena: de ella sale la dirección del sol (sol.ts). */
+    date: Date
   },
 ) {
   const { size, camera, controls, gl } = useThree()
+  // Dirección HACIA el sol en ejes del mundo, la misma que ilumina el relieve.
+  // La fecha no cambia mientras la app corre, así que se calcula una vez.
+  const sol = useMemo(() => direccionSol(date), [date])
 
   // Los tres mapas del asfalto (ambientCG Asphalt006, CC0 -- ver el LICENSE.md
   // de public/texturas/asfalto). Se cargan UNA vez para toda la red: los siete
@@ -172,6 +178,12 @@ export function Roads (
       for (const capa of [o.relleno, o.casing]) {
         const u = capa.material.userData.uniforms
         if (u) u.uPisoPx.value = o.nivel.pisoPx
+        // La dirección del sol, si el shader de la calzada la pide. El `if`
+        // no es defensivo de más: uSol lo declara roadsShader.ts, que es de
+        // otra rama, y hasta que esa rama entre este uniform no existe.
+        // Alimentarlo desde acá y no desde el parche del shader es a
+        // propósito: el sol es de la escena, no del asfalto.
+        if (u?.uSol) u.uSol.value.copy(sol)
       }
     }
   })

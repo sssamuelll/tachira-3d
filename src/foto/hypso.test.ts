@@ -1,6 +1,22 @@
 import { test, expect } from 'vitest'
-import { terrainFrag } from '../scene/terrainShader'
+import * as THREE from 'three'
+import { materialRelieve } from '../scene/terrainShader'
 import { hypso, PARADAS } from './hypso'
+
+// El relieve es un material estándar parcheado en onBeforeCompile: el GLSL
+// real de hypso() solo existe una vez compilado. Se compila como lo haría
+// three, sobre el shader estándar, y se lee de ahí (mismo truco que
+// terrainShader.test.ts).
+function fragmentRelieve (): string {
+  const shader = {
+    uniforms: {} as Record<string, { value: unknown }>,
+    vertexShader: THREE.ShaderLib.standard.vertexShader,
+    fragmentShader: THREE.ShaderLib.standard.fragmentShader,
+  }
+  const m = materialRelieve({ min: 0, max: 1, mascara: new THREE.Texture() })
+  m.onBeforeCompile(shader as never, null as never)
+  return shader.fragmentShader
+}
 
 // Mismo método que roadsShader.test.ts usa con la paleta ASTM: no se compara
 // una copia contra otra copia, se LEE el GLSL real y se ejecuta su cascada en
@@ -40,7 +56,7 @@ function hypsoGlsl (tramos: Tramo[], t: number): number[] {
   throw new Error(`ningún tramo cubrió t=${t}`)
 }
 
-const TRAMOS = parseHypso(terrainFrag)
+const TRAMOS = parseHypso(fragmentRelieve())
 
 test('el shader sigue teniendo los cuatro tramos que esta copia asume', () => {
   expect(TRAMOS).toHaveLength(PARADAS.length - 1)

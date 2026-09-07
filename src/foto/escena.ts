@@ -1,7 +1,7 @@
 import * as THREE from 'three'
-import { getSunDirectionECEF } from '@takram/three-atmosphere'
-import { worldToEcefMatrix } from '../scene/Sky'
+import { direccionSol } from '../scene/sol'
 import { metrosPorPixel } from '../scene/roadStyle'
+import type { UniformsRelieve } from '../scene/terrainShader'
 import { pciColor, SELECCION } from '../data/constants'
 import { hypso } from './hypso'
 import { anchoBase, alza, cuadro, enFrustum } from './cuadros'
@@ -11,7 +11,9 @@ import { anchoBase, alza, cuadro, enFrustum } from './cuadros'
 // clic. Tiene que ser otra porque el trazador solo entiende mallas con
 // materiales estándar, y esta aplicación no dibuja ninguna:
 //
-//  - el relieve es un ShaderMaterial con hipsometría y máscara del estado,
+//  - el relieve es un material estándar parcheado (hipsometría o foto
+//    satelital de albedo, máscara del estado, cascadas de sombra) cuyos
+//    uniforms viven en userData y no en el material,
 //  - las vías son LineSegments2 cuyo ancho REAL lo calcula el vertex shader,
 //  - el cielo es un efecto de post-proceso, no geometría.
 //
@@ -73,9 +75,13 @@ function relieve (grupo: THREE.Object3D): { mallas: THREE.Mesh[]; triangulos: nu
     const idx = geo.getIndex()
     if (!pos || !elev || !uvM || !idx) continue
 
-    const u = (mesh.material as THREE.ShaderMaterial).uniforms
-    const min = u.uMin.value as number
-    const max = u.uMax.value as number
+    // Los uniforms propios del relieve cuelgan de userData (terrainShader.ts):
+    // con un material estándar parcheado no existen en el material hasta que
+    // compila, y la foto puede pedirse antes.
+    const u = (mesh.material as THREE.Material).userData.uniforms as UniformsRelieve | undefined
+    if (!u) continue
+    const min = u.uMin.value
+    const max = u.uMax.value
     const mascara = u.uMascara.value as THREE.DataTexture
     const bytes = mascara.image.data as Uint8Array
     const lado = mascara.image.width
@@ -297,13 +303,11 @@ export const CIELO_INTENSIDAD = 0.55
 const SOL_COLOR = 0xfff2e0
 
 /** La dirección al sol en los ejes del mundo (X este, Y arriba, Z -norte) a la
- *  fecha de la escena. @takram/three-atmosphere la da en ECEF; la base que la
- *  traduce es la misma que <Sky> le escribe a la atmósfera, así que el sol de
- *  la foto cae exactamente donde lo pone el cielo de la pantalla. */
+ *  fecha de la escena. Es la misma función con la que se iluminan el relieve
+ *  y el asfalto en pantalla (scene/sol.ts), así que el sol de la foto cae
+ *  exactamente donde lo pone el cielo. */
 export function direccionDelSol (date: Date): THREE.Vector3 {
-  const ecef = getSunDirectionECEF(date)
-  const rot = new THREE.Matrix4().extractRotation(worldToEcefMatrix()).transpose()
-  return ecef.applyMatrix4(rot).normalize()
+  return direccionSol(date)
 }
 
 /**
@@ -340,15 +344,10 @@ export function construirEscena (
   }
 }
 
-// Cuando el relieve tenga textura satelital (otra tarea en curso), el camino es
-// este: leer el `map` del material del nodo y pasárselo tal cual al
-// MeshStandardMaterial de relieve(), con las uv de la tesela; el color por
-// vértice se queda como está y se multiplica con la textura, que es justo lo
-// que hace three. Se deja escrito y no hecho porque hoy no hay ningún nodo con
-// textura de la que leer:
-//
-//   const map = (mesh.material as THREE.ShaderMaterial).uniforms.uSat?.value
-//   if (map) { material.map = map; nueva.setAttribute('uv', geo.getAttribute('uvSat')) }
-//
-// Ojo si se activa: el material del relieve es UNO compartido por todos los
-// nodos, y con textura pasa a ser uno por tesela.
+// La foto satelital del relieve todavía no entra en la lámina. El camino es
+// este: leer `uImg`, `uImgUv` y `uImagen` de los uniforms del nodo
+// (userData.uniforms, terrainShader.ts) y pasarle la textura como `map` a un
+// MeshStandardMaterial POR NODO, con las uv de `uvImagen` corridas por
+// uImgUv (xy desplazamiento, z escala); el color por vértice se queda como
+// está y se multiplica con la textura, que es justo lo que hace three. Ojo:
+// deja de ser un material compartido y pasa a ser uno por tesela.
