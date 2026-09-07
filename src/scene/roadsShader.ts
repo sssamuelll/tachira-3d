@@ -9,6 +9,7 @@ import {
   MOJADO_GLSL, MOJADO_UNIFORMS_GLSL, MOJADO_CUERPO_GLSL, MOJADO_LAMINA_GLSL,
   CIELO_POR_DEFECTO,
 } from './mojado'
+import { SECCION_ANCHO_GLSL, SECCION_GLSL, SECCION_CUERPO_GLSL } from './seccion'
 
 // Las anclas del LineMaterial de three viven SOLO acá: las consumen este
 // módulo, PickingPass.tsx (el pase de ids parchea el mismo material) y
@@ -78,10 +79,12 @@ export const ALZA_MIN_M = 0.25
  * tramos solapen limpio en las juntas y el borde exterior no se hunda en una
  * ladera.
  *
- * Deja en scope `mppV`, `anchoBase` (la calzada) y `anchoM` (lo que se
+ * Deja en scope `mppV`, `anchoBase` (la calzada), `bordeM` (el hombrillo o el
+ * brocal a cada lado, firmado y ya fundido -- seccion.ts) y `anchoM` (lo que se
  * extruye) para que `colofon` rellene los varyings que necesite. Requiere
- * declarados `attribute float aCalzada;`, `attribute vec3 instanceNormalStart;`,
- * `attribute vec3 instanceNormalEnd;` y `uniform float uPisoPx;`.
+ * declarados `attribute float aCalzada;`, `attribute float aBorde;`,
+ * `attribute vec3 instanceNormalStart;`, `attribute vec3 instanceNormalEnd;` y
+ * `uniform float uPisoPx;`.
  */
 export function extrusionGlsl (casing: boolean, colofon = ''): string {
   return `
@@ -104,10 +107,10 @@ export function extrusionGlsl (casing: boolean, colofon = ''): string {
         // un solo error: medido, no supuesto.
         vec3 ladoV = normalize( cross( dirV, terrV ) );
         float mppV = max( -eje.z, 1e-3 ) * 2.0 / ( projectionMatrix[1][1] * resolution.y );
-        float anchoBase = max( aCalzada, uPisoPx * mppV );
+        float anchoBase = max( aCalzada, uPisoPx * mppV );${SECCION_ANCHO_GLSL}
         float anchoM = ${casing
-          ? `anchoBase + min( ${CASING_MAX.toFixed(1)}, ${CASING_REL.toFixed(1)} * anchoBase / mppV ) * mppV;`
-          : 'anchoBase;'}
+          ? `anchoTot + min( ${CASING_MAX.toFixed(1)}, ${CASING_REL.toFixed(1)} * anchoTot / mppV ) * mppV;`
+          : 'anchoTot;'}
         float hw = 0.5 * anchoM;
         // Alza: la tolerancia del LOD en metros a esta profundidad, nunca menos
         // de ALZA_MIN_M. El relieve dibujado se aparta menos que eso de la
@@ -172,6 +175,7 @@ export const PCI_COLOR_GLSL = `
 export const ATTR_VERT_GLSL = `
       attribute float segId;
       attribute float aCalzada;
+      attribute float aBorde;
       attribute float aCanales;
       attribute float instanceDistanceStart;
       attribute float instanceDistanceEnd;
@@ -186,6 +190,12 @@ export const ATTR_VERT_GLSL = `
       varying float vMpp;
       varying float vCanales;
       varying float vDist;
+      // El hombrillo o el brocal a cada lado, en metros, firmado (positivo
+      // hombrillo, negativo brocal) y con el fundido por distancia YA aplicado.
+      // Con él el fragment sabe exactamente qué cuadrilátero le llegó, sin
+      // recalcular el smoothstep del vertex y sin arriesgarse a que los dos no
+      // coincidan (seccion.ts).
+      varying float vBordeM;
       // El marco de la calzada en ejes del MUNDO, para iluminar el asfalto
       // (asfalto.ts). Se declaran acá porque el bloque de extrusión se
       // comparte con el pase de ids y allá no existen; los rellena el colofón
@@ -466,6 +476,7 @@ export function patchLineMaterial (
         vCalzadaPx = anchoBase / mppV;
         vAnchoPx = anchoM / mppV;
         vMpp = mppV;
+        vBordeM = bordeM;
         // La distancia recorrida tiene que seguir CORRIENDO por las tapas.
         //
         // ATTR_VERT_GLSL la resuelve con la misma prueba que el eje
@@ -517,12 +528,13 @@ export function patchLineMaterial (
         varying float vMpp;
         varying float vCanales;
         varying float vDist;
+        varying float vBordeM;
         varying vec3 vDirW;
         varying vec3 vTerrW;
         varying vec3 vPosW;
         ${PCI_COLOR_GLSL}
         ${MARCAS_GLSL}
-        ${casing ? '' : ASFALTO_UNIFORMS_GLSL + MOJADO_UNIFORMS_GLSL + ASFALTO_GLSL + MOJADO_GLSL}
+        ${casing ? '' : ASFALTO_UNIFORMS_GLSL + MOJADO_UNIFORMS_GLSL + ASFALTO_GLSL + MOJADO_GLSL + SECCION_GLSL}
         void main() {
       `)
       .replace(ANCLA_FRAG, `
@@ -553,11 +565,15 @@ export function patchLineMaterial (
         // que pase, incluso fuera de foco. Es lo que estás a punto de editar.
         alpha *= mix(mix(${FUERA_DE_FOCO}, 1.0, enfoque), 1.0, selected);
 
-        // Coordenada transversal: -1 a +1 a lo ancho de lo que este pase
-        // extruye (la calzada en el relleno, la calzada más el borde en el
-        // contorno). Ya no hay banda de nivel que recortar: cada vía se dibuja
-        // de su ancho desde el vertex shader (extrusionGlsl).
-        float t = vUv.x;
+        // Coordenada transversal de la CALZADA: -1 a +1 sobre el asfalto real,
+        // sea cual sea el ancho que se extruyó. Ya no hay banda de nivel que
+        // recortar (cada vía se dibuja de su ancho, extrusionGlsl), pero sí hay
+        // sección: vUv.x va de -1 a +1 sobre calzada MÁS hombrillo o brocal,
+        // así que hay que reescalarlo o el eje amarillo se pintaría en el
+        // centro de "calzada + hombrillos" en vez de en el centro de la
+        // calzada. El asfalto y las marcas están escritas sobre [-1, 1] y no se
+        // tocan; |t| > 1 es la franja de seccion.ts.
+        float t = vUv.x * (1.0 + 2.0 * abs(vBordeM) / max(vCalzadaPx * vMpp, 1e-6));
         // Antialiasing del filo, también en las tapas redondas: three descarta
         // fuera del círculo a secas, y a 400 px de ancho el escalón se nota en
         // cada final de vía.
@@ -573,7 +589,8 @@ export function patchLineMaterial (
           : `vec3 base = mix(pciColor(pci), ${vec3Lit(SELECCION)}, selected);
         ${ASFALTO_CUERPO_GLSL.replace(ANCLA_MOJADO, MOJADO_CUERPO_GLSL)}
         ${MARCAS_CUERPO_GLSL}
-        ${MOJADO_LAMINA_GLSL}`}
+        ${MOJADO_LAMINA_GLSL}
+        ${SECCION_CUERPO_GLSL}`}
         vec4 diffuseColor = vec4( base, alpha );
       `)
   }

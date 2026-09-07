@@ -10,6 +10,7 @@ import { direccionSol } from './sol'
 import { avanzarMojado } from './mojado'
 import { NIVELES, repartirPorNivel, metrosPorPixel, presencia } from './roadStyle'
 import { anchoCalzada, carrilesDe, sentidoUnico, marcasPermitidas } from './calzada'
+import { bordeDe } from './seccion'
 import { ATTR_SIZE } from '../data/constants'
 import type { AttrTexture } from '../data/attrTexture'
 import type { Way } from '../data/types'
@@ -91,16 +92,23 @@ export function Roads (
   // signo de `canales` carga el sentido (negativo = sentido único) y el 0
   // significa "sin marcas" -- una trocha de tierra o un camino peatonal no
   // tienen pintura que dibujar.
+  // `bordes` es la sección transversal: metros de hombrillo o brocal a cada
+  // lado, con el signo diciendo cuál de los dos (seccion.ts). Ensancha el
+  // cuadrilátero en el vertex shader, así que tiene que llegar por vía y no por
+  // nivel: dentro de un mismo nivel conviven la avenida con brocal y la
+  // carretera con hombrillo.
   const porVia = useMemo(() => {
     const anchos = new Float32Array(ways.length)
     const canales = new Float32Array(ways.length)
+    const bordes = new Float32Array(ways.length)
     for (let i = 0; i < ways.length; i++) {
       anchos[i] = anchoCalzada(ways[i])
       canales[i] = marcasPermitidas(ways[i])
         ? carrilesDe(ways[i]) * (sentidoUnico(ways[i]) ? -1 : 1)
         : 0
+      bordes[i] = bordeDe(ways[i])
     }
-    return [anchos, canales]
+    return [anchos, canales, bordes]
   }, [ways])
 
   const objetos = useMemo(() => repartirPorNivel(positions, segIds, index, ways, porVia, normals).map(t => {
@@ -114,6 +122,7 @@ export function Roads (
     geometry.setAttribute('instanceNormalEnd', new THREE.InterleavedBufferAttribute(nrmBuf, 3, 3, true))
     geometry.setAttribute('aCalzada', new THREE.InstancedBufferAttribute(t.extras[0], 1))
     geometry.setAttribute('aCanales', new THREE.InstancedBufferAttribute(t.extras[1], 1))
+    geometry.setAttribute('aBorde', new THREE.InstancedBufferAttribute(t.extras[2], 1))
     // La distancia recorrida a lo largo del trazo le da fase a las rayas
     // discontinuas. Se ponen a mano con los nombres que usa el modo dash de
     // LineMaterial, pero SIN activarlo: ese modo trae su propio patrón y

@@ -112,7 +112,7 @@ const MANCHA_FUERZA = 1.5
 // orden de la mitad. 0,7 es el punto en el que la vía se lee como asfalto sin
 // que el color del dato se apague; la transición es la misma smoothstep del
 // resto, así que no hay escalón. Calibrable.
-const NIVEL_CERCA = 0.7
+export const NIVEL_CERCA = 0.7
 
 // Cuánto manda el color del dato sobre el gris real del asfalto. 1.0 = la
 // calzada es puro color de PCI modulado por el grano; 0.0 = asfalto gris y el
@@ -149,11 +149,14 @@ export const SOL_POR_DEFECTO: readonly [number, number, number] = (() => {
 // acercarse. Con el sol por defecto sobre una calzada horizontal N·L = 0,848,
 // así que AMBIENTE + 0,848 · SOL = 0,42 + 0,58 = 1,0. Si se cambia uno hay que
 // cambiar el otro.
-const AMBIENTE = 0.42
-const SOL_DIF = 0.684
+// Exportadas porque la franja de hombrillo o brocal (seccion.ts) se ilumina
+// con el mismo reparto: si los dos no promediaran el mismo brillo, la franja
+// daría un salto de exposición contra la calzada.
+export const AMBIENTE = 0.42
+export const SOL_DIF = 0.684
 // Cuánto se oscurece el ambiente en una cara que mira al suelo en vez de al
 // cielo. Nunca 0: una ladera en sombra tiene que enseñar su PCI igual.
-const AMB_SUELO = 0.55
+export const AMB_SUELO = 0.55
 const ESPECULAR = 0.35
 
 // Deterioro. Todas las medidas en METROS de calzada.
@@ -410,8 +413,14 @@ export const ASFALTO_CUERPO_GLSL = `
       // mismo marco en que se definió uvM, así que el normal map cae orientado
       // con el grano que se ve. Se calcula ACÁ, antes de muestrear, porque el
       // ángulo de incidencia decide cuánta textura se puede dibujar.
+      //
+      // Ng NO es la normal del terreno pelada: es la de la SECCIÓN
+      // (seccion.ts). La calzada no es un plano, es una corona que cae ~2 % del
+      // eje a cada borde, y eso es lo único que hace que la luz caiga distinto
+      // en cada mitad. Como cross(T, Ng + s·B) = B − s·Ng, el marco sigue
+      // siendo ortonormal solo y las dos líneas de abajo no cambian.
       vec3 T = normalize(vDirW);
-      vec3 Ng = normalize(vTerrW);
+      vec3 Ng = normalSeccion(vTerrW, vDirW, t, calzadaM, vBordeM);
       vec3 B = cross(T, Ng);
       vec3 V = normalize(cameraPosition - vPosW);
 

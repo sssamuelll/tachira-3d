@@ -196,9 +196,15 @@ test('vDist sigue corriendo por las tapas del tramo en vez de congelarse', () =>
   expect(extrusionGlsl(false)).not.toContain('vDist')
 })
 
-test('el contorno se extruye más ancho que el relleno; el relleno, de la calzada', () => {
-  expect(extrusionGlsl(false)).toContain('float anchoM = anchoBase;')
-  expect(extrusionGlsl(true)).toMatch(/float anchoM = anchoBase \+ min\(/)
+// El relleno se extruye del ancho TOTAL de la sección (calzada + hombrillo o
+// brocal, seccion.ts) y el contorno de eso más su borde: si el contorno se
+// calculara sobre la calzada pelada quedaría por dentro del hombrillo, o sea
+// una raya oscura atravesando la grava.
+test('el contorno se extruye más ancho que el relleno; el relleno, de la sección entera', () => {
+  expect(extrusionGlsl(false)).toContain('float anchoM = anchoTot;')
+  expect(extrusionGlsl(true)).toMatch(/float anchoM = anchoTot \+ min\(/)
+  // Y la calzada sigue siendo la calzada: es la referencia de las marcas.
+  expect(extrusionGlsl(false)).toContain('float anchoBase = max( aCalzada, uPisoPx * mppV );')
 })
 
 test('parcharExtrusion lanza si falta cualquiera de las dos anclas', () => {
@@ -214,7 +220,10 @@ test('el fragment ya no recorta a una fracción de banda: la banda ES la calzada
   ;(material as any).onBeforeCompile(shader)
   expect(shader.fragmentShader).not.toContain('fraccion')
   expect(shader.fragmentShader).not.toContain('uBandaPx')
-  expect(shader.fragmentShader).toContain('float t = vUv.x;')
+  // `t` sí se reescala, pero por la SECCIÓN (seccion.ts), no por una banda de
+  // nivel: vUv.x va de -1 a +1 sobre calzada + hombrillo o brocal, y esto lo
+  // devuelve a la calzada. Sin sección (vBordeM = 0) el factor vale 1 exacto.
+  expect(shader.fragmentShader).toContain('float t = vUv.x * (1.0 + 2.0 * abs(vBordeM)')
 })
 
 test('las flechas de sentido se pintan solo en sentido único y hacia vDist creciente', () => {

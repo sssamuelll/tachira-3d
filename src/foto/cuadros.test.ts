@@ -27,9 +27,17 @@ test('el shader generado sigue usando las mismas constantes de ancho y alza', ()
   expect(glsl).toContain('float anchoBase = max( aCalzada, uPisoPx * mppV );')
   expect(glsl).toContain(`terrV * max( ${ERROR_PX.toFixed(1)} * mppV, ${ALZA_MIN_M.toFixed(2)} )`)
   // El contorno es el otro pase (roadStyle.ts lo dibuja debajo, más ancho): la
-  // foto solo reconstruye el relleno, así que su ancho tiene que ser el de la
-  // calzada pelada.
-  expect(glsl).toContain('float anchoM = anchoBase;')
+  // foto solo reconstruye el relleno.
+  //
+  // Lo que la foto NO reconstruye es la SECCIÓN transversal (seccion.ts): el
+  // shader extruye `anchoTot` = calzada + hombrillo o brocal a cada lado, y acá
+  // se sigue extruyendo `anchoBase`, la calzada pelada. Es deliberado y está
+  // anotado en cuadros.ts: el trazador no ejecuta el fragment shader, así que
+  // una franja ensanchada saldría pintada de asfalto y la vía quedaría hasta un
+  // 30 % más ancha de lo que es. Una vía sin hombrillo es un error más chico
+  // que una vía demasiado ancha.
+  expect(glsl).toContain('float anchoTot = anchoBase + 2.0 * abs( bordeM );')
+  expect(glsl).toContain('float anchoM = anchoTot;')
 })
 
 test('manda la calzada real cuando el piso en píxeles se queda corto', () => {

@@ -165,8 +165,12 @@ const REFLEJO_MAX = 2.0
 // embalsa -- decide dónde se seca antes, no dónde se hace la poza. Con peso 1 la
 // calzada se convertía en una bañera con el eje como isla.
 //
-// El agente de sección transversal (hr/seccion) tiene el bombeo de verdad en su
-// geometría; cuando se integre, BOMBEO sale de allá y esta constante muere.
+// La sección transversal (seccion.ts) inclina la NORMAL con este mismo bombeo,
+// no la geometría -- 7 cm de flecha no se ven a 30 m -- así que la cota del
+// agua sigue necesitando su propio término. Las dos constantes tienen que
+// valer lo mismo (mojado.test.ts lo afirma): no se importa de allá porque
+// seccion.ts importa de asfalto.ts y asfalto.ts de aquí, y cerrar ese ciclo
+// deja una de las dos sin inicializar al cargar.
 export const BOMBEO = 0.02
 export const BOMBEO_PESO = 0.50
 // Cuánto hunde la rodada, en metros, con desgaste total y en su tramo más

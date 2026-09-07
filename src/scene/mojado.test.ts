@@ -12,6 +12,7 @@ import { ASFALTO_CUERPO_GLSL, ANCLA_MOJADO, BACHE_TASA, GRIETA_M } from './asfal
 // baches o el tamaño de celda, este test sigue mirando el GLSL de verdad.
 const BACHE_CUERPO_GLSL = bacheCuerpoGlsl(BACHE_TASA, GRIETA_M)
 import { patchLineMaterial } from './roadsShader'
+import { BOMBEO as BOMBEO_SECCION } from './seccion'
 import type { DataTexture } from 'three'
 
 // Mismo patrón que asfalto.test.ts: se parchea un LineMaterial REAL y se lee
@@ -78,8 +79,12 @@ test('las constantes del agua son las del modelo, no números sueltos', () => {
   // Mojada, la superficie va HACIA lo especular, nunca hacia lo mate.
   expect(RUG_MOJADA).toBeLessThan(1)
   expect(RUG_MOJADA).toBeGreaterThan(0)
-  // Bombeo de norma: 2 % del eje al borde.
+  // Bombeo de norma: 2 % del eje al borde, y EL MISMO con el que seccion.ts
+  // inclina la normal de la calzada: si el agua embalsara con una pendiente y
+  // la luz cayera con otra, el charco se leería en el sitio equivocado. No se
+  // importa de allá por el ciclo asfalto -> mojado -> seccion -> asfalto.
   expect(BOMBEO).toBeCloseTo(0.02, 4)
+  expect(BOMBEO).toBe(BOMBEO_SECCION)
   // ...pero no entra entero: un bombeo real drena, no embalsa.
   expect(BOMBEO_PESO).toBeGreaterThan(0)
   expect(BOMBEO_PESO).toBeLessThan(1)
