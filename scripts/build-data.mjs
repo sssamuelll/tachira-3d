@@ -7,6 +7,7 @@ import { packRoads, writeBin } from './lib/pack.mjs'
 import { normalizeLanes, normalizeOneway, orientar } from './lib/road-meta.mjs'
 import { subdividir, apoyar } from './lib/subdividir.mjs'
 import { alturaTriangulo, normalTriangulo } from './lib/drape.mjs'
+import { tallar } from './lib/carving.mjs'
 import { stateMask } from './lib/state-mask.mjs'
 import { escribirPiramide } from './lib/dem-tiles.mjs'
 
@@ -48,6 +49,25 @@ async function main () {
   console.log('3/9  DEM')
   const dem = await fetchDem(BBOX, Z)
   console.log(`     grid ${dem.width} x ${dem.height}`)
+
+  console.log('3b/9 tallado de las vías en el DEM')
+  // Antes de apoyar nada: el DEM de ~38 m no sabe que las carreteras existen,
+  // así que una vía apoyada sobre él hereda cada serrucho de la malla. Acá se
+  // le talla a cada vía su plataforma —perfil suavizado y de pendiente
+  // acotada a lo largo, nivelado de lado a lado, con una banda de transición
+  // hacia afuera— y a partir de este punto TODO lo que sale del DEM sale del
+  // DEM tallado: el drapeado (5/9), la pirámide y errores.json (8b/9) y el
+  // relieve del minimapa (8/9).
+  //
+  // Que el minimapa use el tallado es deliberado y es cosmético: es la misma
+  // malla de 1024² (~130 m por celda) remuestreada por vecino más próximo, y
+  // un post movido unos metros no cambia un disco de 148 px. Tener DOS DEM
+  // en memoria para que uno de ellos no se entere sí costaría 62 MB.
+  const t0 = Date.now()
+  const talla = tallar(dem, lines)
+  console.log(`     ${talla.vias} vías talladas · ${talla.posts} posts movidos ` +
+              `(${(talla.posts / (dem.width * dem.height) * 100).toFixed(1)} % de la rejilla) · ` +
+              `${((Date.now() - t0) / 1000).toFixed(1)} s`)
 
   console.log('4/9  municipio por punto medio')
   // Un tramo que cruza límite cae en uno solo. Cortar en el límite duplicaría

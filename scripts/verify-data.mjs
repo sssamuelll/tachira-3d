@@ -68,6 +68,39 @@ check(draped / meta.ways.length >= 0.5,
   `vías con km3d > km: ${draped} de ${meta.ways.length} (${(draped / meta.ways.length * 100).toFixed(1)}%, umbral >= 50%)`)
 check(inverted.length === 0, `vías con km3d menor que km: ${inverted.length}`)
 
+// 7b. el tallado del DEM sirvió: la red estructurante no sube como una escalera.
+// Una troncal venezolana no pasa del 8 % de pendiente; el DEM Terrarium de
+// ~38 m por post no lo sabe, y antes del tallado (scripts/lib/carving.mjs)
+// una de cada nueve de sus tramos salía a más del 15 % y el percentil 99
+// estaba en 35,5 %. Con el tallado: 8,9 % de p90, 22,4 % de p99 y 2,7 % de
+// tramos sobre el 15 %. El umbral de 30 % deja sitio para los puentes y
+// túneles, que a propósito NO tallan y siguen la garganta que cruzan.
+// Se mide sobre lo que de verdad se dibuja (roads-pos.bin), no sobre el DEM:
+// es la misma superficie y ya está en disco.
+{
+  const posBuf = await readFile(`${OUT}/roads-pos.bin`)
+  const idxBuf = await readFile(`${OUT}/roads-index.bin`)
+  const pos = new Float32Array(posBuf.buffer, posBuf.byteOffset, posBuf.byteLength / 4)
+  const index = new Uint32Array(idxBuf.buffer, idxBuf.byteOffset, idxBuf.byteLength / 4)
+  const ESTRUCTURANTE = new Set(['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link'])
+  const p = []
+  for (let i = 0; i < meta.ways.length; i++) {
+    if (!ESTRUCTURANTE.has(meta.ways[i].highway)) continue
+    for (let s = index[i]; s < index[i + 1]; s++) {
+      const o = s * 6
+      // en horizontal: los tramos cortos que deja la bisección de `apoyar`
+      // dividen por casi cero y darían pendientes sin significado
+      const dh = Math.hypot(pos[o + 3] - pos[o], pos[o + 5] - pos[o + 2])
+      if (dh < 5) continue
+      p.push(Math.abs(pos[o + 4] - pos[o + 1]) / dh)
+    }
+  }
+  p.sort((a, b) => a - b)
+  const p99 = p[Math.floor(0.99 * p.length)] * 100
+  check(p.length > 10000 && p99 <= 30,
+    `pendiente p99 de la red estructurante: ${p99.toFixed(1)} % sobre ${p.length} tramos (umbral <= 30 %)`)
+}
+
 // 8. cuántos ids de pci-tachira.json ya no existen en roads-meta.json.
 // INFORMA, no falla: un huérfano dejó de ser un defecto de datos. La app los
 // conserva a propósito, los re-emite en cada guardado y avisa en la interfaz
