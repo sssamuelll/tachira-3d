@@ -45,10 +45,20 @@ test('el muestreo va en coordenadas de calzada, en metros: u a lo largo, v a lo 
   expect(c).toContain('float calzadaM = vCalzadaPx * vMpp;')
 })
 
-test('las dos escalas son macro y micro, y la macro es al menos diez veces la micro', () => {
-  expect(MICRO_M).toBeGreaterThan(0.5)
-  expect(MICRO_M).toBeLessThan(4)
-  expect(MACRO_M / MICRO_M).toBeGreaterThanOrEqual(10)
+// El tamaño de tile no es gusto: es lo que la pantalla puede dibujar. La
+// textura tiene 1024 texels de lado; a 30 m de cámara (fov 45, 1000 px de
+// alto) un píxel cubre 1,4 cm de calzada en el campo cercano. Si el tile es
+// tan chico que caen más de dos o tres texels por píxel, el mipmap promedia
+// el grano hasta dejarlo liso y el filtrado anisotrópico se topa y raya la
+// calzada a lo largo: los 2 m del brief daban TRECE texels por píxel. Este
+// test fija la cuenta, no la cifra.
+test('la escala micro se resuelve de verdad a 30 m de cámara, y la macro es otra escala', () => {
+  const MPP_30M = 2 * 30 * Math.tan(Math.PI / 8) / 1000
+  expect(1024 * MPP_30M / MICRO_M).toBeLessThan(3)
+  // ...pero tampoco tan grande que el grano se vuelva manchado de metro.
+  expect(MICRO_M).toBeLessThan(20)
+  // Dos escalas de verdad, no la misma dos veces.
+  expect(MACRO_M / MICRO_M).toBeGreaterThanOrEqual(3)
   const c = codigo(ASFALTO_CUERPO_GLSL)
   expect(c).toContain(`uvM / ${MACRO_M.toFixed(1)}`)
   expect(c).toContain(`uvM / ${MICRO_M.toFixed(1)}`)

@@ -454,6 +454,27 @@ export function patchLineMaterial (
         vCalzadaPx = anchoBase / mppV;
         vAnchoPx = anchoM / mppV;
         vMpp = mppV;
+        // La distancia recorrida tiene que seguir CORRIENDO por las tapas.
+        //
+        // ATTR_VERT_GLSL la resuelve con la misma prueba que el eje
+        // (position.y < 0.5 ? d0 : d1), y para el cuerpo del tramo está bien.
+        // Pero el cuadrilátero de LineSegmentsGeometry tiene position.y en
+        // {-1, 0, 1, 2}: las tapas son los tramos [-1,0] y [1,2], y sus DOS
+        // vértices caen del mismo lado de esa prueba. O sea vDist constante en
+        // toda la tapa -- y una tapa mide medio ancho de calzada, que a 30 m de
+        // cámara son 3,4 m de superficie.
+        //
+        // Con vDist congelada, TODO lo que se calcula sobre la coordenada de
+        // calzada (el asfalto, el Voronoi de las grietas, el fBm de los
+        // parches) deja de depender de la coordenada a lo largo y se convierte
+        // en una función de la transversal sola: en pantalla, vetas paralelas
+        // a la vía con el borde redondo de la tapa. Se veía en las capturas
+        // como bandas rayadas cada 130 m de avenida, y se persiguió primero
+        // como un problema de filtrado de textura, que no era.
+        //
+        // La tapa se alarga hw metros sobre dirV (más abajo), así que la
+        // distancia crece exactamente hw a lo largo de ella.
+        vDist += hw * ( position.y < 0.0 ? position.y : ( position.y > 1.0 ? position.y - 1.0 : 0.0 ) );
         // De cámara a MUNDO. dirV, ladoV y terrV están en espacio de cámara;
         // en GLSL \`v * M\` es \`M^T * v\`, y para una cámara sin escala la
         // traspuesta de la rotación de viewMatrix ES su inversa. La posición

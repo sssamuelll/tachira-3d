@@ -54,23 +54,64 @@ export interface Asfalto {
 // (6,8 m de calzada): 12 px son ~500 m de cámara, 26 px ~230 m.
 export const ASFALTO_DESDE_PX = 12
 export const ASFALTO_HASTA_PX = 26
+// Por debajo de esta mezcla el bloque entero se salta: lo que aportaría no se
+// ve. Ver el comentario en el cuerpo, incluida la medida que NO mejoró.
+const CORTE_TEMPRANO = 0.08
 
 // Las dos escalas de muestreo, en metros de calzada.
 //
 // La MACRO da el manchado grande del pavimento (zonas más claras y más
-// oscuras, juntas de pavimentación). Se muestrea con sesgo de mipmap para que
-// aporte SOLO baja frecuencia: sin el sesgo, la textura de 1K estirada a 24 m
-// deja el árido en manchas de 10 cm y la calzada parece grava.
+// oscuras, juntas de pavimentación) y es la que sobrevive a media distancia.
+// La MICRO da el grano de la superficie y es la que se ve de cerca.
 //
-// La MICRO da el árido de verdad: 1024 px sobre 2 m son 2 mm por texel, que es
-// el tamaño real del grano de una mezcla asfáltica.
+// Estas cifras NO son las del brief (30 y 2 m) y la diferencia se midió en
+// pantalla. Un tile de 2 m sobre una textura de 1024 px son 2 mm por texel; a
+// 30 m de cámara un píxel cubre 1,4 cm, o sea TRECE texels por píxel. El
+// mipmap promedia esos trece y lo que sale es gris liso: la calzada se veía de
+// yeso, sin un solo grano, y además rayada -- con el filtrado anisotrópico
+// topado a 16, la relación de derivadas de una calzada que se va al horizonte
+// se pasa de ese tope y el eje corto queda submuestreado, que en pantalla son
+// vetas longitudinales dentro de cada triángulo. Las dos cosas son el mismo
+// problema: pedirle a la textura una frecuencia que la pantalla no puede
+// dibujar.
 //
-// 30 m de macro (la cifra del brief) se probó primero: sobre una calzada de
-// 6,8 m el tile cubre 0,23 de su ancho y el manchado se lee como vetas
-// longitudinales, no como manchas. 24 m cubre 0,28 y ya no se nota.
-export const MACRO_M = 24
-export const MICRO_M = 2
-const MACRO_SESGO = 2.5
+// Con 12 m el texel mide 1,2 cm y a 30 m de cámara cae en ~1 texel por píxel:
+// el grano SE VE. Cuesta que el árido de la foto (que retrata ~1 m² de
+// asfalto) sale ampliado seis veces, así que ya no es árido de 5 mm sino
+// manchado de 5 cm -- que es, de todas formas, lo que el ojo distingue de una
+// calzada a 30 m de distancia. La macro a 40 m hace el mismo papel a 125 m.
+export const MACRO_M = 40
+export const MICRO_M = 12
+const MACRO_SESGO = 1.2
+
+// Lado de la textura, en texels. Con él y vMpp el shader sabe cuántos texels
+// caen en un píxel y puede desvanecer el detalle que no cabe, en vez de
+// dejarlo aliasear. Es prefiltrado honesto: la media de la micro es 1.0, así
+// que desvanecerla hacia 1.0 es exactamente promediarla.
+const TEXTURA_PX = 1024
+// A partir de cuántos texels por píxel se considera perdido el detalle.
+const NYQUIST = 2.5
+// Resolución EFECTIVA de la macro: cada unidad de sesgo de mipmap le quita la
+// mitad de los texels por lado. La macro se desvanece por su cuenta con esta.
+const MACRO_PX = Math.round(TEXTURA_PX / 2 ** MACRO_SESGO)
+
+// Cuánto se realza el contraste de cada escala. La foto de asfalto es de
+// contraste bajísimo (±12% en luz lineal) y decodificada desde sRGB queda casi
+// plana: sin realce el grano existe pero no se ve. Calibrables -- son el pomo
+// de "cuánta textura" sin tocar nada más.
+const GRANO_FUERZA = 2.2
+const MANCHA_FUERZA = 1.5
+
+// Cuánto más oscura va la calzada de cerca que el color plano de lejos.
+//
+// El color plano ES la rampa ASTM, y la rampa está pensada para leerse sobre
+// un relieve claro: "sin evaluar" es 0,96, casi blanco, y son las 26.712 vías
+// al abrir la aplicación. Pintar eso a brillo completo con textura encima no
+// da una carretera, da una losa de concreto. Un pavimento real refleja del
+// orden de la mitad. 0,7 es el punto en el que la vía se lee como asfalto sin
+// que el color del dato se apague; la transición es la misma smoothstep del
+// resto, así que no hay escalón. Calibrable.
+const NIVEL_CERCA = 0.7
 
 // Cuánto manda el color del dato sobre el gris real del asfalto. 1.0 = la
 // calzada es puro color de PCI modulado por el grano; 0.0 = asfalto gris y el
@@ -131,12 +172,12 @@ const HUELLA_PULIDO = 0.55
 // de un pavimento fatigado; también es el tamaño de la celda de la que sale un
 // bache, que es lo mismo mirado de otra manera (un bache empieza donde la piel
 // de cocodrilo se desprende).
-const GRIETA_M = 1.6
+const GRIETA_M = 1.1
 // Ancho máximo de grieta, en fracción de celda, cuando el desgaste es total.
 // Va al CUADRADO del desgaste a propósito: una vía "Bueno" (PCI 80, desgaste
 // 0,2) tiene 0,04 de esto, casi nada; una "Fallado" (PCI 10) tiene 0,81.
 // La curva del deterioro de un pavimento real es así, no lineal.
-const GRIETA_MAX = 0.16
+const GRIETA_MAX = 0.13
 const GRIETA_OSCURO = 0.38
 
 // Parches de bacheo: fBm a 9 m, con el umbral bajando con el desgaste. Un
@@ -311,7 +352,18 @@ export const ASFALTO_CUERPO_GLSL = `
     // las 26.712 vías salen con el mismo coste que antes de existir esto.
     float cerca = smoothstep(${f1(ASFALTO_DESDE_PX)}, ${f1(ASFALTO_HASTA_PX)}, vCalzadaPx) * uAsfaltoOn;
 
-    if (cerca > 0.002) {
+    // El corte temprano no es cero: por debajo de CORTE_TEMPRANO el bloque
+    // entero -- tres muestras estocásticas, tres texturas, un Voronoi y un
+    // fBm -- aportaría menos del 8% de un color que a esa distancia ya es
+    // prácticamente el plano. El escalón que deja es el 8% de una diferencia
+    // que promedia cero, así que no se ve.
+    //
+    // Honestidad sobre la medida: subirlo de 0,002 a 0,08 NO movió los fps a
+    // 500 m (44,5 antes, 45,6 después, con las muestras yendo de 20 a 68 entre
+    // repeticiones). A esa distancia el cuello es el relieve rellenando
+    // teselas, no este shader. Se deja porque es una constante y quita trabajo
+    // cuyo resultado no se ve; no porque se haya medido una ganancia.
+    if (cerca > ${f2(CORTE_TEMPRANO)}) {
       // Sin dato de canales (una trocha) se supone uno: la huella de rodadura
       // existe igual, por el medio.
       float canalesA = max(abs(vCanales), 1.0);
@@ -331,13 +383,66 @@ export const ASFALTO_CUERPO_GLSL = `
       // cuando la vía está gastada.
       float rodada = huellas * desgaste;
 
-      // Las dos escalas. La macro va con sesgo de mipmap: aporta manchado,
-      // no árido.
+      // El marco de la calzada, en ejes del mundo: a lo largo el sentido de la
+      // vía, a lo ancho su derecha, y arriba la normal del terreno. Es el
+      // mismo marco en que se definió uvM, así que el normal map cae orientado
+      // con el grano que se ve. Se calcula ACÁ, antes de muestrear, porque el
+      // ángulo de incidencia decide cuánta textura se puede dibujar.
+      vec3 T = normalize(vDirW);
+      vec3 Ng = normalize(vTerrW);
+      vec3 B = cross(T, Ng);
+      vec3 V = normalize(cameraPosition - vPosW);
+
+      // Cuánto detalle micro cabe de verdad en un píxel.
+      //
+      // La huella de un píxel sobre la calzada NO es vMpp: vMpp mide
+      // perpendicular al rayo de vista, y una calzada mirada de refilón la
+      // estira por 1/cos(incidencia). Peor: la estira en UN eje solo, el de la
+      // marcha, y el filtrado anisotrópico está topado en 8 -- pasada esa
+      // relación el eje corto se queda sin promediar y salen vetas a lo largo
+      // de la vía, con el borde exacto de cada tramo (cada cuadrilátero tiene
+      // su propia derivada). Se probaron dos aproximaciones antes de esta:
+      // vMpp a secas (rayaba en casi toda la calzada) y vMpp / cos(incidencia)
+      // (rayaba en bandas, donde el tramo era largo).
+      //
+      // fwidth() da la derivada REAL en pantalla de la coordenada, que es lo
+      // único que no hay que aproximar. Se toma el eje peor: por encima de
+      // NYQUIST texels por píxel la textura ya no se puede dibujar, solo
+      // aliasear, y se desvanece hacia su media (1.0 para el grano, plano para
+      // la normal), que es exactamente promediarla.
+      float huellaM = max(fwidth(uvM.x), fwidth(uvM.y));
+      float texelsPx = ${f1(TEXTURA_PX)} * huellaM / ${f1(MICRO_M)};
+      float nitidez = clamp(${f1(NYQUIST)} / max(texelsPx, 1e-4), 0.0, 1.0);
+
+      // Las dos escalas. La macro va con sesgo de mipmap y muestreo
+      // estocástico: manchado sin repetición. La micro va lisa, con el
+      // desvanecimiento de arriba.
       vec3 macro = estocastica(uAlbedo, uvM / ${f1(MACRO_M)}, ${f1(MACRO_SESGO)});
+      // La macro necesita su propio desvanecimiento, con su propia resolución
+      // efectiva (el sesgo de mipmap le quita la mitad de los texels por cada
+      // unidad). Sin él, en el primer metro de calzada delante de la cámara
+      // -- donde la superficie pasa casi de canto y la huella del píxel mide
+      // metros -- salían arcos concéntricos de mipmap abanicándose desde el
+      // punto de fuga. Es el mismo artefacto que las vetas, un orden de
+      // magnitud más grande.
+      float nitidezMacro = clamp(${f1(NYQUIST)} * ${f1(MACRO_M)} / max(${f1(MACRO_PX)} * huellaM, 1e-4), 0.0, 1.0);
+      macro = MEDIA_LIN + (macro - MEDIA_LIN) * ${f1(MANCHA_FUERZA)} * nitidezMacro;
       float micro = dot(texture2D(uAlbedo, uvM / ${f1(MICRO_M)}).rgb, LUMA) / MEDIA_LIN;
-      vec3 muestra = macro * mix(1.0, micro, 0.75);
+      micro = 1.0 + (micro - 1.0) * ${f1(GRANO_FUERZA)} * nitidez;
+      vec3 muestra = macro * micro;
       float rug = texture2D(uRough, uvM / ${f1(MICRO_M)}).r;
       vec3 nT = texture2D(uNormalMap, uvM / ${f1(MICRO_M)}).xyz * 2.0 - 1.0;
+      nT.xy *= nitidez;
+      // Y donde el relieve se pierde, la superficie se vuelve mate: es lo que
+      // evita que el especular centellee sobre una normal que ya no existe
+      // (mismo criterio que Toksvig, sin su mapa extra).
+      rug = mix(1.0, rug, nitidez);
+
+      // Dónde está el daño. Un pavimento no se agrieta parejo: falla por
+      // zonas, donde la base cedió. Este fBm es a la vez el mapa de esas zonas
+      // y el de los parches de bacheo, que es lo mismo visto en dos momentos
+      // (primero se agrieta, después alguien lo parcha).
+      float zona = fbm(uvM / ${f1(PARCHE_M)});
 
       // Grietas: distancia al borde de un Voronoi en metros. El ancho va al
       // cuadrado del desgaste, y crece dentro de la huella, que es donde el
@@ -347,16 +452,25 @@ export const ASFALTO_CUERPO_GLSL = `
       // Una grieta más fina que un píxel titila al orbitar: se desvanece en
       // vez de dibujarse con escalera. El PCI sigue diciéndolo por el color.
       float visGr = smoothstep(0.3, 1.0, anchoGr * ${f1(GRIETA_M)} / max(vMpp, 1e-6));
-      float grieta = (1.0 - smoothstep(0.0, anchoGr + 1e-4, vor.x)) * visGr;
+      // El desgaste manda dos veces: en el ANCHO (arriba) y en lo MARCADA que
+      // está. Solo con el ancho, una vía "Bueno" a PCI 70 salía con la piel de
+      // cocodrilo entera dibujada a pleno contraste, fina pero completa, y se
+      // leía como un enlosado. Una grieta incipiente es una raya tenue.
+      // ...y por zonas, no por toda la calzada: una red de Voronoi completa y
+      // uniforme se lee como enlosado, no como fatiga.
+      float grieta = (1.0 - smoothstep(0.0, anchoGr + 1e-4, vor.x)) * visGr * desgaste
+                   * smoothstep(0.30, 0.62, zona + desgaste * 0.35);
 
-      // Parches de bacheo: fBm con el umbral bajando con el desgaste.
+      // Parches de bacheo: el mismo fBm, con el umbral bajando con el desgaste.
       float umbralP = mix(0.80, 0.42, desgaste);
-      float parche = smoothstep(umbralP, umbralP + 0.06, fbm(uvM / ${f1(PARCHE_M)}));
+      float parche = smoothstep(umbralP, umbralP + 0.06, zona);
 
       // Baches: celdas sueltas del MISMO Voronoi (un bache es piel de
       // cocodrilo que se desprendió). Solo mancha, sin relieve.
-      float esBache = step(1.0 - ${f2(BACHE_TASA)} * desgaste * desgaste, vor.z);
-      float bache = esBache * (1.0 - smoothstep(0.10, 0.34, vor.y));
+      // Al CUBO del desgaste: un bache no es una grieta más grande, es otra
+      // etapa. A PCI 70 son el 1% de las celdas; a PCI 10, el 22%.
+      float esBache = step(1.0 - ${f2(BACHE_TASA)} * desgaste * desgaste * desgaste, vor.z);
+      float bache = esBache * (1.0 - smoothstep(0.06, 0.26, vor.y));
 
       // El tinte. 'grano' es la luminancia de la muestra normalizada a ~1.0:
       // multiplicar por ella modula el VALOR del color de PCI y le deja el
@@ -374,18 +488,12 @@ export const ASFALTO_CUERPO_GLSL = `
       rug = mix(rug, 1.0, max(grieta, bache));
       rug = clamp(mix(rug, 1.0, desgaste * 0.35), 0.05, 1.0);
 
-      // Marco tangente de la calzada, en ejes del mundo: a lo largo el sentido
-      // de la vía, a lo ancho su derecha, y arriba la normal del terreno. Es
-      // el mismo marco en que se definió uvM, así que el normal map cae
-      // orientado con el grano que se ve.
-      vec3 T = normalize(vDirW);
-      vec3 Ng = normalize(vTerrW);
-      vec3 B = cross(T, Ng);
+      // La normal perturbada, sobre el marco T/B/Ng de arriba. La huella de
+      // rodadura aplana el relieve: los neumáticos pulen.
       float relieve = 0.9 * (1.0 - 0.5 * rodada);
       vec3 N = normalize(T * nT.x * relieve + B * nT.y * relieve + Ng * max(nT.z, 0.1));
 
       float ndl = max(dot(N, uSol), 0.0);
-      vec3 V = normalize(cameraPosition - vPosW);
       vec3 H = normalize(uSol + V);
       float dureza = exp2(mix(9.0, 2.0, rug));
       float esp = pow(max(dot(N, H), 0.0), dureza) * ${f2(ESPECULAR)} * (1.0 - rug) * step(0.001, ndl);
@@ -394,7 +502,7 @@ export const ASFALTO_CUERPO_GLSL = `
       // seguir enseñando su PCI.
       float cielo = 0.5 + 0.5 * N.y;
       float ambiente = ${f2(AMBIENTE)} * mix(${f2(AMB_SUELO)}, 1.0, cielo);
-      vec3 luz = asf * (ambiente + ${f2(SOL_DIF)} * ndl) + esp;
+      vec3 luz = asf * (ambiente + ${f2(SOL_DIF)} * ndl) * ${f2(NIVEL_CERCA)} + esp;
 
       base = mix(base, luz, cerca);
     }

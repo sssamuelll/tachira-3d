@@ -50,8 +50,13 @@ export function Roads (
       if (srgb) t.colorSpace = THREE.SRGBColorSpace
       // La calzada se ve casi de canto en cuanto la cámara baja: sin
       // anisotropía el árido se convierte en un borrón longitudinal justo a la
-      // distancia en la que este trabajo tiene sentido.
-      t.anisotropy = gl.capabilities.getMaxAnisotropy()
+      // distancia en la que este trabajo tiene sentido. Pero tampoco al
+      // máximo: cuando la relación de derivadas se pasa del tope, el filtrado
+      // deja de compensar y submuestrea el eje corto, que en pantalla son
+      // vetas a lo largo de la calzada. 8 cubre el ángulo útil sin llegar a
+      // ese régimen; el resto lo resuelve el desvanecimiento por Nyquist del
+      // shader (asfalto.ts, `nitidez`).
+      t.anisotropy = Math.min(8, gl.capabilities.getMaxAnisotropy())
       return t
     }
     return {

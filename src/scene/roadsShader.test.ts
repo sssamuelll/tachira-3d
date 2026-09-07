@@ -175,6 +175,27 @@ test('la extrusión va en el plano del terreno y se levanta ERROR_PX píxeles, n
   expect(shader.vertexShader).toContain('attribute vec3 instanceNormalEnd;')
 })
 
+// El cuadrilátero de LineSegmentsGeometry tiene position.y en {-1, 0, 1, 2}:
+// el cuerpo del tramo es [0,1] y las tapas redondas [-1,0] y [1,2]. Los dos
+// vértices de una tapa caen del mismo lado de la prueba `position.y < 0.5` con
+// que ATTR_VERT_GLSL elige d0 o d1, así que vDist sale CONSTANTE en toda la
+// tapa -- media calzada de largo, 3,4 m en una avenida. Todo lo que se calcula
+// sobre la coordenada a lo largo de la vía (asfalto, grietas, parches) se
+// degenera ahí en una función de la transversal sola, y en pantalla son vetas
+// paralelas a la calzada con el borde redondo de la tapa. Se vio en las
+// capturas a 30 m antes de encontrarse la causa.
+test('vDist sigue corriendo por las tapas del tramo en vez de congelarse', () => {
+  const material = new LineMaterial()
+  patchLineMaterial(material, {} as DataTexture, 164)
+  const shader = realShader(material)
+  ;(material as any).onBeforeCompile(shader)
+  const v = shader.vertexShader.replace(/\/\/.*$/gm, '')
+  expect(v).toMatch(/vDist \+= hw \* \(\s*position\.y < 0\.0 \? position\.y : \(\s*position\.y > 1\.0 \? position\.y - 1\.0 : 0\.0\s*\)\s*\)/)
+  // El pase de ids no lo necesita ni lo lleva: reutiliza la extrusión sin
+  // colofón y no tiene coordenada de calzada que calcular.
+  expect(extrusionGlsl(false)).not.toContain('vDist')
+})
+
 test('el contorno se extruye más ancho que el relleno; el relleno, de la calzada', () => {
   expect(extrusionGlsl(false)).toContain('float anchoM = anchoBase;')
   expect(extrusionGlsl(true)).toMatch(/float anchoM = anchoBase \+ min\(/)
