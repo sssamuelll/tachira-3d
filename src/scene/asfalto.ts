@@ -24,6 +24,7 @@
 //    24 m y en una calle de 5, y no se estira en las curvas.
 
 import * as THREE from 'three'
+import { bacheCuerpoGlsl } from './mojado'
 
 /** Los tres mapas, en `public/texturas/asfalto/`. Fuente y licencia en el
  *  LICENSE.md de esa carpeta (ambientCG Asphalt006, CC0). */
@@ -172,7 +173,9 @@ const HUELLA_PULIDO = 0.55
 // de un pavimento fatigado; también es el tamaño de la celda de la que sale un
 // bache, que es lo mismo mirado de otra manera (un bache empieza donde la piel
 // de cocodrilo se desprende).
-const GRIETA_M = 1.1
+// Exportada porque el relieve del bache (mojado.ts) necesita pasar de celdas a
+// metros y no puede importarla -- sería un ciclo -- ni copiarla.
+export const GRIETA_M = 1.1
 // Ancho máximo de grieta, en fracción de celda, cuando el desgaste es total.
 // Va al CUADRADO del desgaste a propósito: una vía "Bueno" (PCI 80, desgaste
 // 0,2) tiene 0,04 de esto, casi nada; una "Fallado" (PCI 10) tiene 0,81.
@@ -188,11 +191,16 @@ const PARCHE_OSCURO = 0.62
 const PARCHE_RUG = 0.45
 
 // Qué fracción de las celdas del Voronoi son un bache, con desgaste total.
-// SOLO mancha de albedo y rugosidad: el relieve por parallax es de otro
-// agente, y un bache pintado sin relieve pero con sombra propia se lee peor
-// que una mancha honesta.
-const BACHE_TASA = 0.30
+// El relieve (cuenco, paredes, labio, sombra propia) lo pone mojado.ts sobre
+// esta misma celda: acá quedan la tasa y lo oscuro que va el interior.
+export const BACHE_TASA = 0.30
 const BACHE_OSCURO = 0.30
+
+/** El punto donde se inyecta el mojado (mojado.ts). Va después de que `asf`,
+ *  `rug` y `N` están calculados y antes de que se iluminen: el mojado cambia
+ *  los tres. Lo sustituye patchLineMaterial (roadsShader.ts), y solo en el pase
+ *  de relleno. */
+export const ANCLA_MOJADO = '// ANCLA_MOJADO'
 
 // Cuánto se come el desgaste la pintura de las marcas viales. 0,75 deja
 // visible una cuarta parte de la demarcación en una vía colapsada: menos que
@@ -250,19 +258,27 @@ export const ASFALTO_GLSL = `
   //   .y  distancia al punto de la celda (F1)
   //   .z  hash de la celda, en [0,1)
   //
+  // y por el parámetro de salida, el vector que va del CENTRO de la celda al
+  // punto muestreado, en unidades de celda. Su longitud es .y; hace falta su
+  // dirección, y solo la necesita el relieve del bache (mojado.ts), que sin
+  // saber en qué parte del cuenco cae este fragmento no puede trazar nada.
+  // Sale gratis: es una asignación dentro de una rama que ya existía.
+  //
   // F2-F1 no es la distancia exacta al borde (la exacta necesita una segunda
   // pasada proyectando sobre las mediatrices, Quílez 2012), pero para una
   // grieta la diferencia es un ensanchamiento leve en los vértices triples,
   // que es justo donde una grieta real se ensancha. La mitad del costo.
-  vec3 voronoi (vec2 p) {
+  vec3 voronoi (vec2 p, out vec2 desdeF1) {
     vec2 n = floor(p), f = fract(p);
     float d1 = 8.0, d2 = 8.0;
     vec2 celda = n;
+    desdeF1 = vec2(0.0);
     for (int j = -1; j <= 1; j++) {
       for (int i = -1; i <= 1; i++) {
         vec2 g = vec2(float(i), float(j));
-        float d = length(g + hash2(n + g) - f);
-        if (d < d1) { d2 = d1; d1 = d; celda = n + g; }
+        vec2 r = f - g - hash2(n + g);
+        float d = length(r);
+        if (d < d1) { d2 = d1; d1 = d; celda = n + g; desdeF1 = r; }
         else if (d < d2) { d2 = d; }
       }
     }
@@ -347,6 +363,12 @@ export const ASFALTO_CUERPO_GLSL = `
     // inspeccionó no es una vía nueva -- ni 0, que sería inventar una ruina.
     float pciEf = pci > 100.5 ? ${f1(PCI_SIN_EVALUAR)} : pci;
     float desgaste = clamp(1.0 - pciEf * 0.01, 0.0, 1.0);
+
+    // El reflejo de la lámina de agua (mojado.ts). Se declara ACÁ, fuera del
+    // if, y no donde se calcula: la lámina es la capa de más arriba de todas y
+    // se suma después de las marcas viales, que se pintan fuera de este
+    // bloque. En seco vale cero y el compilador se lo come entero.
+    vec3 espMojado = vec3(0.0);
 
     // El corte de detalle. Fuera del if no se muestrea NADA: a vista de estado
     // las 26.712 vías salen con el mismo coste que antes de existir esto.
@@ -447,7 +469,8 @@ export const ASFALTO_CUERPO_GLSL = `
       // Grietas: distancia al borde de un Voronoi en metros. El ancho va al
       // cuadrado del desgaste, y crece dentro de la huella, que es donde el
       // pavimento fatiga primero.
-      vec3 vor = voronoi(uvM / ${f1(GRIETA_M)});
+      vec2 desdeF1;
+      vec3 vor = voronoi(uvM / ${f1(GRIETA_M)}, desdeF1);
       float anchoGr = ${f2(GRIETA_MAX)} * desgaste * desgaste * mix(1.0, 1.7, huellas);
       // Una grieta más fina que un píxel titila al orbitar: se desvanece en
       // vez de dibujarse con escalera. El PCI sigue diciéndolo por el color.
@@ -465,12 +488,7 @@ export const ASFALTO_CUERPO_GLSL = `
       float umbralP = mix(0.80, 0.42, desgaste);
       float parche = smoothstep(umbralP, umbralP + 0.06, zona);
 
-      // Baches: celdas sueltas del MISMO Voronoi (un bache es piel de
-      // cocodrilo que se desprendió). Solo mancha, sin relieve.
-      // Al CUBO del desgaste: un bache no es una grieta más grande, es otra
-      // etapa. A PCI 70 son el 1% de las celdas; a PCI 10, el 22%.
-      float esBache = step(1.0 - ${f2(BACHE_TASA)} * desgaste * desgaste * desgaste, vor.z);
-      float bache = esBache * (1.0 - smoothstep(0.06, 0.26, vor.y));
+${bacheCuerpoGlsl(BACHE_TASA, GRIETA_M)}
 
       // El tinte. 'grano' es la luminancia de la muestra normalizada a ~1.0:
       // multiplicar por ella modula el VALOR del color de PCI y le deja el
@@ -493,7 +511,13 @@ export const ASFALTO_CUERPO_GLSL = `
       float relieve = 0.9 * (1.0 - 0.5 * rodada);
       vec3 N = normalize(T * nT.x * relieve + B * nT.y * relieve + Ng * max(nT.z, 0.1));
 
-      float ndl = max(dot(N, uSol), 0.0);
+      ${ANCLA_MOJADO}
+
+      // somBache: la pared del cuenco que le da la espalda al sol se tapa a sí
+      // misma. aoBache: al fondo del cuenco le llega menos cielo. Los dos
+      // valen 1.0 fuera de un bache (mojado.ts), así que en el resto de la
+      // calzada esta línea es la de siempre.
+      float ndl = max(dot(N, uSol), 0.0) * somBache;
       vec3 H = normalize(uSol + V);
       float dureza = exp2(mix(9.0, 2.0, rug));
       float esp = pow(max(dot(N, H), 0.0), dureza) * ${f2(ESPECULAR)} * (1.0 - rug) * step(0.001, ndl);
@@ -501,7 +525,7 @@ export const ASFALTO_CUERPO_GLSL = `
       // mira al suelo una parte. Nunca cero -- una calzada en sombra tiene que
       // seguir enseñando su PCI.
       float cielo = 0.5 + 0.5 * N.y;
-      float ambiente = ${f2(AMBIENTE)} * mix(${f2(AMB_SUELO)}, 1.0, cielo);
+      float ambiente = ${f2(AMBIENTE)} * mix(${f2(AMB_SUELO)}, 1.0, cielo) * aoBache;
       vec3 luz = asf * (ambiente + ${f2(SOL_DIF)} * ndl) * ${f2(NIVEL_CERCA)} + esp;
 
       base = mix(base, luz, cerca);

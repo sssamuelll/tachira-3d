@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { T } from './theme'
-import { Encuadre, Lazo, Archivo, Foto, Mas, Menos } from './icons'
+import { Encuadre, Lazo, Archivo, Foto, Lluvia, Mas, Menos } from './icons'
 import { Camara } from '../foto/Foto'
 import type { Escala } from './escala'
 
@@ -37,11 +37,13 @@ const par: CSSProperties = {
   background: T.fondo, borderRadius: T.radioChico, boxShadow: T.sombraChica, overflow: 'hidden',
 }
 
-export function MapControls ({ lazo, onLazo, imagen, onImagen, onEncuadrar, onAcercar, onAlejar, onFoto }: {
+export function MapControls ({ lazo, onLazo, imagen, onImagen, lluvia, onLluvia, onEncuadrar, onAcercar, onAlejar, onFoto }: {
   lazo: boolean
   onLazo: () => void
   imagen: boolean
   onImagen: () => void
+  lluvia: boolean
+  onLluvia: () => void
   onEncuadrar: () => void
   onAcercar: () => void
   onAlejar: () => void
@@ -56,6 +58,12 @@ export function MapControls ({ lazo, onLazo, imagen, onImagen, onEncuadrar, onAc
           entra en un modo del que haya que salir, prende y apaga una capa, y
           aria-pressed ya dice cuál de las dos. */}
       <Boton titulo="Imagen satelital" activo={imagen} onClick={onImagen}><Foto /></Boton>
+      {/* Moja la calzada. Mismo patrón que el satelital: prende y apaga una
+          capa, así que el título no cambia y aria-pressed dice cuál de las
+          dos. Un pavimento mojado enseña su estado mejor que uno seco -- los
+          charcos caen en las huellas de rodadura y en los baches -- así que
+          esto no es un adorno de clima, es otra manera de leer el PCI. */}
+      <Boton titulo="Lluvia" activo={lluvia} onClick={onLluvia}><Lluvia /></Boton>
       <Boton titulo="Encuadrar el estado" onClick={onEncuadrar}><Encuadre /></Boton>
       <Boton titulo={lazo ? 'Salir del lazo' : 'Seleccionar por lazo'} activo={lazo} onClick={onLazo}>
         <Lazo />

@@ -99,6 +99,18 @@ export const Foto = (p: { size?: number }) => (
   </svg>
 )
 
+/** Lluvia: la nube y tres hilos de agua cayendo en diagonal. La gota suelta
+ * (la otra opción obvia) se lee como "humedad" o como un icono de agua
+ * potable; lo que este botón hace es mojar la calzada, y eso lo dice la
+ * lluvia cayendo. Los hilos van inclinados y de largos distintos: tres rayas
+ * verticales iguales se leen como un menú. */
+export const Lluvia = (p: { size?: number }) => (
+  <svg {...base} width={p.size ?? 20} height={p.size ?? 20} aria-hidden>
+    <path d="M7.5 14.5a3.9 3.9 0 0 1-.4-7.8 4.6 4.6 0 0 1 8.7-1.1 3.4 3.4 0 0 1 .7 6.7" />
+    <path d="M8.5 17l-1 3M12.5 16.5l-1.4 4.2M16.5 17l-1 3" />
+  </svg>
+)
+
 export const Menos = (p: { size?: number }) => (
   <svg {...base} width={p.size ?? 20} height={p.size ?? 20} aria-hidden>
     <path d="M5 12h14" />
