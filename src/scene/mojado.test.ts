@@ -179,8 +179,18 @@ test('el agua se embalsa donde una calzada se embalsa: huellas, baches y zonas b
   expect(c).toMatch(/cota\s*=/)
   expect(c).toMatch(/huellas/)      // las rodadas
   expect(c).toMatch(/hondura/)      // el fondo del bache
-  expect(c).toMatch(/fbm\(/)        // las zonas bajas
-  expect(c).toMatch(/abs\(t\)/)     // el bombeo transversal
+  expect(c).toMatch(/1\.0\s*-\s*t\s*\*\s*t/)   // el bombeo, parabólico
+  // Las zonas bajas salen del fBm que asfalto.ts YA calcula para grietas y
+  // parches, no de uno propio (un fBm nuevo costaba doce hashes por fragmento
+  // y 20 fps a 125 m). Y entra MULTIPLICANDO la hondura de la huella, no
+  // sumándose aparte: es lo que ROMPE la banda. Con la huella y el bombeo
+  // solos, `cota` es función de la transversal sola y el charco sale en
+  // franjas rectas de kilómetros paralelas al eje -- medido en pantalla. Un
+  // primer intento con `zona` en los dos sitios a la vez, modulando y
+  // desplazando, se cancelaba consigo mismo y dejaba la banda igual.
+  expect(c).toMatch(/poza\s*=\s*smoothstep\([^;]*zona\s*\)/)
+  expect(c).toMatch(/huellas[^;]*\*\s*poza/)
+  expect(c).not.toMatch(/fbm\(/)
   expect(c).toMatch(/nivel\s*=\s*mix\([^;]*uMojado\s*\)/)
   // El charco es el agua por encima de la cota: por debajo del nivel, agua.
   expect(c).toMatch(/charco\s*=\s*\(\s*1\.0\s*-\s*smoothstep\(\s*nivel/)
@@ -199,12 +209,12 @@ test('nada del charco se dibuja si no cabe en un píxel: filo por fwidth y desva
 
 test('el mojado no cuesta nada en seco', () => {
   const c = codigo(MOJADO_CUERPO_GLSL)
-  // Un fBm, un reflect, un pow de Fresnel y un pow de destello viven todos
-  // dentro de este if: con el botón apagado el pase de relleno vuelve a costar
-  // lo que costaba.
+  // El pow del albedo, el reflect, el pow del Fresnel y el pow del destello
+  // viven todos dentro de este if: con el botón apagado el pase de relleno
+  // vuelve a costar lo que costaba.
   expect(c).toMatch(/if\s*\(\s*uMojado\s*>\s*0\.\d+\s*\)/)
   const dentro = c.slice(c.indexOf('if (uMojado'))
-  for (const cosa of ['fbm(', 'reflect(', 'uCielo']) expect(dentro).toContain(cosa)
+  for (const cosa of ['reflect(', 'uCielo', 'pow(']) expect(dentro).toContain(cosa)
 })
 
 // -------------------------------------------------------------- la inyección

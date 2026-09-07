@@ -53,20 +53,30 @@ export const BACHE_R_M = 0.30
 // se rompe. Calibrable, es el pomo de "cuánto hueco".
 export const BACHE_HONDO_M = 0.065
 // Dónde arranca la pared, en fracción del radio. Por dentro, fondo plano; de
-// acá al borde, la pared. 0,62 deja 11 cm de pared para 6,5 cm de caída:
-// ~41° de pendiente máxima, que es una pared y no una rampa.
-export const BACHE_PARED = 0.62
-// El labio: el asfalto que se levantó al romperse. 1 cm de alto sobre una
+// acá al borde, la pared. 0,70 deja 9 cm de pared para 6,5 cm de caída: ~47°
+// de pendiente máxima, que es una pared y no una rampa. Subido desde 0,62
+// mirando capturas: con la pared más tendida, el cuenco se leía como una
+// mancha con degradado y no como un hueco.
+export const BACHE_PARED = 0.70
+// El labio: el asfalto que se levantó al romperse. 1,4 cm de alto sobre una
 // campana de 0,12 radios (3,6 cm). NO se traza como geometría -- a 30 m eso es
 // medio píxel de silueta y dibujarlo sería aliasearlo -- solo inclina la
 // normal, que es de donde sale el filo brillante del borde roto.
-export const BACHE_LABIO_M = 0.010
+export const BACHE_LABIO_M = 0.014
 const BACHE_LABIO_ANCHO = 0.12
 // Hasta dónde llega el labio por fuera de la boca. Más allá, calzada normal.
 const BACHE_LIMITE = 1.28
+// Cuánto se deforma el contorno de la boca, en fracción del radio. Un bache se
+// rompe siguiendo la piel de cocodrilo; con el contorno exacto la calzada sale
+// con una viruela de círculos perfectos que se lee a la primera como generada.
+const BACHE_IRREG = 0.22
 // Cuánto ambiente le llega al fondo del cuenco. Nunca cero: el fondo de un
 // bache en sombra tiene que seguir enseñando el color de su PCI.
-const BACHE_AO = 0.40
+// Cuánto de la mancha de albedo que tenía el bache plano sobrevive cuando el
+// relieve está entero. Ver el comentario del cuerpo: la mancha y el relieve
+// dicen lo mismo, y sumados el relieve pierde.
+const BACHE_MANCHA = 0.55
+const BACHE_AO = 0.26
 // Cuánto sol queda en la parte del cuenco que la propia pared tapa.
 const BACHE_SOMBRA = 0.18
 // Entre qué anchos de boca (en PÍXELES) se desvanece el relieve. Por debajo de
@@ -85,8 +95,24 @@ const BACHE_VIS_HASTA = 9.0
 // que es lo que se ve cuando empieza a llover. Calibrable.
 export const POROSIDAD = 0.45
 // A cuánto se queda la rugosidad de la superficie mojada (sin charco): la
-// película llena el poro. 0,35 la lleva de mate a semi-brillante.
-export const RUG_MOJADA = 0.35
+// película llena el poro. 0,62 la lleva de mate a semi-brillante. Un asfalto
+// apenas húmedo no es un espejo -- el espejo es el charco, y ése tiene su
+// propia rugosidad.
+export const RUG_MOJADA = 0.62
+// Cuánto aplana la película de agua la normal del asfalto.
+//
+// Va con RUG_MOJADA SIEMPRE y va ALTO, y las dos cosas se midieron. Bajar la
+// rugosidad multiplica por seis y medio la dureza del lóbulo especular que
+// asfalto.ts ya calcula (exp2(9 - 7·rug)), y ese lóbulo se apoya en la normal
+// del mapa, que a 30 m de cámara va a dos texels por píxel: justo el límite
+// que `nitidez` protege en seco y que bajar la rugosidad deshace. En pantalla
+// eso es un tablero de píxeles grises sobre toda la calzada mojada -- se
+// persiguió primero como un problema del destello del charco, que no era.
+//
+// Con 0,92 el grano que le queda a la normal es el 8%, y el lóbulo estrecho se
+// apoya en una superficie casi lisa. Que además es lo que se ve en la calle:
+// una calzada mojada no enseña micro-relieve, enseña una película.
+const APLANA_AGUA = 0.92
 // Rugosidad de la lámina de charco. Casi un espejo, pero no un espejo: el
 // viento y la lluvia rizan el agua, y una rugosidad exactamente 0 da un
 // destello de un píxel que centellea.
@@ -96,47 +122,76 @@ export const CHARCO_RUG = 0.03
 export const FRESNEL0 = 0.020
 // Cuánto del fondo se sigue viendo bajo el charco. El agua absorbe y el
 // rebote múltiple se pierde; nunca 0, o el charco sería un agujero negro
-// cuando el reflejo no le toca.
-const AGUA_FONDO = 0.50
-// Reflejo especular de la superficie mojada SIN charco, en fracción del de un
-// charco. Es lo que convierte una vía buena mojada en un espejo parejo en vez
-// de en una vía seca más oscura. Calibrable: el pomo de "cuánto brilla lo
-// mojado que no es charco".
-const BRILLO_HUMEDO = 0.15
+// cuando el reflejo no le toca. Y no menos de esto por una razón que no es
+// óptica: bajo el charco tiene que seguir leyéndose el PCI. Medido en pantalla
+// con 0,50: el rojo de una vía "Fallado" se perdía bajo el azul del cielo.
+// Qué fracción de la superficie mojada SIN charco llega a tener película
+// continua de agua. No es 1: en el asfalto el agua está sobre todo DENTRO del
+// poro, no encima, y solo el charco tiene lámina de verdad. Con 1 la calzada
+// mojada salía más CLARA que la seca -- el reflejo le ganaba al oscurecimiento
+// de Lagarde -- y eso es exactamente al revés de lo que se ve en la calle.
+const PELICULA = 0.45
+const AGUA_FONDO = 0.62
 // Cuánta radiancia trae el sol para el destello del charco, en la misma escala
-// que uCielo. Calibrable: es el pomo de "cuánto ciega el charco cuando la
+// que uCielo. Calibrable: es el pomo de "cuánto enciende el charco cuando la
 // cámara cae justo en el ángulo del espejo".
-const SOL_CHARCO = 2.4
+const SOL_CHARCO = 1.0
 // 1/(8π): la normalización de Blinn-Phong, (n+8)/(8π).
 const NORM_BLINN = 1 / (8 * Math.PI)
+// Tope del reflejo. NO es cosmético: un lóbulo de exponente 2.000 normalizado
+// se va a decenas en cuanto la vista se pone rasante y el Fresnel sube hacia 1,
+// y el mapeado de tonos AGX que corre después (Sky.tsx) devuelve una mancha
+// blanca sin forma en vez de un brillo. Medido: con tope 6 la franja cercana de
+// la calzada se quemaba entera.
+const REFLEJO_MAX = 2.0
 
 // El campo de alturas de la calzada, en METROS, relativo a la rasante ideal.
-// Es lo que decide dónde se embalsa.
+// Es lo que decide dónde se embalsa, y la primera versión estuvo MAL de una
+// forma que solo se ve en pantalla: con la huella de rodadura y el bombeo como
+// únicos términos, `cota` era una función de la coordenada TRANSVERSAL sola, y
+// el charco salía en bandas rectas de kilómetros de largo con el borde
+// perfectamente paralelo al eje. Es el mismo error que el spec del asfalto
+// documenta en §6 con vDist congelada, por otro camino.
 //
-// Bombeo: 2 % del eje a los bordes, la norma. Pero NO entra entero, y el peso
-// es la decisión menos obvia de este archivo: un bombeo real DRENA, no embalsa
-// -- decide dónde se seca antes, no dónde se hace la poza. Con peso 1 la
-// calzada se convertía en una bañera con el eje como isla y dos ríos en los
-// bordes, que es lo contrario de lo que se ve después de un aguacero. Con 0,35
-// el bombeo pesa lo mismo que la rodada (2,4 cm contra 3,5), y lo que manda es
-// la huella, que es donde el agua se queda de verdad.
+// Lo que lo arregla es que la huella no hunde parejo: hunde POR TRAMOS, donde
+// la base cedió. Ese mapa de zonas ya existe -- es el `zona` del fBm con el que
+// asfalto.ts reparte grietas y parches -- y se reusa, que además de partir la
+// banda en pozas sale gratis (un fBm nuevo costaba doce hashes por fragmento y
+// medía 20 fps a 125 m). La correlación con los parches no es un defecto: un
+// bacheo mal ejecutado se hunde, y ahí es exactamente donde se hace la poza.
 //
-// El agente de sección transversal (hr/seccion) tiene el bombeo de verdad en
-// su geometría; cuando se integre, BOMBEO sale de allá y esta constante muere.
+// Bombeo: 2 % del eje a los bordes, la norma, y parabólico (1 - t²) que es la
+// forma real de una rasante bombeada. NO entra entero: un bombeo real DRENA, no
+// embalsa -- decide dónde se seca antes, no dónde se hace la poza. Con peso 1 la
+// calzada se convertía en una bañera con el eje como isla.
+//
+// El agente de sección transversal (hr/seccion) tiene el bombeo de verdad en su
+// geometría; cuando se integre, BOMBEO sale de allá y esta constante muere.
 export const BOMBEO = 0.02
-export const BOMBEO_PESO = 0.35
-// Cuánto hunde la rodada, en metros, con desgaste total.
+export const BOMBEO_PESO = 0.50
+// Cuánto hunde la rodada, en metros, con desgaste total y en su tramo más
+// hundido.
 const RODADA_M = 0.035
-// Irregularidad de baja frecuencia: las ondulaciones de una calzada vieja.
-const IRREG_M = 0.022
-const CHARCO_M = 6
+// Entre qué valores del fBm de zonas se considera que la base cedió y la
+// huella se hundió de verdad. Estrecho y centrado en la media del fBm: es lo
+// que convierte una raya continua en un rosario de pozas de unos diez metros.
+const POZA_DESDE = 0.44
+const POZA_HASTA = 0.60
+// Lo que se hunde una grieta abierta, en metros. Poco, pero suficiente para
+// que se llene: una grieta mojada es una raya NEGRA, no una raya plateada.
+// Sin este término la red de Voronoi salía en gris claro sobre la calzada
+// mojada, porque una grieta va con rugosidad 1 y su lóbulo especular ancho
+// brilla en más superficie que el estrecho del pavimento sano de al lado.
+// Medido en pantalla: es de los detalles que más delatan que algo está
+// simulado y no visto.
+const GRIETA_HONDA_M = 0.020
 
 // Nivel del agua, en metros de cota. Seco = por debajo del fondo del bache más
-// hondo (nada embalsa). Lleno = un pelo por encima de la cota del borde: se
-// llenan las huellas, los baches y la orilla, y el eje bombeado se queda seco.
-// Es lo que se ve en una avenida después del aguacero.
-export const NIVEL_SECO = -0.09
-export const NIVEL_LLENO = 0.004
+// hondo (nada embalsa). Lleno = un pelo por DEBAJO de la cota del borde: se
+// llenan las huellas, los baches y los tramos bajos de la orilla, y el eje
+// bombeado se queda seco. Es lo que se ve en una avenida después del aguacero.
+export const NIVEL_SECO = -0.16
+export const NIVEL_LLENO = -0.004
 
 // Radiancia del cielo para el reflejo del charco, en la misma escala en que
 // asfalto.ts deja la calzada (que promedia ~0,35). Un cielo real es del orden
@@ -147,11 +202,14 @@ export const NIVEL_LLENO = 0.004
 // Es solo el valor por defecto, igual que SOL_POR_DEFECTO en asfalto.ts: el
 // agente de luz (hr/luz) puede alimentarlo por cuadro desde el SkyLight con el
 // color real del cielo a esa hora, y entonces el charco refleja el atardecer.
-export const CIELO_POR_DEFECTO: readonly [number, number, number] = [2.6, 3.6, 5.6]
+export const CIELO_POR_DEFECTO: readonly [number, number, number] = [3.4, 4.6, 7.0]
 // Cuánto se destiñe el cielo hacia el horizonte. Un cielo real pierde
 // saturación y gana brillo al bajar la vista: sin esto el charco refleja un
-// azul plano que se lee como pintura, no como agua.
-const HORIZONTE = 0.70
+// azul plano que se lee como pintura, no como agua. Pero poco: con 0,70 lo que
+// devolvía la calzada mojada era gris, y una calzada mojada con un velo gris
+// encima no se lee como mojada, se lee como neblina -- y de paso le apagaba el
+// matiz al PCI, que es justo lo que no puede pasar.
+const HORIZONTE = 0.35
 
 // Cuántos segundos tarda la calzada en mojarse (y en secarse) al pulsar el
 // botón. 1,5 s es lo que separa "llovió" de "alguien cambió una variable": por
@@ -314,7 +372,14 @@ export const bacheCuerpoGlsl = (tasa: number, celdaM: number) => `
           // distancia es lo único que la pantalla puede dibujar sin centellear.
           float z = u0 < 1.0 ? trazarCuenco(a, k * vis, H, R2) : 0.0;
           vec2 ap = a + k * vis * z;
-          float u = length(ap) / ${f2(BACHE_R_M)};
+          // El contorno se deforma con un ruido de baja frecuencia: dos o tres
+          // lóbulos por boca. Un bache se rompe siguiendo la piel de cocodrilo,
+          // no con compás, y sin esto la calzada sale con una viruela de
+          // círculos perfectos que se lee a la primera como procedural. Entra
+          // escalado por vis, así que de lejos el bache vuelve a ser redondo,
+          // que a esa distancia es lo único que la pantalla distingue.
+          float u = length(ap) / ${f2(BACHE_R_M)}
+                  * mix(1.0, ${f2(1 - BACHE_IRREG)} + ${f2(2 * BACHE_IRREG)} * ruido(uvM * 2.6), vis);
           float pend;
           perfilCuenco(u, H, ${f2(BACHE_R_M)}, hondura, pend);
           // La normal del cuenco, en el marco T/B/Ng: (-dy/dx, -dy/dy, 1).
@@ -328,7 +393,16 @@ export const bacheCuerpoGlsl = (tasa: number, celdaM: number) => `
           // Y el interior del hueco es asfalto arrancado: se ve la base, más
           // oscura. El filo se afila con vis -- de lejos vuelve a ser la mancha
           // difusa de antes, que es lo que no aliasea.
-          bache = 1.0 - smoothstep(mix(0.25, 0.88, vis), 1.0, u);
+          //
+          // La mancha se ATENÚA con vis, al revés que el filo, y esa es la
+          // lección de la primera versión: heredada de cuando el bache era solo
+          // mancha, oscurecía el albedo al 30% y con eso enterraba la oclusión,
+          // la sombra propia y la normal del cuenco -- todo lo que dice que ahí
+          // hay un hueco. En pantalla salía un disco negro plano. De cerca manda
+          // el relieve y la mancha se hace a un lado; de lejos, donde el relieve
+          // no cabe en un píxel, la mancha vuelve entera.
+          bache = (1.0 - smoothstep(mix(0.25, 0.88, vis), 1.0, u))
+                * mix(1.0, ${f2(BACHE_MANCHA)}, vis);
         }
       }`
 
@@ -364,17 +438,35 @@ export const MOJADO_CUERPO_GLSL = `
         // ...y la película llena la micro-rugosidad: la superficie se va hacia
         // lo especular, nunca hacia lo mate.
         rug = clamp(mix(rug, rug * ${f2(RUG_MOJADA)}, humedo), 0.02, 1.0);
+        // Y llena TAMBIÉN la geometría, no solo la estadística. Esta línea
+        // parece redundante y no lo es: bajar la rugosidad sin aplanar la
+        // normal deja un lóbulo especular de exponente 300 sobre una normal con
+        // grano de un texel, y eso en pantalla es sal y pimienta blanca por
+        // toda la calzada -- medido, y perseguido primero como un problema del
+        // destello del charco, que no era. Es el mismo criterio de Toksvig con
+        // el que asfalto.ts apaga el relieve que no cabe en un píxel, aplicado
+        // acá al relieve que el agua tapó de verdad.
+        N = normalize(mix(N, Ng, ${f2(APLANA_AGUA)} * humedo));
 
         // 2. Dónde se embalsa. \`cota\` es la altura local de la calzada en
-        // metros, relativa a la rasante ideal: el bombeo levanta el eje, la
-        // huella de rodadura hunde, el bache hunde mucho más, y un fBm de 6 m
-        // pone las ondulaciones de una calzada vieja. Las tres hondonadas van
-        // con el desgaste, y de ahí sale solo que una vía mala mojada sea un
-        // rosario de charcos y una buena un espejo parejo.
-        float cota = ${f2(BOMBEO)} * ${f2(BOMBEO_PESO)} * (1.0 - abs(t)) * calzadaM * 0.5
-                   - ${f3(RODADA_M)} * huellas * mix(0.4, 1.0, desgaste)
-                   - hondura
-                   + ${f3(IRREG_M)} * (fbm(uvM / ${f2(CHARCO_M)} + 37.0) - 0.5) * mix(0.3, 1.0, desgaste);
+        // metros, relativa a la rasante ideal: el bombeo parabólico levanta el
+        // eje, la huella de rodadura hunde, el bache hunde mucho más, y las
+        // ondulaciones de la calzada vieja mueven el resto.
+        //
+        // \`poza\` es lo que ROMPE la banda. La huella de rodadura es una
+        // gaussiana sobre la coordenada transversal, así que hunde igual a lo
+        // largo de kilómetros: con ella sola el charco salía como dos rayas
+        // rectas pintadas de punta a punta de la avenida -- medido en pantalla.
+        // Una huella real no hunde parejo, hunde donde la base cedió, y ese
+        // mapa ya existe: es el mismo \`zona\` con el que asfalto.ts reparte
+        // grietas y parches. El smoothstep lo vuelve casi binario a propósito,
+        // porque un fBm de tres octavas casi nunca baja de 0,3 y multiplicar
+        // por él estrechaba la raya en vez de cortarla.
+        float poza = smoothstep(${f2(POZA_DESDE)}, ${f2(POZA_HASTA)}, zona);
+        float cota = ${f2(BOMBEO)} * ${f2(BOMBEO_PESO)} * (1.0 - t * t) * calzadaM * 0.5
+                   - ${f3(RODADA_M)} * huellas * mix(0.35, 1.0, desgaste) * poza
+                   - ${f3(GRIETA_HONDA_M)} * grieta
+                   - hondura;
         float nivel = mix(${f2(NIVEL_SECO)}, ${f3(NIVEL_LLENO)}, uMojado);
         // El filo del charco se antialiasea con la derivada REAL de la cota en
         // pantalla. Es lo mismo que hace \`nitidez\` con el grano, aplicado a un
@@ -392,10 +484,12 @@ export const MOJADO_CUERPO_GLSL = `
         // refleja un azul plano que se lee como pintura.
         vec3 palido = vec3(dot(uCielo, LUMA) * 1.25);
         vec3 cieloRef = mix(mix(uCielo, palido, ${f2(HORIZONTE)}), uCielo, sqrt(clamp(Rv.y, 0.0, 1.0)));
-        // El destello del sol. La normal va de la del asfalto a la geométrica
-        // según cuánta agua hay encima: una película fina sigue el grano, un
-        // charco no.
-        vec3 Nm = normalize(mix(N, Ng, charco));
+        // El destello del sol, TAMBIÉN sobre la normal geométrica. La primera
+        // versión lo calculaba sobre una mezcla con la normal perturbada del
+        // asfalto, y el resultado era sal y pimienta por toda la calzada: un
+        // lóbulo de exponente 2.000 sobre una normal con grano de un texel cae
+        // o no cae dentro por píxel, que es la definición de aliasear. El agua
+        // es plana; que sea plana también acá es lo correcto y lo que no ruge.
         vec3 Hm = normalize(uSol + V);
         float rugM = mix(rug, ${f2(CHARCO_RUG)}, charco);
         float duro = 2.0 / max(rugM * rugM, 1e-4) - 2.0;
@@ -403,7 +497,7 @@ export const MOJADO_CUERPO_GLSL = `
         // exponente 2.000 tiene la misma energía que uno de 20 y el destello
         // del charco se pierde. Con ella el charco enciende de verdad cuando
         // la cámara cae en el ángulo del espejo, que es como se ve la calle.
-        float esp = pow(max(dot(Nm, Hm), 0.0), duro) * (duro + 8.0) * ${f3(NORM_BLINN)}
+        float esp = pow(max(dot(Ng, Hm), 0.0), duro) * (duro + 8.0) * ${f3(NORM_BLINN)}
                   * step(0.001, dot(Ng, uSol));
 
         // El agua tapa el fondo, y el fondo que queda va más oscuro.
@@ -412,11 +506,18 @@ export const MOJADO_CUERPO_GLSL = `
         // Reflejo especular donde hay charco, y una fracción de él en toda la
         // superficie mojada: es lo que hace que una vía buena mojada sea un
         // espejo parejo y no una vía seca más oscura.
-        float espejo = max(charco, humedo * ${f2(BRILLO_HUMEDO)} * nitidez);
-        // El tope no es cosmético: el destello normalizado a incidencia
-        // rasante se va a decenas, y el mapeado de tonos AGX que corre después
-        // (Sky.tsx) devuelve una mancha blanca sin forma en vez de un brillo.
-        espMojado = min((cieloRef + ${f2(SOL_CHARCO)} * esp) * fres * espejo * cerca, vec3(6.0));
+        // Cuánto reflejo del cielo devuelve la superficie, entre 0 y 1. NO es
+        // una constante para el charco y otra para lo húmedo: es la MISMA
+        // lámina de agua con otra rugosidad, y lo liso que esté decide cuánto
+        // del cielo vuelve como imagen en vez de repartirse. Una vía buena
+        // mojada sale así de espejo parejo sin ninguna regla aparte, que es lo
+        // que pedía el punto. La primera versión tenía un factor suelto de
+        // 0,09 para lo húmedo y el espejo no se veía: 0,09 por el 2 % del
+        // Fresnel a 45° es cero.
+        float espejo = (charco + (1.0 - charco) * humedo * ${f2(PELICULA)})
+                     * (1.0 - rugM) * nitidez;
+        espMojado = min((cieloRef + ${f2(SOL_CHARCO)} * esp) * fres * espejo * cerca,
+                        vec3(${f2(REFLEJO_MAX)}));
       }`
 
 /**
