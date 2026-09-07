@@ -12,6 +12,7 @@ import { useThree } from '@react-three/fiber'
 import { ANCLA_VERT, ANCLA_FRAG, extrusionGlsl, parcharExtrusion } from './roadsShader'
 import { cortePorSegmento, porSegmento, metrosPorPixel } from './roadStyle'
 import { anchoCalzada } from './calzada'
+import { bordeDe } from './seccion'
 import type { Way } from '../data/types'
 
 export const encodeId = (i: number): [number, number, number] =>
@@ -91,6 +92,11 @@ export function patchPickMaterial (material: THREE.Material) {
         attribute float segId;
         attribute float aCorte;
         attribute float aCalzada;
+        // El hombrillo o el brocal de la vía (seccion.ts). Va acá porque el
+        // bloque de extrusión es el mismo que el del pase visible: si el id
+        // buffer no ensanchara igual, el clic sobre el hombrillo no
+        // seleccionaría la vía que se está viendo.
+        attribute float aBorde;
         attribute vec3 instanceNormalStart;
         attribute vec3 instanceNormalEnd;
         uniform float uPisoPx;
@@ -155,6 +161,7 @@ export function usePicking (
     geometry.setAttribute('segId', new THREE.InstancedBufferAttribute(segIds, 1))
     geometry.setAttribute('aCorte', new THREE.InstancedBufferAttribute(cortePorSegmento(ways, index), 1))
     geometry.setAttribute('aCalzada', new THREE.InstancedBufferAttribute(porSegmento(ways, index, anchoCalzada), 1))
+    geometry.setAttribute('aBorde', new THREE.InstancedBufferAttribute(porSegmento(ways, index, bordeDe), 1))
     // La misma normal del terreno que el pase visible: la extrusión es la
     // misma fórmula, y lo que se dibuja se puede tocar.
     const nrmBuf = new THREE.InstancedInterleavedBuffer(normals, 6, 1)

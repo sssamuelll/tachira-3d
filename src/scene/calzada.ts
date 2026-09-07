@@ -4,7 +4,10 @@ import { NIVELES, nivelDe } from './roadStyle'
 /** Ancho estimado de un canal. OSM lanes cuenta la calzada completa. */
 export const ANCHO_CARRIL = 3.4
 
-const PEATONALES = new Set([
+/** Lo que no es vía de vehículos. Lo consumen el ancho de calzada, las marcas
+ *  y la sección transversal (seccion.ts): una acera no lleva ni brocal ni
+ *  hombrillo. */
+export const PEATONALES = new Set([
   'footway', 'steps', 'path', 'bridleway', 'cycleway', 'pedestrian', 'platform', 'corridor',
 ])
 

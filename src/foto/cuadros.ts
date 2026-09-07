@@ -23,6 +23,13 @@ import { ALZA_MIN_M } from '../scene/roadsShader'
 //  2. No se recorta al near plane. Un tramo que atraviesa el plano cercano se
 //     extruye entero; el trazador no tiene near plane que respetar, traza
 //     rayos desde el ojo.
+//  3. No se reconstruye la SECCIÓN transversal (seccion.ts). El shader extruye
+//     calzada + hombrillo o brocal a cada lado y remapea la coordenada
+//     transversal para pintar cada franja de lo suyo; acá se extruye la calzada
+//     pelada. Ensanchar sin poder pintar la franja -- el trazador no ejecuta el
+//     fragment shader -- sacaría la vía hasta un 30 % más ancha, toda de
+//     asfalto. Una vía sin hombrillo es un error más chico que una vía
+//     demasiado ancha. Lo fija cuadros.test.ts contra el GLSL real.
 //
 // Lo que NO se reconstruye: las tapas redondas de los extremos (los vértices
 // con |position.y| > 1 del cuadrilátero de LineSegmentsGeometry, que rematan
