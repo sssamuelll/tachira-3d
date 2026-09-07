@@ -198,11 +198,24 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
   // fecha no cambia mientras la app corre, así que esto se calcula una vez.
   const sol = useMemo(() => direccionSol(date), [date])
 
-  // Las cascadas. `lightDirection` es hacia dónde VIAJA la luz, o sea el sol
-  // negado. El color de las luces lo pone el efecto de más abajo copiándolo
-  // del <SunLight> de takram; el blanco del constructor solo se ve el primer
+  // Nodo -> malla armada (visible o no), en orden de uso para la LRU.
+  const mallas = useMemo(() => new Map<string, { mesh: THREE.Mesh; caja: THREE.Box3 }>(), [])
+
+  // Las cascadas. Nacen y mueren en el MISMO efecto, y con ellas todas las
+  // mallas armadas: CSM.dispose() le borra onBeforeCompile a cada material
+  // que le instalaron, y como materialRelieve monta su propio parche ENCIMA
+  // de ese, un material que sobreviva a su CSM recompila como
+  // MeshStandardMaterial pelado (sin foto, sin hipsometría, sin recorte del
+  // estado, y sumando las tres luces de cascada sin sombra). Hoy las
+  // dependencias no cambian en producción, pero sí en Fast Refresh, y el día
+  // que la fecha tenga un control cambiarían con ella.
+  //
+  // `lightDirection` es hacia dónde VIAJA la luz, o sea el sol negado. El
+  // color de las luces lo pone el efecto de más abajo copiándolo del
+  // <SunLight> de takram; el blanco del constructor solo se ve el primer
   // cuadro, antes de que la atmósfera termine de calcularlo.
-  const csm = useMemo(() => {
+  const csm = useRef<CSM | null>(null)
+  useEffect(() => {
     const c = new CSM({
       camera, parent: scene, cascades: CASCADAS, maxFar: SOMBRA_MAX,
       shadowMapSize: SOMBRA_PX, lightMargin: MARGEN_LUZ,
@@ -212,17 +225,29 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
       lightNear: 1, lightFar: MARGEN_LUZ * 3, shadowBias: SESGO_PROFUNDIDAD,
       lightDirection: sol.clone().negate(),
     })
+    c.updateFrustums()
     sesgar(c)
-    return c
-  }, [camera, scene, sol])
-  useEffect(() => () => { csm.remove(); csm.dispose() }, [csm])
+    csm.current = c
+    return () => {
+      csm.current = null
+      for (const m of mallas.values()) {
+        grupo.current?.remove(m.mesh)
+        m.mesh.geometry.dispose()
+        ;(m.mesh.material as THREE.Material).dispose()
+      }
+      mallas.clear()
+      c.remove()
+      c.dispose()
+    }
+  }, [camera, scene, sol, mallas])
 
   // Un material por nodo (ver el comentario de arriba). El programa de GPU se
   // compila una sola vez; lo propio de cada uno son los siete uniforms que
   // materialRelieve cuelga de userData.uniforms. Las cascadas se instalan
   // dentro, porque CSM.setupMaterial pisa onBeforeCompile y el orden importa.
+  // Solo se llama desde el cuadro, que no corre sin cascadas.
   const materialNodo = () => materialRelieve({
-    min: meta.min, max: meta.max, mascara, ganancia: GANANCIA, cascadas: csm,
+    min: meta.min, max: meta.max, mascara, ganancia: GANANCIA, cascadas: csm.current ?? undefined,
   })
 
   // El <SunLight> de takram, buscado por nombre igual que PickingPass busca a
@@ -233,8 +258,6 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
   // <Suspense> y puede llegar tarde), después nunca más.
   const luzSol = useRef<THREE.DirectionalLight | null>(null)
 
-  // Nodo -> malla armada (visible o no), en orden de uso para la LRU.
-  const mallas = useMemo(() => new Map<string, { mesh: THREE.Mesh; caja: THREE.Box3 }>(), [])
   const frustum = useMemo(() => new THREE.Frustum(), [])
   const m4 = useMemo(() => new THREE.Matrix4(), [])
   const nodosRaiz = useMemo(() => raices(meta.dem), [meta])
@@ -281,9 +304,11 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
       // la del propio asfalto sobre sí mismo, y meterlas en tres pases más de
       // sombra costaría cientos de miles de segmentos por cuadro.
       // castShadow lo decide cada cuadro el bucle de visibilidad, por
-      // distancia. receiveShadow no: es parte de la clave de programa de
-      // three, y alternarlo entre mallas compilaría dos shaders y las haría
-      // parpadear al cruzar el corte.
+      // distancia. receiveShadow se deja fijo: en three r185 es un uniform por
+      // objeto (no entra en la clave de programa, alternarlo no recompila),
+      // pero gatearlo no ahorra nada -- sin `fade`, el chunk de CSM ni evalúa
+      // la sombra en un fragmento más allá de maxFar -- y apagarlo por malla
+      // daría un salto de luz visible al cruzar el corte.
       mesh.receiveShadow = true
       mesh.visible = false
       grupo.current!.add(mesh)
@@ -297,11 +322,13 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
 
   // Las cascadas se reparten sobre el frustum de la cámara: si cambia la
   // relación de aspecto (redimensionar la ventana) hay que rehacerlas, o los
-  // shadow maps quedan encuadrando el frustum viejo.
-  useEffect(() => { csm.updateFrustums(); sesgar(csm) }, [csm, size])
+  // shadow maps quedan encuadrando el frustum viejo. Va después del efecto
+  // que las crea, para que al montar corra en ese orden.
+  useEffect(() => { const c = csm.current; if (c) { c.updateFrustums(); sesgar(c) } }, [size])
 
   useFrame(() => {
-    if (!grupo.current) return
+    const c = csm.current
+    if (!grupo.current || !c) return
     // El color del sol de la atmósfera, copiado a las cascadas. Es luminancia,
     // no un color en [0,1]: la magnitud entera del sol vive en el color y la
     // intensity de la luz se queda en 1 (SunDirectionalLight.update() nunca la
@@ -309,12 +336,12 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     // que el cielo, antes del AgX del EffectComposer.
     if (!luzSol.current) luzSol.current = scene.getObjectByName('sol') as THREE.DirectionalLight | null
     if (luzSol.current) {
-      for (const luz of csm.lights) {
+      for (const luz of c.lights) {
         luz.color.copy(luzSol.current.color)
         luz.intensity = luzSol.current.intensity
       }
     }
-    csm.update()
+    c.update()
     m4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
     frustum.setFromProjectionMatrix(m4)
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 45
@@ -364,7 +391,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
       if (visibles.has(k)) continue
       grupo.current.remove(m.mesh)
       m.mesh.geometry.dispose()
-      csm.shaders.delete(m.mesh.material)
+      c.shaders.delete(m.mesh.material)
       ;(m.mesh.material as THREE.Material).dispose()
       mallas.delete(k)
     }

@@ -178,10 +178,9 @@ export function Roads (
       for (const capa of [o.relleno, o.casing]) {
         const u = capa.material.userData.uniforms
         if (u) u.uPisoPx.value = o.nivel.pisoPx
-        // La dirección del sol, si el shader de la calzada la pide. El `if`
-        // no es defensivo de más: uSol lo declara roadsShader.ts, que es de
-        // otra rama, y hasta que esa rama entre este uniform no existe.
-        // Alimentarlo desde acá y no desde el parche del shader es a
+        // La dirección del sol para el asfalto. uSol lo declara
+        // roadsShader.ts en los dos materiales (asfalto.test.ts lo afirma);
+        // alimentarlo desde acá y no desde el parche del shader es a
         // propósito: el sol es de la escena, no del asfalto.
         if (u?.uSol) u.uSol.value.copy(sol)
       }

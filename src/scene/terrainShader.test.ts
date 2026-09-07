@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import * as THREE from 'three'
+import { CSM } from 'three/examples/jsm/csm/CSM.js'
 import { GANCHOS, materialRelieve } from './terrainShader'
 
 // Compila el material a mano: three llama a onBeforeCompile con el shader ya
@@ -88,25 +89,28 @@ describe('materialRelieve', () => {
   // CSM.setupMaterial() PISA onBeforeCompile en vez de encadenarlo. Si el
   // material se parchea antes que él, la hipsometría y el recorte del estado
   // se pierden sin un solo error. Los dos parches tienen que sobrevivir.
-  it('las cascadas se instalan primero y el parche del relieve encima', () => {
-    const orden: string[] = []
-    const cascadas = {
-      // Imitación fiel de CSM.setupMaterial: asigna onBeforeCompile, no lo encadena.
-      setupMaterial (m: THREE.Material) {
-        m.defines = { ...m.defines, USE_CSM: 1, CSM_CASCADES: 3 }
-        m.onBeforeCompile = shader => {
-          orden.push('csm')
-          ;(shader.uniforms as Record<string, unknown>).CSM_cascades = { value: [] }
-        }
-      },
-    }
-    const m = materialRelieve({ min: 0, max: 4000, mascara: new THREE.Texture(), cascadas })
-    const s = compilar(m)
-    expect(orden).toEqual(['csm'])
+  //
+  // Con el CSM REAL de three y no una imitación: si en una subida de three
+  // setupMaterial cambia de forma (encadena en vez de pisar, cambia la clave
+  // de su Map de shaders), este test tiene que enterarse, porque TerrainLod
+  // depende de esa forma para sacar de ese Map los materiales que desecha.
+  it('las cascadas reales se instalan primero y el parche del relieve encima', () => {
+    const csm = new CSM({
+      camera: new THREE.PerspectiveCamera(45, 1.5, 10, 2e6), parent: new THREE.Scene(),
+      cascades: 3, maxFar: 5000, shadowMapSize: 1024, lightDirection: new THREE.Vector3(0, -1, 0),
+    })
+    const m = materialRelieve({ min: 0, max: 4000, mascara: new THREE.Texture(), cascadas: csm })
     expect(m.defines!.USE_CSM).toBe(1)
+    expect(m.defines!.CSM_CASCADES).toBe(3)
+    expect(csm.shaders.get(m)).toBeNull()        // registrado, todavía sin compilar
+    const s = compilar(m)
+    expect(csm.shaders.get(m)).toBe(s)           // el Map va por material: es lo que la LRU borra
     expect(s.uniforms.CSM_cascades).toBeDefined()
     expect(s.uniforms.uMascara).toBeDefined()
     expect(s.fragmentShader).toContain('vec3 albedoRelieve ()')
+    expect(csm.shaders.delete(m)).toBe(true)
+    csm.remove()
+    csm.dispose()
   })
 
   it('es un MeshStandardMaterial mate, sin metal, y proyecta con sus caras delanteras', () => {
