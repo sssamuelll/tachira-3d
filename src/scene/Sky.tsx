@@ -32,7 +32,13 @@ export const SKY_ORIGIN = ORIGIN
 // node_modules/@takram/three-geospatial/src/Ellipsoid.ts), pero reusar nuestro
 // propio frame deja una sola fuente de verdad con el terreno en vez de dos
 // implementaciones que "deberían" coincidir.
-function worldToEcefMatrix (): Matrix4 {
+// Exportada (y no privada como nació) porque la foto trazada necesita la
+// MISMA base para llevar la dirección del sol de ECEF a los ejes del mundo:
+// getSunDirectionECEF() da un vector en ECEF y el DirectionalLight del
+// trazador vive en X=este/Y=arriba/Z=-norte (foto/escena.ts). Rearmar la base
+// por segunda vez es exactamente el duplicado que este archivo evita al
+// derivarla de makeEnuFrame en vez de Ellipsoid.getEastNorthUpVectors().
+export function worldToEcefMatrix (): Matrix4 {
   const f = makeEnuFrame(ORIGIN.lat, ORIGIN.lon, ORIGIN.h)
   const east = new Vector3(-f.sLon, f.cLon, 0)
   const up = new Vector3(f.cLat * f.cLon, f.cLat * f.sLon, f.sLat)

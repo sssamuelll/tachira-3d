@@ -11,6 +11,7 @@ import { SearchPanel } from './ui/SearchPanel'
 import { Ficha } from './ui/Ficha'
 import { MapControls, BarraArchivo, BarraEscala, Atribucion } from './ui/MapControls'
 import { MiniMapa } from './ui/MiniMapa'
+import { Foto, PanelFoto, type ApiFoto, type EstadoFoto } from './foto/Foto'
 import { indexar, buscar, type Resultado } from './ui/search'
 import { T, nf } from './ui/theme'
 import type { Escala } from './ui/escala'
@@ -201,6 +202,12 @@ export default function App () {
   // Único puente entre el SVG del lazo (fuera del Canvas) y pickRegion
   // (dentro): <Picker> lo rellena en un useEffect al montarse/actualizarse.
   const pickerRef = useRef<PickerApi | null>(null)
+  // Tercer puente del mismo tipo: la foto trazada se dispara desde la botonera
+  // (DOM) pero se arma con la escena y la cámara, que solo existen dentro del
+  // Canvas. <Foto> rellena el ref; el progreso vuelve por estado de React
+  // porque lo pinta un panel que sí vive en el DOM.
+  const foto = useRef<ApiFoto | null>(null)
+  const [estadoFoto, setEstadoFoto] = useState<EstadoFoto | null>(null)
   useEffect(() => { loadAll().then(setData) }, [])
 
   // Store y textura de atributos (Task 14) se crean una sola vez por carga de
@@ -435,6 +442,7 @@ export default function App () {
           <FlyTo objetivo={objetivo} />
           <Vista api={vista} onEscala={setEscala} mirilla={mirilla} />
           <AvisaCuandoDibuja onListo={() => setDibujado(true)} />
+          <Foto api={foto} date={date} onEstado={setEstadoFoto} />
         </Suspense>
       </Canvas>
 
@@ -468,7 +476,16 @@ export default function App () {
         onEncuadrar={() => setObjetivo(bboxCenterAndSpan(BBOX))}
         onAcercar={() => vista.current?.acercar()}
         onAlejar={() => vista.current?.alejar()}
+        onFoto={() => foto.current?.tomar()}
       />
+
+      <PanelFoto estado={estadoFoto} onCancelar={() => {
+        foto.current?.cancelar()
+        // El panel se cierra ya, sin esperar a que el trazador llegue a su
+        // próximo respiro: cancelar tiene que sentirse inmediato. El trazado
+        // se entera en el siguiente cuadro y se descarta sin descargar nada.
+        setEstadoFoto(null)
+      }} />
 
       <MiniMapa
         grid={data.terrainGrid} meta={data.terrain} municipios={data.municipios}

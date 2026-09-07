@@ -38,6 +38,9 @@
     "postprocessing": "^6.39.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "three": "^0.185.1"
+    "three": "^0.185.1",
+    "three-gpu-pathtracer": "^0.0.24",
+    "three-mesh-bvh": "^0.9.14",
+    "xatlas-web": "^0.1.0"
   }
 }

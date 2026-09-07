@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { T } from './theme'
 import { Encuadre, Lazo, Archivo, Foto, Mas, Menos } from './icons'
+import { Camara } from '../foto/Foto'
 import type { Escala } from './escala'
 
 const botonera: CSSProperties = {
@@ -36,7 +37,7 @@ const par: CSSProperties = {
   background: T.fondo, borderRadius: T.radioChico, boxShadow: T.sombraChica, overflow: 'hidden',
 }
 
-export function MapControls ({ lazo, onLazo, imagen, onImagen, onEncuadrar, onAcercar, onAlejar }: {
+export function MapControls ({ lazo, onLazo, imagen, onImagen, onEncuadrar, onAcercar, onAlejar, onFoto }: {
   lazo: boolean
   onLazo: () => void
   imagen: boolean
@@ -44,9 +45,13 @@ export function MapControls ({ lazo, onLazo, imagen, onImagen, onEncuadrar, onAc
   onEncuadrar: () => void
   onAcercar: () => void
   onAlejar: () => void
+  onFoto: () => void
 }) {
   return (
     <div style={botonera}>
+      {/* Arriba del todo y separado del resto: no es una herramienta de
+          navegar, es la que produce algo que sale de la aplicación. */}
+      <Boton titulo="Foto trazada" onClick={onFoto}><Camara /></Boton>
       {/* El título no cambia con el estado, a diferencia del lazo: el botón no
           entra en un modo del que haya que salir, prende y apaga una capa, y
           aria-pressed ya dice cuál de las dos. */}
