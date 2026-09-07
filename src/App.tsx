@@ -9,7 +9,7 @@ import { usePicking } from './scene/PickingPass'
 import { LassoOverlay, pointInLasso, type Pt } from './ui/LassoOverlay'
 import { SearchPanel } from './ui/SearchPanel'
 import { Ficha } from './ui/Ficha'
-import { MapControls, BarraArchivo, BarraEscala } from './ui/MapControls'
+import { MapControls, BarraArchivo, BarraEscala, Atribucion } from './ui/MapControls'
 import { MiniMapa } from './ui/MiniMapa'
 import { indexar, buscar, type Resultado } from './ui/search'
 import { T, nf } from './ui/theme'
@@ -161,6 +161,11 @@ export default function App () {
   const [objetivo, setObjetivo] = useState<Encuadre | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [lassoOn, setLassoOn] = useState(false)
+  // La foto satelital, encendida de entrada: para decidir sobre una vía lo que
+  // importa es si la calzada de la foto está partida, no de qué color pinta la
+  // hipsometría esa cota. El botón existe para el caso contrario -- leer el
+  // relieve sin que la foto lo tape.
+  const [imagen, setImagen] = useState(true)
   const [q, setQ] = useState('')
   // Clave del resultado de búsqueda sobre el que está puesto el foco, y la
   // máscara de vías que ese resultado abarca. null = no hay foco, y el mapa
@@ -408,7 +413,7 @@ export default function App () {
       <Canvas camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
         <Suspense fallback={null}>
           <Sky date={date} />
-          <TerrainLod meta={data.terrain} municipios={data.municipios} />
+          <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen} />
           {attr && (
             <Roads
               positions={data.positions} segIds={data.segIds} index={data.index}
@@ -455,6 +460,8 @@ export default function App () {
       <MapControls
         lazo={lassoOn}
         onLazo={() => setLassoOn(o => !o)}
+        imagen={imagen}
+        onImagen={() => setImagen(v => !v)}
         // Un Encuadre nuevo en cada clic: el efecto de <FlyTo> depende de la
         // identidad del objeto, así que reusar uno haría que el botón
         // funcionara una sola vez por sesión.
@@ -469,6 +476,8 @@ export default function App () {
       />
 
       <BarraEscala escala={escala} />
+
+      <Atribucion visible={imagen} />
 
       <BarraArchivo
         nombre={handle?.name ?? null}

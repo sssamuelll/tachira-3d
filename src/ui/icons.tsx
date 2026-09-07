@@ -88,6 +88,17 @@ export const Mas = (p: { size?: number }) => (
   </svg>
 )
 
+/** Imagen satelital: el marco de una foto con un horizonte de montaña dentro
+ * y el sol encima. El satélite con sus paneles (la otra opción obvia) dice
+ * "de dónde viene" y no "qué vas a ver", y a 20 px es un garabato. */
+export const Foto = (p: { size?: number }) => (
+  <svg {...base} width={p.size ?? 20} height={p.size ?? 20} aria-hidden>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+    <circle cx="8.5" cy="9.5" r="1.4" />
+    <path d="M3.5 16l4.5-4.5 4 4 3-2.5 5 4.5" />
+  </svg>
+)
+
 export const Menos = (p: { size?: number }) => (
   <svg {...base} width={p.size ?? 20} height={p.size ?? 20} aria-hidden>
     <path d="M5 12h14" />

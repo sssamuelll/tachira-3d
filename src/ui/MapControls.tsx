@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { T } from './theme'
-import { Encuadre, Lazo, Archivo, Mas, Menos } from './icons'
+import { Encuadre, Lazo, Archivo, Foto, Mas, Menos } from './icons'
 import type { Escala } from './escala'
 
 const botonera: CSSProperties = {
@@ -36,15 +36,21 @@ const par: CSSProperties = {
   background: T.fondo, borderRadius: T.radioChico, boxShadow: T.sombraChica, overflow: 'hidden',
 }
 
-export function MapControls ({ lazo, onLazo, onEncuadrar, onAcercar, onAlejar }: {
+export function MapControls ({ lazo, onLazo, imagen, onImagen, onEncuadrar, onAcercar, onAlejar }: {
   lazo: boolean
   onLazo: () => void
+  imagen: boolean
+  onImagen: () => void
   onEncuadrar: () => void
   onAcercar: () => void
   onAlejar: () => void
 }) {
   return (
     <div style={botonera}>
+      {/* El título no cambia con el estado, a diferencia del lazo: el botón no
+          entra en un modo del que haya que salir, prende y apaga una capa, y
+          aria-pressed ya dice cuál de las dos. */}
+      <Boton titulo="Imagen satelital" activo={imagen} onClick={onImagen}><Foto /></Boton>
       <Boton titulo="Encuadrar el estado" onClick={onEncuadrar}><Encuadre /></Boton>
       <Boton titulo={lazo ? 'Salir del lazo' : 'Seleccionar por lazo'} activo={lazo} onClick={onLazo}>
         <Lazo />
@@ -56,6 +62,31 @@ export function MapControls ({ lazo, onLazo, onEncuadrar, onAcercar, onAlejar }:
         <div style={{ height: 1, background: T.linea, margin: '0 8px' }} />
         <Boton titulo="Alejar" onClick={onAlejar} estilo={suelto}><Menos /></Boton>
       </div>
+    </div>
+  )
+}
+
+/**
+ * El crédito de la imagen satelital. Esri lo exige mientras se muestre su
+ * capa, así que aparece y desaparece con ella y no se puede cerrar.
+ *
+ * Abajo al centro, entre la barra de archivo (izquierda) y la de escala
+ * (derecha), en 11 px sobre una pastilla translúcida: sin fondo, un gris sobre
+ * una foto de ciudad no se lee, y con la pastilla blanca del resto de la
+ * interfaz pesaría como si fuera un control. Es un crédito, no un dato de
+ * trabajo -- lo contrario que la barra de escala.
+ */
+export function Atribucion ({ visible }: { visible: boolean }) {
+  if (!visible) return null
+  return (
+    <div style={{
+      position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 12, zIndex: 20,
+      fontFamily: T.fuente, fontSize: 11, lineHeight: 1.3, color: T.texto2,
+      background: 'rgba(255,255,255,.72)', borderRadius: 4, padding: '3px 8px',
+      pointerEvents: 'none', userSelect: 'none', whiteSpace: 'nowrap',
+      maxWidth: '40vw', overflow: 'hidden', textOverflow: 'ellipsis',
+    }}>
+      Imagen: Esri, Maxar, Earthstar Geographics y la comunidad de usuarios de GIS
     </div>
   )
 }
