@@ -226,6 +226,24 @@ test('el fragment ya no recorta a una fracción de banda: la banda ES la calzada
   expect(shader.fragmentShader).toContain('float t = vUv.x * (1.0 + 2.0 * abs(vBordeM)')
 })
 
+test('la tapa de arranque no se dibuja: la junta la remata la tapa final del tramo anterior', () => {
+  // Las dos tapas de un tramo tienen el mismo radio, así que en una junta con
+  // cualquiera basta. Y la de arranque es la que hace daño: se dibuja DESPUÉS
+  // del cuerpo del tramo anterior y encima de él, y con sección (hombrillo o
+  // brocal, seccion.ts) pinta su franja girada sobre el asfalto del otro en
+  // cada quiebre de una curva. La final queda debajo del cuerpo siguiente. El
+  // discard va antes de cualquier cálculo: es media tapa que no se paga.
+  for (const casing of [false, true]) {
+    const material = new LineMaterial()
+    patchLineMaterial(material, {} as DataTexture, 164, casing)
+    const shader = realShader(material)
+    ;(material as any).onBeforeCompile(shader)
+    const f = shader.fragmentShader
+    expect(f).toContain('if ( vUv.y < -1.0 ) discard;')
+    expect(f.indexOf('if ( vUv.y < -1.0 ) discard;')).toBeLessThan(f.indexOf('float pci ='))
+  }
+})
+
 test('las flechas de sentido se pintan solo en sentido único y hacia vDist creciente', () => {
   const material = new LineMaterial()
   patchLineMaterial(material, {} as DataTexture, 164)

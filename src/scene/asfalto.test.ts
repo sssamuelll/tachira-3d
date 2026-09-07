@@ -44,7 +44,20 @@ test('el muestreo va en coordenadas de calzada, en metros: u a lo largo, v a lo 
   const c = codigo(ASFALTO_CUERPO_GLSL)
   // u = vDist (metros recorridos), v = t * calzadaM / 2 (metros al eje).
   expect(c).toMatch(/vec2\s+uvM\s*=\s*vec2\(\s*vDist\s*,\s*t\s*\*\s*calzadaM\s*\*\s*0\.5\s*\)/)
-  expect(c).toContain('float calzadaM = vCalzadaPx * vMpp;')
+  // La calzada en metros llega como varying propio (afín en z, se interpola
+  // exacto), no como vCalzadaPx * vMpp, que en la mitad de un tramo vale de
+  // más (seccion.test.ts).
+  expect(c).toContain('float calzadaM = vCalzadaM;')
+})
+
+test('el bloque caro no corre en la franja de hombrillo o brocal, que seccion.ts pinta encima', () => {
+  const c = codigo(ASFALTO_CUERPO_GLSL)
+  // |t| > 1 es la franja: seis samplers, un Voronoi y el cuenco del bache para
+  // un color que seccion.ts sobrescribe entero. Queda el margen de 2 px
+  // (un píxel son 2/vCalzadaPx en unidades de t) que el antialiasing del filo
+  // sí necesita. `cerca` no se toca: también pesa la mezcla final y la lámina
+  // del mojado, y fundirlo dejaría un píxel de color plano en el filo.
+  expect(c).toMatch(/if \(cerca > 0\.08 && abs\(t\) < 1\.0 \+ 4\.0 \/ max\(vCalzadaPx, 1\.0\)\)/)
 })
 
 // El tamaño de tile no es gusto: es lo que la pantalla puede dibujar. La
@@ -115,7 +128,7 @@ test('todo el asfalto vive por encima de un umbral de píxeles, con transición 
   expect(c).toContain(`smoothstep(${ASFALTO_DESDE_PX.toFixed(1)}, ${ASFALTO_HASTA_PX.toFixed(1)}, vCalzadaPx)`)
   // El bloque entero va dentro de un if: a vista de estado no se ejecuta ni
   // una muestra de textura de las 26.712 vías.
-  expect(c).toMatch(/if\s*\(\s*cerca\s*>\s*0\.\d+\s*\)/)
+  expect(c).toMatch(/if\s*\(\s*cerca\s*>\s*0\.\d+\s*&&/)
   // Y lo que sale se mezcla contra el color plano de hoy, no lo reemplaza.
   expect(c).toMatch(/base\s*=\s*mix\(\s*base\s*,\s*luz\s*,\s*cerca\s*\)/)
 })
