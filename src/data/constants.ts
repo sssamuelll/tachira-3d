@@ -14,7 +14,42 @@ export const PCI_RANGES = [
   { min: 0,  max: 10,  label: 'Colapsado',    color: [0.45, 0.08, 0.12] },
 ] as const
 
-export const SIN_EVALUAR: [number, number, number] = [0.45, 0.45, 0.45]
+// Casi blanco, no gris: es el color por defecto de una vía en cualquier mapa
+// vial, y quien lo lee entiende "vía" antes que "dato faltante". El gris medio
+// que había acá antes salía además al 45% de opacidad (la procedencia 'sin' de
+// roadsShader.ts) sobre relieve claro, así que el estado inicial de la
+// aplicación -- las 26.712 sin evaluar -- era prácticamente invisible, y eran
+// justo las que hay que ir a buscar. Lo que hace visible una vía blanca es su
+// contorno oscuro (CASING), no su relleno.
+export const SIN_EVALUAR: [number, number, number] = [0.96, 0.96, 0.96]
+
+// Contorno oscuro de cada vía. Es lo que hace legible un trazo fino sobre un
+// relieve texturado: sin él, una vía verde "Bueno" sobre monte verde no tiene
+// borde contra el que leerse, por muy saturada que sea. Se dibuja debajo del
+// relleno, un poco más ancho (roadStyle.ts).
+export const CASING: [number, number, number] = [0.05, 0.06, 0.08]
+
+// Contorno de una vía cuyo PCI no está medido. La procedencia del dato se
+// leía antes en la opacidad de la vía entera, y eso obligaba a dibujar la red
+// semitransparente: una carretera translúcida no se lee como carretera, se lee
+// como una mancha, y encima las juntas entre tramos se acumulaban más oscuras.
+// El relleno ahora va opaco siempre y la confianza en el dato se dice acá, en
+// lo cerrado que sea el negro del borde.
+//
+// Los dos extremos son oscuros, y eso es deliberado: el contorno es lo que le
+// da forma a la vía contra el relieve, así que ni el más flojo puede
+// desaparecer. La primera versión de esto puso "sin dato" en un gris claro y
+// el mapa recién abierto -- donde las 26.712 están sin dato -- volvió a
+// quedarse sin bordes: el mismo error que la opacidad por procedencia ya
+// había cometido, cometido otra vez en el canal de al lado.
+export const CASING_SUAVE: [number, number, number] = [0.18, 0.20, 0.24]
+
+// Color de lo seleccionado en el mapa. Deliberadamente fuera de la rampa
+// ASTM: sobre un relieve claro, "seleccionado" no puede parecerse a ningún
+// estado de pavimento. Más vivo que el azul de la interfaz (ui/theme.ts)
+// porque este pasa por el tonemapping AgX de la escena (Sky.tsx), que
+// desatura; el de la interfaz se dibuja en el DOM y no pasa por nada.
+export const SELECCION: [number, number, number] = [0.09, 0.55, 0.95]
 
 export const FUENTES = ['sin', 'heredado', 'estimado', 'medido'] as const
 export const TIPOS = ['sin_definir', 'asfalto', 'concreto', 'granzon', 'tierra', 'empedrado'] as const

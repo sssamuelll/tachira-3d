@@ -11,8 +11,20 @@ test('checkCoherence pasa con binarios consistentes', () => {
   const roads: RoadsMeta = { count: 2, ways: [] }
   const positions = new Float32Array(2 * 6)
   const segIds = new Float32Array(2)
-  const index = new Uint32Array(3) // CSR: count + 1
-  expect(() => checkCoherence(roads, positions, segIds, index)).not.toThrow()
+  const index = new Uint32Array([0, 1, 2]) // CSR: count + 1, un segmento por vía
+  expect(() => checkCoherence(roads, positions, segIds, index, new Int8Array(segIds.length * 6))).not.toThrow()
+})
+
+test('checkCoherence lanza si el CSR no termina en el total de segmentos', () => {
+  // La última entrada del CSR ES el número de segmentos, y hay quien la lee
+  // como tal para dimensionar buffers por segmento sin volver a mirar
+  // positions (cortePorSegmento, roadStyle.ts). Un CSR que termine corto los
+  // deja más chicos que la geometría, y la GPU lee lo que haya detrás.
+  const roads: RoadsMeta = { count: 2, ways: [] }
+  const positions = new Float32Array(2 * 6)
+  const segIds = new Float32Array(2)
+  const index = new Uint32Array([0, 1, 1]) // termina en 1, hay 2 segmentos
+  expect(() => checkCoherence(roads, positions, segIds, index, new Int8Array(segIds.length * 6))).toThrow(/1.*2|2.*1/)
 })
 
 test('checkCoherence lanza si el indice CSR no cuadra con roads.count', () => {
@@ -20,7 +32,7 @@ test('checkCoherence lanza si el indice CSR no cuadra con roads.count', () => {
   const positions = new Float32Array(2 * 6)
   const segIds = new Float32Array(2)
   const index = new Uint32Array(2) // debería ser 3
-  expect(() => checkCoherence(roads, positions, segIds, index)).toThrow(/2.*3|3.*2/)
+  expect(() => checkCoherence(roads, positions, segIds, index, new Int8Array(segIds.length * 6))).toThrow(/2.*3|3.*2/)
 })
 
 test('checkCoherence lanza si segIds no trae un id por segmento', () => {
@@ -28,7 +40,15 @@ test('checkCoherence lanza si segIds no trae un id por segmento', () => {
   const positions = new Float32Array(2 * 6)
   const segIds = new Float32Array(1) // debería ser 2
   const index = new Uint32Array(3)
-  expect(() => checkCoherence(roads, positions, segIds, index)).toThrow()
+  expect(() => checkCoherence(roads, positions, segIds, index, new Int8Array(segIds.length * 6))).toThrow()
+})
+
+test('checkCoherence lanza si roads-nrm.bin no trae seis bytes por segmento', () => {
+  // La normal del terreno de cada extremo (roadsShader.ts la extruye con
+  // ella): un buffer corto deja la GPU leyendo lo que haya detrás.
+  const roads: RoadsMeta = { count: 1, ways: [] }
+  expect(() => checkCoherence(roads, new Float32Array(6), new Float32Array(1), new Uint32Array([0, 1]), new Int8Array(5)))
+    .toThrow(/roads-nrm/)
 })
 
 test('checkOrigin pasa si terrain.origin coincide con ORIGIN', () => {

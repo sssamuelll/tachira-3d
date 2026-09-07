@@ -21,7 +21,7 @@ test('el PCI va crudo en R y la fuente indexada en G', () => {
   expect(g).toBe(3)                       // sin=0 heredado=1 estimado=2 medido=3
 })
 
-test('los flags de visible y seleccionado van en bits distintos de B', () => {
+test('los flags de foco y seleccion van en bits distintos de B', () => {
   expect(encodeAttr(reg(), false, false)[2] & 1).toBe(0)
   expect(encodeAttr(reg(), true, false)[2] & 1).toBe(1)
   expect(encodeAttr(reg(), true, true)[2] & 2).toBe(2)
@@ -37,13 +37,13 @@ test('una fuente fuera de dominio no produce un indice negativo en G', () => {
   expect(g).toBe(0)   // cae al indice de 'sin', mismo criterio que normalizar() en store.ts
 })
 
-test('el constructor deja todas las vias visibles y ninguna seleccionada', () => {
+test('el constructor deja todas las vias en foco y ninguna seleccionada', () => {
   const store = new AttrStore(ways)
   const attr = new AttrTexture(store)
   const data = attr.texture.image.data as Uint8Array
   for (let i = 0; i < ways.length; i++) {
     const b = data[i * 4 + 2]
-    expect(b & 1).toBe(1)   // visible
+    expect(b & 1).toBe(1)   // en foco
     expect(b & 2).toBe(0)   // no seleccionado
   }
 })

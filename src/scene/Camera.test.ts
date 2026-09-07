@@ -1,7 +1,6 @@
 import { test, expect } from 'vitest'
-import { enuOf, bboxCenterAndSpan, municipioBbox } from './Camera'
+import { enuOf, bboxCenterAndSpan, idsCenterAndSpan } from './Camera'
 import { ORIGIN, BBOX } from '../data/constants'
-import type { Municipio } from '../data/types'
 
 test('el origen del proyecto cae en el cero de la escena', () => {
   const v = enuOf(ORIGIN.lat, ORIGIN.lon, 0)
@@ -34,22 +33,45 @@ test('mover al este/norte/arriba solo mueve el eje que le corresponde', () => {
   expect(arriba.y).toBeLessThan(1001)
 })
 
-// Ningún municipio del dato real (public/data/municipios.json) tiene hoy más
-// de un polígono, así que este caso no se puede ver a ojo en el navegador --
-// un municipio sintético con dos polígonos separados (y un hueco con un punto
-// fuera de su propio anillo exterior, algo que nunca pasaría en un GeoJSON
-// real pero que fija que solo se lee ring[0]) es la única forma de probar que
-// municipioBbox no se queda solo con polygons[0].
-test('el bbox de un municipio multipoligono cubre todos los poligonos e ignora los huecos', () => {
-  const m: Municipio = {
-    osmId: 1, name: 'Test', orphanFragments: 0,
-    polygons: [
-      [
-        [[-72.0, 8.0], [-71.9, 8.0], [-71.9, 8.1], [-72.0, 8.1]], // anillo exterior
-        [[-73.0, 5.0]],                                            // hueco fuera de rango -- debe ignorarse
-      ],
-      [[[-70.0, 9.0], [-69.9, 9.0], [-69.9, 9.1], [-70.0, 9.1]]], // segundo poligono (enclave)
-    ],
-  }
-  expect(municipioBbox(m)).toEqual({ s: 8.0, w: -72.0, n: 9.1, e: -69.9 })
+// positions es CSR sobre segmentos: seis floats por segmento (los dos
+// extremos). Un buffer a mano es la unica forma de comprobar que se leen los
+// DOS extremos y que el rango de la via i sale de index[i]..index[i+1] --
+// leer solo el primer extremo, o desfasar el indice en uno, sigue dando un
+// encuadre plausible sobre el dato real.
+const positions = new Float32Array([
+  // via 0: dos segmentos, de (0,0,0) a (2000,0,0)
+  0, 0, 0, 1000, 0, 0,
+  1000, 0, 0, 2000, 0, 0,
+  // via 1: un segmento lejos, de (10000,0,10000) a (10000,0,12000)
+  10000, 0, 10000, 10000, 0, 12000,
+])
+const index = new Uint32Array([0, 2, 3])
+
+test('el encuadre de una via cubre sus dos extremos', () => {
+  const e = idsCenterAndSpan(positions, index, [0])!
+  expect(e.center.x).toBeCloseTo(1000)
+  expect(e.center.z).toBeCloseTo(0)
+})
+
+test('el encuadre de varias vias cubre todas', () => {
+  const e = idsCenterAndSpan(positions, index, [0, 1])!
+  expect(e.center.x).toBeCloseTo(5000)
+  expect(e.center.z).toBeCloseTo(6000)
+  expect(e.span).toBeCloseTo(Math.hypot(10000, 12000))
+})
+
+// Una via urbana mide decenas de metros: sin piso la camara queda a ~40 m del
+// suelo, por dentro del near plane (10, App.tsx) y contra un relieve
+// muestreado cada 130 m que a esa distancia es un plano.
+test('el span nunca baja del piso, aunque la via sea de metros', () => {
+  const corta = new Float32Array([0, 0, 0, 30, 0, 0])
+  const e = idsCenterAndSpan(corta, new Uint32Array([0, 1]), [0])!
+  expect(e.span).toBe(1200)
+  expect(e.center.x).toBeCloseTo(15)
+})
+
+test('un conjunto vacio o sin segmentos no pide encuadre', () => {
+  expect(idsCenterAndSpan(positions, index, [])).toBeNull()
+  // via con rango vacio (index[i] === index[i+1]): existe pero no dibuja nada
+  expect(idsCenterAndSpan(positions, new Uint32Array([0, 0]), [0])).toBeNull()
 })

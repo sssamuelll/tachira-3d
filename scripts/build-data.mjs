@@ -2,8 +2,13 @@ import { writeFile, mkdir } from 'node:fs/promises'
 import { makeEnuFrame, geodeticToEnu } from './lib/enu.mjs'
 import { lineLengthMeters, lineLength3dMeters, midpointIndex, pointInPolygon } from './lib/geo.mjs'
 import { overpass, waysToLines, relationsToPolygons, QUERY_VIAS, QUERY_MUNICIPIOS } from './lib/overpass.mjs'
-import { fetchDem, sampleBilinear, downsample } from './lib/terrarium.mjs'
+import { fetchDem, downsample, tileXf, tileYf, tileYToLat } from './lib/terrarium.mjs'
 import { packRoads, writeBin } from './lib/pack.mjs'
+import { normalizeLanes, normalizeOneway, orientar } from './lib/road-meta.mjs'
+import { subdividir, apoyar } from './lib/subdividir.mjs'
+import { alturaTriangulo, normalTriangulo } from './lib/drape.mjs'
+import { stateMask } from './lib/state-mask.mjs'
+import { escribirPiramide } from './lib/dem-tiles.mjs'
 
 const BBOX = { s: 7.3612911, w: -72.4878225, n: 8.6826552, e: -71.3153029 }
 const ORIGIN = { lat: 8.021973, lon: -71.901563, h: 0 }
@@ -35,6 +40,9 @@ async function main () {
 
   console.log('2/9  vías')
   const lines = waysToLines(await overpass(QUERY_VIAS, 'vias'))
+  // Un oneway=-1 circula contra el orden de sus nodos: se invierte acá, para
+  // que en el frontend "sentido único" signifique siempre "hacia el final".
+  for (const l of lines) l.coords = subdividir(orientar(l.coords, l.tags.oneway))
   console.log(`     ${lines.length} vías`)
 
   console.log('3/9  DEM')
@@ -80,9 +88,20 @@ async function main () {
   console.log(`     resueltas por voto: ${resolvedByVote} · sin municipio: ${unassigned}`)
 
   console.log('5/9  drapeado y longitudes')
+  // Sobre la TRIANGULACIÓN del DEM, no bilineal: es la superficie exacta que
+  // el nivel fino del relieve dibuja (nodoTerreno.ts), y con los tramos ya
+  // partidos a 30 m ningún tramo cruza por debajo de ella. La normal del
+  // triángulo inclina la calzada con la ladera (roadsShader.ts).
   let vertices = 0
+  const alturaDe = (lon, lat) => alturaTriangulo(dem, lon, lat)
   for (const l of lines) {
-    const heights = l.coords.map(([lon, lat]) => sampleBilinear(dem, lon, lat))
+    // Los tramos que aún se aparten del relieve más de 20 cm se parten por
+    // bisección: un tramo recto entre dos puntos apoyados cruza por debajo de
+    // una arista convexa del DEM, y 20 cm es la alza mínima con la que el
+    // navegador dibuja la calzada (ALZA_MIN_M, roadsShader.ts).
+    l.coords = apoyar(l.coords, alturaDe)
+    const heights = l.coords.map(([lon, lat]) => alturaDe(lon, lat))
+    l.nrm = l.coords.map(([lon, lat]) => normalTriangulo(dem, frame, lon, lat))
     l.km = lineLengthMeters(l.coords) / 1000
     l.km3d = lineLength3dMeters(l.coords, heights) / 1000
     l.enu = l.coords.map(([lon, lat], i) => geodeticToEnu(frame, lat, lon, heights[i]))
@@ -95,6 +114,7 @@ async function main () {
   await writeBin(`${OUT}/roads-pos.bin`, packed.positions)
   await writeBin(`${OUT}/roads-segid.bin`, packed.segIds)
   await writeBin(`${OUT}/roads-index.bin`, packed.index)
+  await writeBin(`${OUT}/roads-nrm.bin`, packed.nrm)
   console.log(`     ${packed.segmentCount} segmentos`)
 
   console.log('7/9  metadata de vías')
@@ -106,6 +126,8 @@ async function main () {
       name: l.tags.name ?? null,
       highway: l.tags.highway,
       surface: l.tags.surface ?? null,
+      lanes: normalizeLanes(l.tags.lanes),
+      oneway: normalizeOneway(l.tags.oneway),
       tipo: SURFACE_A_TIPO[l.tags.surface] ?? 'sin_definir',
       municipio: l.municipio,
       km: +l.km.toFixed(4),
@@ -119,9 +141,20 @@ async function main () {
   let min = Infinity, max = -Infinity
   for (const v of grid) { if (v < min) min = v; if (v > max) max = v }
   await writeFile(`${OUT}/terrain.json`, JSON.stringify({
-    width: GRID, height: GRID, bbox: dem.bounds, min, max, origin: ORIGIN,
+    width: GRID, height: GRID, bbox: dem.bounds, min, max, origin: ORIGIN, dem: dem.tile,
   }))
   console.log(`     elevación ${min} a ${max} m`)
+
+  console.log('8b/9 pirámide del DEM')
+  // "Dentro del estado" a la resolución del DEM, sobre su rejilla Mercator.
+  const dentro = stateMask(municipios, {
+    W: dem.width, H: dem.height,
+    colOf: lon => (tileXf(lon, Z) - dem.tile.x0) * 256,
+    rowOf: lat => (tileYf(lat, Z) - dem.tile.y0) * 256,
+    latDeFila: f => tileYToLat(dem.tile.y0 + f / 256, Z),
+  })
+  const pir = await escribirPiramide(dem, dentro, `${OUT}/dem`)
+  console.log(`     ${pir.teselas} teselas z8-z12 · ${pir.nodos} nodos con error`)
 
   console.log('9/9  municipios')
   await writeFile(`${OUT}/municipios.json`, JSON.stringify(municipios))

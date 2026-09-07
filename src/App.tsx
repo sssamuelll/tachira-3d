@@ -1,15 +1,20 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { Sky } from './scene/Sky'
-import { Terrain } from './scene/Terrain'
+import { TerrainLod } from './scene/TerrainLod'
 import { Roads } from './scene/Roads'
-import { FlyTo, municipioBbox } from './scene/Camera'
+import { FlyTo, Vista, bboxCenterAndSpan, idsCenterAndSpan, type Encuadre, type ApiVista } from './scene/Camera'
 import { usePicking } from './scene/PickingPass'
 import { LassoOverlay, pointInLasso, type Pt } from './ui/LassoOverlay'
-import { FilterPanel, EMPTY_FILTER, applyFilter, visibleSelection } from './ui/FilterPanel'
-import { EditPanel } from './ui/EditPanel'
-import { CoverageBar } from './ui/CoverageBar'
+import { SearchPanel } from './ui/SearchPanel'
+import { Ficha } from './ui/Ficha'
+import { MapControls, BarraArchivo, BarraEscala } from './ui/MapControls'
+import { MiniMapa } from './ui/MiniMapa'
+import { indexar, buscar, type Resultado } from './ui/search'
+import { T, nf } from './ui/theme'
+import type { Escala } from './ui/escala'
+import type { Mirilla } from './ui/disco'
 import { loadAll } from './data/load'
 import { BBOX } from './data/constants'
 import { AttrStore } from './data/store'
@@ -19,7 +24,7 @@ import type { Registro, Way } from './data/types'
 
 type Data = Awaited<ReturnType<typeof loadAll>>
 // Forma real de lo que devuelve usePicking (Task 16): pickAt para el clic,
-// pickRegion para el lazo. Derivado del propio hook -- retipiarlo a mano se
+// pickRegion para el lazo. Derivado del propio hook -- retiparlo a mano se
 // desincroniza en silencio si PickingPass.tsx cambia la forma del retorno.
 type PickerApi = ReturnType<typeof usePicking>
 
@@ -28,21 +33,22 @@ type PickerApi = ReturnType<typeof usePicking>
 // sin tragarse un clic deliberado (una órbita real mueve decenas de píxeles).
 const UMBRAL_CLIC_PX = 5
 
-// Traduce el clic del DOM a un id de vía a través del id buffer (Task 16) y
-// se lo pasa a App. Vive dentro de <Canvas> porque usePicking necesita
+// Traduce el clic del DOM a un id de vía a través del id buffer (Task 16) y se
+// lo pasa a App. Vive dentro de <Canvas> porque usePicking necesita
 // gl/camera/size de useThree(). Además sube {pickAt, pickRegion} a un ref que
-// sostiene App (Task 17, Ruling 3 del plan): el lazo se dibuja fuera del
-// Canvas, en un SVG superpuesto (LassoOverlay.tsx) sin ningún padre común en
-// el árbol de React salvo App -- el ref es el único puente entre los dos.
+// sostiene App: el lazo se dibuja fuera del Canvas, en un SVG superpuesto
+// (LassoOverlay.tsx) sin ningún padre común en el árbol de React salvo App --
+// el ref es el único puente entre los dos.
 function Picker (
-  { positions, segIds, attr, onPick, pickerRef }:
+  { positions, segIds, ways, index, normals, onPick, pickerRef }:
   {
-    positions: Float32Array; segIds: Float32Array; attr: AttrTexture
+    positions: Float32Array; segIds: Float32Array
+    ways: Way[]; index: Uint32Array; normals: Int8Array
     onPick: (i: number | null, add: boolean) => void
     pickerRef: RefObject<PickerApi | null>
   },
 ) {
-  const { pickAt, pickRegion } = usePicking({ positions, segIds, attr })
+  const { pickAt, pickRegion } = usePicking({ positions, segIds, ways, index, normals })
   const { gl } = useThree()
 
   useEffect(() => { pickerRef.current = { pickAt, pickRegion } }, [pickerRef, pickAt, pickRegion])
@@ -72,26 +78,40 @@ function Picker (
   return null
 }
 
+// Armar la escena tarda decenas de segundos: un millón de vértices de relieve
+// proyectados uno a uno a ENU, sus normales, y 450.261 segmentos de vía
+// subidos a la GPU. Todo eso pasa DESPUÉS de que los datos llegaron, así que
+// el "cargando" de la carga de red se apaga y quedan treinta segundos de
+// pantalla vacía que se leen como que la aplicación se rompió. Este
+// componente avisa cuando de verdad hay algo dibujado: useFrame no corre
+// hasta que la escena está montada y r3f empezó su bucle.
+function AvisaCuandoDibuja ({ onListo }: { onListo: () => void }) {
+  const cuadros = useRef(0)
+  useFrame(() => {
+    // Al segundo cuadro, no al primero: el callback de useFrame corre ANTES
+    // del render de ese cuadro, así que en el primero todavía no hay nada en
+    // pantalla y el aviso se quitaría sobre un lienzo en blanco.
+    cuadros.current++
+    if (cuadros.current === 2) onListo()
+  })
+  return null
+}
+
 // Camino compartido entre "cargar al arrancar" (checkHandle recordó el handle
 // de una sesión previa, con permiso vigente) y "el usuario acaba de elegir el
-// archivo con el botón" -- pickFile() puede apuntar a un pci-tachira.json que YA trae datos
-// (el archivo se versiona en git a propósito, spec §9: abrirlo en un clon o
-// un perfil de navegador nuevo, con IndexedDB vacío, es el caso normal, no
-// uno raro). store.loadJSON() ya distingue huérfanos (ids que ya no existen
-// en la red, no se borran) de inválidos (valores fuera de dominio,
+// archivo con el botón" -- pickFile() puede apuntar a un pci-tachira.json que
+// YA trae datos (el archivo se versiona en git a propósito, spec §9: abrirlo
+// en un clon o un perfil de navegador nuevo, con IndexedDB vacío, es el caso
+// normal, no uno raro). store.loadJSON() ya distingue huérfanos (ids que ya no
+// existen en la red, no se borran) de inválidos (valores fuera de dominio,
 // normalizados) -- acá solo se avisan por separado, sin fundirlos en un solo
 // número que no diría qué pasó con cada uno.
-// Devuelve conteos (no los arreglos completos, que sí van a consola) para que
-// App los muestre en la interfaz -- fix Task 21 ronda 3: antes solo había un
-// console.warn, y quien usa esto es personal técnico de vialidad, no alguien
-// con las herramientas de desarrollo abiertas. null si no hay nada que avisar
-// (archivo limpio, o vacío/recién creado).
 //
-// 'ilegible' es su propio caso, no un null más (fix ronda final): un archivo
-// con contenido que no parsea NO se conecta para escritura -- si se conectara,
-// la primera edición escribiría el store recién sembrado encima y borraría
-// todo lo que había. El usuario ve el aviso, arregla la coma de más a mano y
-// vuelve a elegir el archivo.
+// 'ilegible' es su propio caso, no un null más: un archivo con contenido que
+// no parsea NO se conecta para escritura -- si se conectara, la primera
+// edición escribiría el store recién sembrado encima y borraría todo lo que
+// había. El usuario ve el aviso, arregla la coma de más a mano y vuelve a
+// elegir el archivo.
 type AvisoCarga =
   | { tipo: 'ilegible'; detalle: string }
   | { tipo: 'carga'; orphans: number; invalid: number }
@@ -117,35 +137,62 @@ async function cargarDesdeArchivo (
   return { tipo: 'carga', orphans: orphans.length, invalid: invalid.length }
 }
 
+function textoAviso (a: AvisoCarga | null): string | null {
+  if (!a) return null
+  if (a.tipo === 'ilegible') {
+    return `El archivo tiene contenido pero no es JSON válido (${a.detalle}). No se conectó ` +
+      'para escritura, para no sobrescribirlo: arréglalo a mano y vuelve a elegirlo.'
+  }
+  const partes: string[] = []
+  if (a.orphans > 0) {
+    partes.push(`${nf.format(a.orphans)} vía(s) del archivo ya no existen en la red. ` +
+      'Se conservaron tal cual: decide tú qué hacer con ellas.')
+  }
+  if (a.invalid > 0) {
+    partes.push(`${nf.format(a.invalid)} registro(s) traían un valor fuera de rango ` +
+      'y quedaron como "sin dato" en ese campo.')
+  }
+  return partes.join(' ')
+}
+
 export default function App () {
   const [data, setData] = useState<Data | null>(null)
   const [date] = useState(() => new Date('2026-09-05T14:00:00Z'))
-  const [flyTo, setFlyTo] = useState<typeof BBOX | null>(null)
+  const [objetivo, setObjetivo] = useState<Encuadre | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [lassoOn, setLassoOn] = useState(false)
-  const [filter, setFilter] = useState(EMPTY_FILTER)
-  // Se incrementa en cada notify() del store -- onApply (Task 19, más abajo)
-  // es el primer caller real de store.set() fuera de seedFromSurface().
-  // applyFilter lee pci/fuente del store, no de `ways` -- sin este contador
-  // el useMemo de la máscara de abajo no volvería a correr tras una edición
-  // real: ni `store` (misma instancia) ni `filter` cambiarían.
+  const [q, setQ] = useState('')
+  // Clave del resultado de búsqueda sobre el que está puesto el foco, y la
+  // máscara de vías que ese resultado abarca. null = no hay foco, y el mapa
+  // dibuja todo a plena opacidad.
+  const [activa, setActiva] = useState<string | null>(null)
+  const [enfoque, setEnfoque] = useState<Uint8Array | null>(null)
+  // Se incrementa en cada notify() del store. Es lo que hace que la búsqueda
+  // por condición y por procedencia (que leen el store, no `ways`) y la ficha
+  // se recalculen después de guardar.
   const [storeVersion, setStoreVersion] = useState(0)
   // Handle del archivo en disco (Task 21): null hasta que checkHandle() lo
   // recuerde de una sesión previa (con permiso vigente) o el usuario lo elija
-  // con el botón. Vive
-  // en React, no dentro de persist.ts, porque useAutosave (más abajo) tiene
-  // que re-suscribirse cuando cambia, igual que ya hace con store/storeVersion.
+  // con el botón. Vive en React, no dentro de persist.ts, porque useAutosave
+  // (más abajo) tiene que re-suscribirse cuando cambia.
   const [handle, setHandle] = useState<FileSystemFileHandle | null>(null)
-  // Handle recordado en IndexedDB cuyo permiso el navegador olvidó (fix Task
-  // 21 ronda 3): distinto de `handle` a propósito -- este NO se pasa a
-  // useAutosave (nadie debe autoguardar sobre un archivo sin autorización
-  // vigente). Solo existe para que la interfaz ofrezca un botón de
-  // reconectar; se vacía en cuanto se conecta algo (por reconexión o por
-  // elegir un archivo nuevo).
+  // Handle recordado en IndexedDB cuyo permiso el navegador olvidó: distinto
+  // de `handle` a propósito -- este NO se pasa a useAutosave (nadie debe
+  // autoguardar sobre un archivo sin autorización vigente). Solo existe para
+  // que la interfaz ofrezca un botón de reconectar; se vacía en cuanto se
+  // conecta algo (por reconexión o por elegir un archivo nuevo).
   const [pendingHandle, setPendingHandle] = useState<FileSystemFileHandle | null>(null)
-  // Cuántos huérfanos/inválidos trajo la última carga, para mostrarlos en la
-  // interfaz (fix Task 21 ronda 3) -- antes solo había un console.warn.
   const [avisoCarga, setAvisoCarga] = useState<AvisoCarga | null>(null)
+  const [dibujado, setDibujado] = useState(false)
+  // Cuánto terreno mide la pantalla ahora mismo, y el puente para pedirle un
+  // acercamiento a la cámara desde los botones. Los dos los rellena <Vista>,
+  // que vive dentro del Canvas -- ver scene/Camera.tsx.
+  const [escala, setEscala] = useState<Escala | null>(null)
+  const vista = useRef<ApiVista | null>(null)
+  // La otra dirección del mismo puente: el minimapa deja acá su función de
+  // repintado y <Vista> la llama en cada cuadro. No pasa por estado de React a
+  // propósito -- ver el comentario en scene/Camera.tsx.
+  const mirilla = useRef<((m: Mirilla) => void) | null>(null)
   // Único puente entre el SVG del lazo (fuera del Canvas) y pickRegion
   // (dentro): <Picker> lo rellena en un useEffect al montarse/actualizarse.
   const pickerRef = useRef<PickerApi | null>(null)
@@ -167,24 +214,20 @@ export default function App () {
     store.onChange(() => setStoreVersion(v => v + 1))
   }, [store])
 
-  // Task 21: al arrancar, si hubo un archivo elegido en una sesión previa,
-  // checkHandle() lo recuerda de IndexedDB y solo CONSULTA el permiso
-  // (queryPermission, sin gesto de usuario -- fix ronda 3: requestPermission
-  // exige uno real, y llamarlo acá, sin ningún clic de por medio, devolvía el
-  // estado vigente sin preguntar nada tras un reinicio del navegador). Si el
-  // permiso sigue vigente (ej. un F5, que sí lo conserva), se restaura solo;
-  // si no, se deja en `pendingHandle` para que el botón de reconectar pida el
-  // permiso de verdad, con un clic real detrás (más abajo, onReconnect).
+  // Al arrancar, si hubo un archivo elegido en una sesión previa, checkHandle()
+  // lo recuerda de IndexedDB y solo CONSULTA el permiso (queryPermission, sin
+  // gesto de usuario: requestPermission exige uno real, y llamarlo acá, sin
+  // ningún clic de por medio, devolvía el estado vigente sin preguntar nada
+  // tras un reinicio del navegador). Si el permiso sigue vigente (ej. un F5,
+  // que sí lo conserva), se restaura solo; si no, se deja en `pendingHandle`
+  // para que el botón de reconectar pida el permiso de verdad.
   //
-  // setHandle va al FINAL, después de cargarDesdeArchivo -- no al principio
-  // -- porque ese propio loadJSON() sube storeVersion (notify()): si el
-  // handle ya fuera visible para useAutosave en ese momento, vería el handle
-  // nuevo y la subida de versión juntos en la misma vuelta, y los tomaría por
-  // una edición real -- justo el "se guardó solo por abrir la app" que el
-  // debounce existe para evitar (visto de verdad trazando el orden de los
-  // effects, no a ojo). [store, data] y no [] porque cargarDesdeArchivo
-  // necesita `ways` (de `data`) para resolver los ids del JSON contra la red
-  // actual.
+  // setHandle va al FINAL, después de cargarDesdeArchivo -- no al principio --
+  // porque ese propio loadJSON() sube storeVersion (notify()): si el handle ya
+  // fuera visible para useAutosave en ese momento, vería el handle nuevo y la
+  // subida de versión juntos en la misma vuelta y los tomaría por una edición
+  // real, que es justo el "se guardó solo por abrir la app" que el debounce
+  // existe para evitar.
   useEffect(() => {
     if (!store || !data) return
     checkHandle().then(async res => {
@@ -197,68 +240,42 @@ export default function App () {
     })
   }, [store, data])
 
-  // Task 21 ronda 3: useAutosave ahora devuelve el estado del guardado
-  // ('pendiente'/'guardando'/'guardado') para que la interfaz le diga al
-  // usuario cuándo puede cerrar tranquilo -- antes no había ninguna señal más
-  // que el color cambiando al instante en memoria, sin indicar que el disco
-  // iba detrás.
   const estadoGuardado = useAutosave(store, handle, storeVersion)
 
-  // Panel de filtros (Task 18): un byte por vía, mismo índice que `ways` y
-  // que la data texture. 26.712 elementos es barato (microsegundos) pero hay
-  // que memoizar -- sin esto correría en cada render, varias veces por
-  // pulsación de tecla. El conteo suma `way.km` (longitud cartográfica, el
-  // valor convencional), no `km3d`.
-  const { mask, count, km } = useMemo(() => {
-    if (!data || !store) return { mask: null, count: 0, km: 0 }
-    const ways = data.roads.ways
-    const mask = applyFilter(ways, store, filter)
-    let count = 0, km = 0
-    for (let i = 0; i < mask.length; i++) {
-      if (mask[i] === 1) { count++; km += ways[i].km }
-    }
-    return { mask, count, km }
-  }, [data, store, filter, storeVersion])
+  // El índice del buscador se arma una vez por carga de datos: agrupa las
+  // 26.712 vías en 29 municipios, unos miles de nombres y 6 rodaduras, y a
+  // partir de ahí cada tecla compara contra esa lista corta.
+  const indice = useMemo(() => (data ? indexar(data.roads.ways) : null), [data])
 
-  // La selección (Task 16) es estado de interacción, no un dato de la vía:
-  // se repinta como una máscara aparte en cada cambio, sin pasar por
-  // store.set() (eso marcaría fecha/fuente como si fuera una edición real).
-  // Sube junto con la máscara del filtro en un solo refresh(): si cada una
-  // llamara a refresh() por su cuenta, la segunda pisaría a la primera con
-  // los valores por defecto (todo visible, nada seleccionado).
+  const grupos = useMemo(() => {
+    if (!data || !store || !indice) return []
+    return buscar(q, indice, data.roads.ways, store)
+    // storeVersion entra en las dependencias porque los grupos de condición y
+    // de procedencia se calculan contra el store: una edición cambia lo que
+    // devuelve la misma consulta, sin que la consulta cambie.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, indice, data, store, storeVersion])
+
+  // La selección y el foco son máscaras aparte, no datos de la vía: se
+  // repintan sin pasar por store.set() (eso marcaría fecha/procedencia como si
+  // fuera una edición real). Suben juntas en un solo refresh(): si cada una
+  // llamara por su cuenta, la segunda pisaría a la primera con los valores por
+  // defecto. `enfoque` en null significa "todo enfocado", que es lo que
+  // AttrTexture.refresh() entiende por el argumento ausente.
   useEffect(() => {
-    if (!store || !attr || !mask) return
-    const selectedMask = new Uint8Array(store.length)
-    for (const i of selected) selectedMask[i] = 1
-    attr.refresh(mask, selectedMask)
-  }, [store, attr, mask, selected])
+    if (!store || !attr) return
+    const sel = new Uint8Array(store.length)
+    for (const i of selected) sel[i] = 1
+    attr.refresh(enfoque ?? undefined, sel)
+  }, [store, attr, enfoque, selected, storeVersion])
 
-  // number[] para EditPanel y para store.set(), que esperan un arreglo, no
-  // el Set que onPick/onLassoFinish necesitan para add() en O(1). Memoizado
-  // por la misma razón que la máscara del filtro (arriba): sin esto se
-  // reconstruye en cada render -- varias veces por arrastre de un slider del
-  // FilterPanel, que también vive en App y re-renderiza este componente.
-  const selectionArray = useMemo(() => Array.from(selected), [selected])
-
-  // Fix hallazgo PRINCIPAL (re-revisión final): intersección selección×mask,
-  // recalculada cada vez que cualquiera de las dos cambia. Se elige CONSERVAR
-  // la selección oculta en vez de recortarla sola al cambiar el filtro: el
-  // FilterPanel dispara un cambio de `filter` (y por lo tanto de `mask`) por
-  // cada arrastre de un slider o cada tecla en un <select> -- si `selected`
-  // se recortara automáticamente, mover el rango de PCI de un lado a otro
-  // borraría en el camino una selección armada a mano (clic a clic, o un
-  // lazo grande) sin que el usuario haya pedido nada de eso. La selección es
-  // memoria del usuario (Task 16: "estado de interacción, no un dato de la
-  // vía") y este repo no descarta esa clase de estado en silencio en ningún
-  // otro sitio (huérfanos, inválidos: siempre se conservan y se avisa). Lo
-  // único que de verdad no puede pasar es escribir sobre lo invisible -- y
-  // eso se resuelve aquí, no vaciando `selected`.
-  const selectionVisible = useMemo(
-    () => (mask ? visibleSelection(mask, selectionArray) : []),
-    [mask, selectionArray],
-  )
+  const seleccion = useMemo(() => Array.from(selected), [selected])
+  const registro = store && seleccion.length === 1 ? store.get(seleccion[0]) : null
 
   // add=true (shift-clic) agrega; add=false reemplaza, y en el vacío limpia.
+  // No toca el foco: seguir trabajando dentro del municipio que buscaste es lo
+  // normal, y apagarle la atenuación al primer clic obligaría a buscarlo otra
+  // vez para recuperarla.
   const onPick = useCallback((i: number | null, add: boolean) => {
     setSelected(prev => {
       if (add) {
@@ -269,17 +286,17 @@ export default function App () {
     })
   }, [])
 
-  // El lazo siempre agrega (como el shift-clic), nunca reemplaza la
-  // selección previa. El readback ocurre acá, al soltar -- nunca durante el
-  // arrastre, que en LassoOverlay solo dibuja el polígono en SVG (gratis).
+  // El lazo siempre agrega (como el shift-clic), nunca reemplaza la selección
+  // previa. El readback ocurre acá, al soltar -- nunca durante el arrastre,
+  // que en LassoOverlay solo dibuja el polígono en SVG (gratis).
   const onLassoFinish = useCallback((pts: Pt[]) => {
     const picker = pickerRef.current
     if (!picker) { console.warn('lazo: pickRegion aún no está listo, se ignora este trazo'); return }
     const xs = pts.map(p => p.x)
     const ys = pts.map(p => p.y)
     // bbox en enteros de píxel de pantalla, acotado al viewport: un arrastre
-    // que sale de la ventana (el navegador sigue mandando mousemove fuera
-    // del área cliente) no debe pedirle a pickRegion un buffer desproporcionado.
+    // que sale de la ventana (el navegador sigue mandando mousemove fuera del
+    // área cliente) no debe pedirle a pickRegion un buffer desproporcionado.
     const x0 = Math.max(0, Math.floor(Math.min(...xs)))
     const y0 = Math.max(0, Math.floor(Math.min(...ys)))
     const x1 = Math.min(window.innerWidth, Math.ceil(Math.max(...xs)))
@@ -294,78 +311,58 @@ export default function App () {
     })
   }, [])
 
-  // Task 19: onApply es el único llamador de store.set() en la app. Le pasa
-  // el lote entero de una (selectionVisible), nunca un for por vía -- set()
-  // ya normaliza y notifica una sola vez por lote (store.ts); con selecciones
-  // de miles de elementos, notificar por elemento es la diferencia entre
-  // instantáneo y colgado. Ese único notify() sube storeVersion (el
-  // useEffect de arriba), lo que hace recalcular `mask` (el useMemo de
-  // arriba) y en cadena dispara el useEffect de refresh() con el mask y el
-  // selected ya vigentes -- repinta sin perder ni el filtro ni la selección.
-  // No hace falta otro onChange ni un refresh() manual acá.
+  // Elegir un resultado hace tres cosas a la vez, y las tres son la misma
+  // intención: enfocar (el resto del mapa se atenúa), volar hasta lo que
+  // abarca, y dejarlo seleccionado. Lo tercero es lo que convierte una
+  // búsqueda en un lote editable, sin tener que redibujar con el lazo una
+  // forma que acabas de nombrar -- que es el trabajo de esta aplicación.
+  const onElegir = useCallback((r: Resultado) => {
+    if (!store || !data) return
+    const m = new Uint8Array(store.length)
+    for (const i of r.ids) m[i] = 1
+    setEnfoque(m)
+    setActiva(r.clave)
+    setSelected(new Set(r.ids))
+    const e = idsCenterAndSpan(data.positions, data.index, r.ids)
+    if (e) setObjetivo(e)
+  }, [store, data])
+
+  const onQ = useCallback((s: string) => {
+    setQ(s)
+    // Borrar la búsqueda apaga la atenuación, pero NO la selección: lo
+    // seleccionado es memoria del usuario (puede haberlo armado a clics) y
+    // este repo no descarta esa clase de estado en silencio en ningún otro
+    // sitio. La ficha sigue abierta, con su botón para soltarla.
+    if (!s.trim()) { setActiva(null); setEnfoque(null) }
+  }, [])
+
+  // Único llamador de store.set() en la app. Le pasa el lote entero de una
+  // vez, nunca un for por vía -- set() ya normaliza y notifica una sola vez
+  // por lote (store.ts); con selecciones de miles, notificar por elemento es
+  // la diferencia entre instantáneo y colgado.
   //
-  // Fix hallazgo PRINCIPAL (re-revisión final): selectionVisible, NO
-  // selectionArray -- ver el comentario junto a selectionVisible (arriba).
-  // Antes se pasaba la selección entera sin intersectar con `mask`: una
-  // selección hecha con un filtro permisivo sobrevive a un filtro nuevo que
-  // oculta esas vías, y este era el único punto de escritura real de la app
-  // (store.set()) -- "aplicar" alcanzaba vías que la pantalla no mostraba,
-  // sin ningún aviso. Reproducido con el mapa completamente vacío: 2.024
-  // seleccionadas de antes, filtro a 0 vías, "aplicar" escribía las 2.024 igual.
-  //
-  // Lote vacío -> no llamar a store.set(): EditPanel ya deshabilita el botón
-  // en ese caso (visibleCount === 0), pero onApply no depende de eso para
-  // estar bien -- un store.set([], patch) no tocaría ningún registro, pero sí
-  // subiría `ediciones` y dispararía notify()/autosave por un lote que no
-  // cambió nada. Sin store.set() de por medio no hay ninguna vía por la que
-  // este guard pueda tocar algo fuera de la máscara.
-  const onApply = useCallback((patch: Partial<Registro>) => {
-    if (!store || selectionVisible.length === 0) return
-    store.set(selectionVisible, patch)
-  }, [store, selectionVisible])
+  // Ya no hace falta intersectar la selección con ninguna máscara antes de
+  // escribir. Esa intersección existía porque el panel de filtros escondía
+  // vías de verdad y una selección hecha con un filtro permisivo sobrevivía a
+  // uno que la ocultaba: "aplicar" escribía sobre miles de vías que no estaban
+  // en pantalla. Ahora no hay nada oculto -- lo que queda fuera del foco se
+  // dibuja más tenue, pero se dibuja -- y la ficha declara cuántas son y cómo
+  // se reparten por municipio antes de que toques el botón.
+  const onAplicar = useCallback((patch: Partial<Registro>) => {
+    if (!store || seleccion.length === 0) return
+    store.set(seleccion, patch)
+  }, [store, seleccion])
 
-  // "Seleccionar todo lo filtrado" es el camino principal de edición masiva
-  // (26.712 vías, Task 19): arma la selección directo desde `mask`, ya
-  // calculado por el useMemo de arriba -- no vuelve a filtrar.
-  const onSelectAllFiltered = useCallback(() => {
-    if (!mask) return
-    const next = new Set<number>()
-    for (let i = 0; i < mask.length; i++) if (mask[i] === 1) next.add(i)
-    setSelected(next)
-  }, [mask])
-
-  // Task 20: Way.municipio y Municipio.name son el mismo string (build-data.mjs
-  // los siembra desde la misma relación de OSM) -- un Map una sola vez por
-  // carga de datos evita recorrer las 29 municipios por cada clic en la barra.
-  const municipioPorNombre = useMemo(() => {
-    if (!data) return null
-    return new Map(data.municipios.map(m => [m.name, m]))
-  }, [data])
-
-  // CoverageBar (Task 20) ordena los 29 municipios por avance ascendente y
-  // pulsar uno debe hacer dos cosas a la vez: acotar el filtro a ese municipio
-  // (mismo campo que ya usa FilterPanel) y volar la cámara a su bbox. Update
-  // funcional de `filter` (no `{ ...filter, municipio }` cerrado sobre el
-  // filter del render en que se creó este callback) para no pisar en silencio
-  // los demás campos que el usuario haya tocado desde entonces -- mismo motivo
-  // que onPick (arriba) usa `setSelected(prev => ...)`.
-  const onPickMunicipio = useCallback((nombre: string) => {
-    setFilter(f => ({ ...f, municipio: nombre }))
-    const m = municipioPorNombre?.get(nombre)
-    if (m) setFlyTo(municipioBbox(m))
-  }, [municipioPorNombre])
-
-  // Task 21: único llamador de pickFile() en la app. El propio diálogo puede
-  // apuntar a un pci-tachira.json ya existente (ver cargarDesdeArchivo,
-  // arriba de App) -- por eso también intenta cargarlo, no solo conecta el
-  // handle en blanco. Cancelar el diálogo rechaza con AbortError: no es un
-  // error real (ningún dato se tocó todavía), así que no se reporta; otro
-  // rechazo (ej. permiso denegado) sí, porque ese sí puede explicar por qué
-  // "no pasó nada" al pulsar el botón. Limpia pendingHandle: elegir un
-  // archivo nuevo resuelve cualquier reconexión pendiente de un handle viejo.
   const onPickFile = useCallback(async () => {
     if (!store || !data) return
+    // Firefox no implementa la File System Access API (spec §9): ahí la app no
+    // se rompe, solo pierde el autoguardado directo a disco y cae a descargar
+    // el archivo para reemplazarlo a mano.
+    if (!isFsAccessSupported()) { downloadJSON(store.toJSON()); return }
     let h: FileSystemFileHandle | null = null
+    // Cancelar el diálogo rechaza con AbortError: no es un error real (ningún
+    // dato se tocó todavía), así que no se reporta; otro rechazo (ej. permiso
+    // denegado) sí, porque ese sí explica por qué "no pasó nada".
     try { h = await pickFile() } catch (e) {
       if ((e as any)?.name !== 'AbortError') console.error('no se pudo elegir el archivo', e)
     }
@@ -377,164 +374,124 @@ export default function App () {
     setHandle(h)
   }, [store, data])
 
-  // Task 21 ronda 3: único llamador de reconnectHandle() -- vive detrás de un
-  // clic real, que es el único lugar donde requestPermission() de verdad le
-  // pregunta algo al usuario (ver persist.ts). Si el navegador deniega, se
-  // limpia pendingHandle igual: insistir con el mismo handle no cambiaría
-  // nada, y el botón "archivo de datos" sigue disponible para elegir de cero.
-  const onReconnect = useCallback(async () => {
+  // Único llamador de reconnectHandle() -- vive detrás de un clic real, que es
+  // el único lugar donde requestPermission() de verdad le pregunta algo al
+  // usuario (ver persist.ts). Si el navegador deniega, se limpia pendingHandle
+  // igual: insistir con el mismo handle no cambiaría nada, y el botón de
+  // archivo sigue disponible para elegir de cero.
+  const onReconectar = useCallback(async () => {
     if (!pendingHandle || !store || !data) return
     const ok = await reconnectHandle(pendingHandle)
     if (!ok) {
-      console.warn('permiso denegado para el archivo recordado -- usa "archivo de datos" para elegir de nuevo')
+      console.warn('permiso denegado para el archivo recordado -- elige el archivo de nuevo')
       setPendingHandle(null)
       return
     }
     const aviso = await cargarDesdeArchivo(pendingHandle, store, data.roads.ways)
     setAvisoCarga(aviso)
     setPendingHandle(null)
-    if (aviso?.tipo === 'ilegible') return   // no conectar: el autoguardado lo sobrescribiría
+    if (aviso?.tipo === 'ilegible') return
     setHandle(pendingHandle)
   }, [pendingHandle, store, data])
 
-  if (!data) return <div style={{ padding: 24 }}>cargando datos del Táchira…</div>
+  if (!data) return <Cargando titulo="Cargando la red vial" detalle="26.712 vías y el relieve del estado." />
 
   // el terreno vive en ENU local centrado en ORIGIN (bbox ~147×129 km,
-  // Task 11): [0, 55000, 100000] queda a ~114 km del centroide, ~29° sobre
-  // el horizonte. Verificado visualmente (ver task-11-report.md): a ese
-  // ángulo se ve el relieve completo con buen contraste hipsométrico. Dos
-  // alternativas probadas y descartadas — a 90 km de altura (fuera del
-  // topRadius de 60 km de la atmósfera precalculada,
-  // AtmosphereParameters.ts) el cielo sale apagado; a 12° de rasante sobre
-  // el horizonte la neblina de AerialPerspective satura el terreno entero.
+  // Task 11): [0, 55000, 100000] queda a ~114 km del centroide, ~29° sobre el
+  // horizonte. Verificado visualmente: a ese ángulo se ve el relieve completo
+  // con buen contraste hipsométrico. Dos alternativas probadas y descartadas:
+  // a 90 km de altura (fuera del topRadius de 60 km de la atmósfera
+  // precalculada) el cielo sale apagado; a 12° de rasante la neblina de
+  // AerialPerspective satura el terreno entero.
   return (
     <>
-      {/* zIndex 20, por encima del SVG del lazo (10): si no, en cuanto el lazo
-          se activa su propio overlay tapa este botón y "clic para salir" deja
-          de poder hacer clic en nada -- se detectó arrastrando de verdad en
-          el navegador, no en los tests del predicado. */}
-      <div style={{ position: 'fixed', top: 12, left: 12, zIndex: 20, display: 'flex', gap: 8, alignItems: 'center' }}>
-        {/* Una copia, no BBOX: setFlyTo con la MISMA referencia de módulo no
-            cambia el estado, así que no hay re-render y el efecto de <FlyTo>
-            no vuelve a correr -- el botón funcionaba una sola vez por sesión.
-            Los de municipio no sufrían esto porque municipioBbox() construye
-            un objeto nuevo cada vez. No borrar el spread. */}
-        <button onClick={() => setFlyTo({ ...BBOX })}>Encuadrar Táchira</button>
-        <button onClick={() => setLassoOn(o => !o)}>
-          {lassoOn ? 'Lazo activo (clic para salir)' : 'Selección por lazo'}
-        </button>
-        {/* Task 21: Firefox no implementa la File System Access API (spec
-            §9) -- isFsAccessSupported() decide en cada render cuál de los
-            dos botones mostrar, para que ahí la app no se rompa, solo pierda
-            el autoguardado directo a disco y caiga a descargar el archivo. */}
-        {isFsAccessSupported() ? (
-          <button onClick={onPickFile} title="Elegir o cambiar el pci-tachira.json donde se autoguarda">
-            {handle ? `archivo: ${handle.name}` : 'archivo de datos'}
-          </button>
-        ) : (
-          <button onClick={() => store && downloadJSON(store.toJSON())}
-            title="Este navegador no soporta guardar directo a disco -- descarga el archivo y reemplaza pci-tachira.json a mano">
-            descargar datos
-          </button>
-        )}
-        {/* Fix Task 21 ronda 3: el permiso del handle recordado no sobrevive
-            siempre a un reinicio del navegador, y requestPermission() exige
-            un clic real para preguntar de verdad (persist.ts) -- sin este
-            botón, esa reconexión pasaba en silencio dentro de un efecto de
-            montaje y nunca preguntaba nada. */}
-        {pendingHandle && (
-          <button onClick={onReconnect}
-            title="El navegador olvidó el permiso de este archivo -- un clic para volver a autorizarlo">
-            reconectar {pendingHandle.name}
-          </button>
-        )}
-        {/* Fix Task 21 ronda 3: única señal de si el disco ya tiene la última
-            edición o todavía va detrás -- antes el único indicio era el color
-            cambiando al instante en memoria, sin avisar que cerrar la
-            pestaña en esos 2 s de debounce podía perder la edición. */}
-        {handle && (
-          <span style={{ fontSize: 12, color: '#8b98a8' }}>
-            {estadoGuardado === 'guardando' ? 'guardando…'
-              : estadoGuardado === 'pendiente' ? 'cambios sin guardar'
-              : 'guardado'}
-          </span>
-        )}
-      </div>
-      {/* Fix Task 21 ronda 3: huérfanos e inválidos ahora se avisan en la
-          interfaz, no solo en consola -- quien usa esto es personal técnico
-          de vialidad, no alguien con las herramientas de desarrollo abiertas.
-          Huérfanos: ids que ya no existen en la red (OSM partió la vía), se
-          conservan tal cual, el usuario decide qué hacer con ellos. Inválidos:
-          valores fuera de dominio, ya normalizados a "sin dato". */}
-      {avisoCarga && (
-        <div style={{
-          position: 'fixed', top: 48, left: 12, zIndex: 20, maxWidth: 420, fontSize: 12,
-          color: '#f2d43f', background: 'rgba(14,20,28,0.92)', border: '1px solid #2a3644',
-          borderRadius: 6, padding: '6px 10px',
-        }}>
-          {avisoCarga.tipo === 'ilegible' ? (
-            <>
-              El archivo tiene contenido pero no es JSON válido ({avisoCarga.detalle}).
-              {' '}NO se conectó para escritura, para no sobrescribirlo: arréglalo a mano
-              {' '}y vuelve a elegirlo con "archivo de datos".
-            </>
-          ) : (
-            <>
-              {avisoCarga.orphans > 0 &&
-                `${avisoCarga.orphans} vía(s) huérfana(s) (ya no existen en la red, se conservaron -- decide qué hacer con ellas). `}
-              {avisoCarga.invalid > 0 &&
-                `${avisoCarga.invalid} registro(s) con datos fuera de rango, normalizados a "sin dato".`}
-            </>
-          )}
-        </div>
-      )}
       <Canvas camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
         <Suspense fallback={null}>
           <Sky date={date} />
-          <Terrain grid={data.terrainGrid} meta={data.terrain} />
-          {attr && <Roads positions={data.positions} segIds={data.segIds} attr={attr} />}
-          {/* attr también acá, no solo en <Roads>: el buffer de ids lee la
-              misma textura para descartar lo que el filtro oculta
-              (PickingPass.tsx) -- si el pase de picking dibujara las 26.712
-              vías siempre, la selección devolvería vías que no están en
-              pantalla. */}
+          <TerrainLod meta={data.terrain} municipios={data.municipios} />
           {attr && (
-            <Picker positions={data.positions} segIds={data.segIds} attr={attr}
-              onPick={onPick} pickerRef={pickerRef} />
+            <Roads
+              positions={data.positions} segIds={data.segIds} index={data.index}
+              ways={data.roads.ways} attr={attr} normals={data.normals}
+            />
           )}
+          <Picker
+            positions={data.positions} segIds={data.segIds}
+            ways={data.roads.ways} index={data.index} normals={data.normals}
+            onPick={onPick} pickerRef={pickerRef}
+          />
           {/* enabled=false mientras el lazo está activo: arrastrar para dibujar
               y arrastrar para orbitar son el mismo gesto -- si OrbitControls
               también escucha, el lazo sale torcido y la vista se mueve sola. */}
-          <OrbitControls makeDefault maxDistance={400000} enabled={!lassoOn} />
-          <FlyTo bbox={flyTo} />
+          {/* minDistance no es cosmético: es el tope al que llegan los
+              botones de zoom, y por debajo de ~30 m el relieve de delante
+              empieza a recortarse contra el near plane (10). */}
+          <OrbitControls makeDefault minDistance={30} maxDistance={400000} enabled={!lassoOn} />
+          <FlyTo objetivo={objetivo} />
+          <Vista api={vista} onEscala={setEscala} mirilla={mirilla} />
+          <AvisaCuandoDibuja onListo={() => setDibujado(true)} />
         </Suspense>
       </Canvas>
+
+      {!dibujado && (
+        <Cargando titulo="Armando el relieve"
+          detalle="Un millón de puntos de elevación y 450.261 tramos de vía. Tarda unos segundos." />
+      )}
+
       <LassoOverlay active={lassoOn} onFinish={onLassoFinish} />
-      <FilterPanel ways={data.roads.ways} filter={filter} onChange={setFilter} count={count} km={km} />
-      {/* Fix round 1 (Task 20): EditPanel y CoverageBar ya no calculan su
-          propia coordenada para no solaparse -- un left calculado a mano
-          (16 + ancho de EditPanel + separación) se desincronizaba en
-          silencio si cualquiera de los dos cambiaba de tamaño, y así se
-          coló un solape real de 10px, invisible porque ambos comparten el
-          mismo fondo casi opaco (encontrado con getBoundingClientRect(), no
-          a ojo). Este contenedor los reparte con flex: EditPanel fijo
-          (flexShrink:0, en su propio estilo), CoverageBar toma el resto
-          (flex:1). pointerEvents:'none' acá y 'auto' en cada panel (sus
-          propios estilos) para que el hueco entre los dos y el margen a la
-          derecha sigan dejando pasar el lazo y el clic sobre el lienzo --
-          sin esto la franja inferior entera dejaría de responder al lazo.
-          alignItems:'flex-end' para que ambos compartan el borde inferior
-          aunque EditPanel crezca hacia arriba con la selección. */}
-      <div style={{
-        position: 'fixed', left: 16, right: 16, bottom: 16, zIndex: 20,
-        display: 'flex', alignItems: 'flex-end', gap: 16, pointerEvents: 'none',
-      }}>
-        <EditPanel
-          selection={selectionArray} visibleCount={selectionVisible.length} filteredCount={count}
-          onApply={onApply} onSelectAllFiltered={onSelectAllFiltered}
-        />
-        {store && <CoverageBar store={store} version={storeVersion} onPick={onPickMunicipio} />}
-      </div>
+
+      <SearchPanel
+        q={q} onQ={onQ} grupos={grupos} activa={activa} onElegir={onElegir}
+        ficha={seleccion.length > 0
+          ? (
+            <Ficha
+              ways={data.roads.ways} seleccion={seleccion} registro={registro}
+              onCerrar={() => setSelected(new Set())} onAplicar={onAplicar}
+            />
+          )
+          : null}
+      />
+
+      <MapControls
+        lazo={lassoOn}
+        onLazo={() => setLassoOn(o => !o)}
+        // Un Encuadre nuevo en cada clic: el efecto de <FlyTo> depende de la
+        // identidad del objeto, así que reusar uno haría que el botón
+        // funcionara una sola vez por sesión.
+        onEncuadrar={() => setObjetivo(bboxCenterAndSpan(BBOX))}
+        onAcercar={() => vista.current?.acercar()}
+        onAlejar={() => vista.current?.alejar()}
+      />
+
+      <MiniMapa
+        grid={data.terrainGrid} meta={data.terrain} municipios={data.municipios}
+        mirilla={mirilla} onIr={p => vista.current?.irA(p)}
+      />
+
+      <BarraEscala escala={escala} />
+
+      <BarraArchivo
+        nombre={handle?.name ?? null}
+        estado={handle ? estadoGuardado : null}
+        pendiente={pendingHandle?.name ?? null}
+        avisar={textoAviso(avisoCarga)}
+        onElegir={onPickFile}
+        onReconectar={onReconectar}
+      />
     </>
+  )
+}
+
+function Cargando ({ titulo, detalle }: { titulo: string; detalle: string }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 30, display: 'grid', placeItems: 'center',
+      background: '#eef1f4', fontFamily: T.fuente,
+    }}>
+      <div style={{ display: 'grid', gap: 6, justifyItems: 'center', textAlign: 'center', padding: 24 }}>
+        <strong style={{ fontSize: 16, fontWeight: 500, color: T.texto }}>{titulo}</strong>
+        <span style={{ fontSize: 13, color: T.texto2, maxWidth: 340 }}>{detalle}</span>
+      </div>
+    </div>
   )
 }

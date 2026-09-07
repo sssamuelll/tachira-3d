@@ -48,7 +48,7 @@ export function LassoOverlay (
       // esta task, no el predicado (que ya tenía sus tests en verde).
       // position:fixed (no absolute): ancla al viewport sin depender de que
       // ningún ancestro (#root, body) siga sin scroll -- la Task 18 mete un
-      // panel de filtros que puede desplazar el layout, y un lazo "casi bien"
+      // panel flotante que podría desplazar el layout, y un lazo "casi bien"
       // alineado (corrido unos px) es peor que uno obviamente roto.
       style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', cursor: 'crosshair', zIndex: 10 }}
       onPointerDown={e => {
@@ -83,7 +83,7 @@ export function LassoOverlay (
       {pts.length > 1 && (
         <polygon
           points={pts.map(p => `${p.x},${p.y}`).join(' ')}
-          fill="rgba(120,180,255,0.15)" stroke="#78b4ff" strokeWidth={1.5}
+          fill="rgba(21,96,122,0.12)" stroke="#15607a" strokeWidth={1.5}
         />
       )}
     </svg>

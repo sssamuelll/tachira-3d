@@ -1,11 +1,10 @@
 import { FUENTES, TIPOS } from './constants'
 import type { Way, Registro } from './types'
 
-// Bucket de las vías sin municipio asignado (coverageByMunicipio, abajo).
-// Compartido con CoverageBar.tsx, que lo usa para NO hacer pulsable ese
-// bucket -- estaba duplicado como literal en los dos archivos, así que
-// cambiarlo en uno solo devolvía el bug ya arreglado (un botón que promete
-// filtrar y volar a un municipio que no existe).
+// Etiqueta de las vías que el pipeline no pudo asignar a ningún municipio
+// (build-data.mjs las deja con municipio null). Vive acá y no como literal en
+// quien la muestra: es una etiqueta que el usuario lee, y duplicarla es cómo
+// se termina con dos textos distintos para la misma cosa.
 export const SIN_MUNICIPIO = 'sin municipio'
 
 const hoy = () => new Date().toISOString().slice(0, 10)
@@ -112,9 +111,9 @@ export class AttrStore {
    * NO toca `fuente` (fix ronda final): `fuente` describe la procedencia del
    * PCI (fix Task 19, ver set() arriba) y acá no hay ningún PCI de por medio
    * -- se queda en 'sin'. Antes escribía 'heredado' en 6.228 vías para marcar
-   * que la rodadura venía de OSM, y el FilterPanel lee ese mismo campo bajo
-   * la etiqueta "Procedencia": filtrar por `heredado` devolvía PCI aplicados
-   * en bloque mezclados con vías sin PCI cuya rodadura salió del mapa. Dos
+   * que la rodadura venía de OSM, y el buscador ofrece ese mismo campo bajo
+   * la etiqueta "Procedencia": buscar `heredado` devolvía PCI aplicados en
+   * bloque mezclados con vías sin PCI cuya rodadura salió del mapa. Dos
    * significados en un campo, y el que importa es el del PCI.
    *
    * Tampoco toca `fecha` (fix hallazgo menor, re-revisión final): mismo
@@ -136,18 +135,6 @@ export class AttrStore {
     }
     this.notify()
     return n
-  }
-
-  coverageByMunicipio (): Map<string, { total: number; evaluados: number }> {
-    const out = new Map<string, { total: number; evaluados: number }>()
-    for (let i = 0; i < this.ways.length; i++) {
-      const m = this.ways[i].municipio ?? SIN_MUNICIPIO
-      const e = out.get(m) ?? { total: 0, evaluados: 0 }
-      e.total++
-      if (this.regs[i].pci != null) e.evaluados++
-      out.set(m, e)
-    }
-    return out
   }
 
   /** Solo serializa lo que tiene dato real: un registro vacío no ensucia el JSON.

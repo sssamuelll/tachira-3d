@@ -1,7 +1,20 @@
 import { test, expect } from 'vitest'
 import {
   decodeTerrarium, lonToTileX, latToTileY, tileRangeForBbox, sampleBilinear, downsample,
+  tileXf, tileYf, tileXToLon, tileYToLat,
 } from '../lib/terrarium.mjs'
+
+test('la tesela fraccionaria tiene por parte entera la tesela de siempre', () => {
+  for (const [lon, lat, z] of [[-72.22, 7.77, 13], [-71.9, 8.02, 12], [-72.4878, 7.3613, 8]]) {
+    expect(Math.floor(tileXf(lon, z))).toBe(lonToTileX(lon, z))
+    expect(Math.floor(tileYf(lat, z))).toBe(latToTileY(lat, z))
+  }
+})
+
+test('tesela fraccionaria: ida y vuelta exacta', () => {
+  expect(tileXToLon(tileXf(-72.22, 12), 12)).toBeCloseTo(-72.22, 9)
+  expect(tileYToLat(tileYf(7.77, 12), 12)).toBeCloseTo(7.77, 9)
+})
 
 const BBOX = { s: 7.3612911, w: -72.4878225, n: 8.6826552, e: -71.3153029 }
 

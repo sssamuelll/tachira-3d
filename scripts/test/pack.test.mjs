@@ -30,6 +30,19 @@ test('cada segmento lleva el indice de su via', () => {
   expect(Array.from(p.segIds)).toEqual([0, 1, 1])
 })
 
+test('escribe una normal Int8 por extremo de tramo, desde l.nrm', () => {
+  const lines = [{ enu: [[0, 0, 0], [10, 0, 0], [20, 0, 0]], nrm: [[0, 1, 0], [0.6, 0.8, 0], [0, 0, 1]] }]
+  const { nrm, segmentCount } = packRoads(lines)
+  expect(segmentCount).toBe(2)
+  expect(nrm).toBeInstanceOf(Int8Array)
+  expect(Array.from(nrm)).toEqual([0, 127, 0, 76, 102, 0, 76, 102, 0, 0, 0, 127])
+})
+
+test('sin l.nrm la normal es la vertical', () => {
+  const { nrm } = packRoads([{ enu: [[0, 0, 0], [1, 0, 0]] }])
+  expect(Array.from(nrm)).toEqual([0, 127, 0, 0, 127, 0])
+})
+
 test('una via con menos de dos puntos no aporta segmentos', () => {
   const p = packRoads([{ enu: [[0, 0, 0]] }, { enu: [[0, 0, 0], [1, 0, 0]] }])
   expect(p.segmentCount).toBe(1)

@@ -1,8 +1,11 @@
 export const terrainVert = /* glsl */`
 attribute float elevation;
+attribute vec2 uvMascara;
 varying float vElev;
+varying vec2 vUvM;
 varying vec3 vNormalW;
 void main () {
+  vUvM = uvMascara;
   // NO uses position.y para el color: position.y es el componente "up" de
   // ENU, que incluye la caida por curvatura terrestre (~750 m en las
   // esquinas del bbox, a ~97.5 km del origen). uMin/uMax son elevacion
@@ -27,7 +30,9 @@ export const terrainFrag = /* glsl */`
 uniform float uMin;
 uniform float uMax;
 uniform vec3 uSun;
+uniform sampler2D uMascara;
 varying float vElev;
+varying vec2 vUvM;
 varying vec3 vNormalW;
 
 vec3 hypso (float t) {
@@ -38,6 +43,12 @@ vec3 hypso (float t) {
 }
 
 void main () {
+  // Recorte al contorno del estado: la mascara de 1024x1024 (stateMask.ts)
+  // como textura con filtro lineal, asi que el corte cae a media celda del
+  // borde real (~70 m) a cualquier nivel de detalle del relieve. Por vertice
+  // no sirve: un nodo grueso tiene celdas de kilometros y el borde saldria
+  // en bloques.
+  if (texture2D(uMascara, vUvM).r < 0.5) discard;
   float t = clamp((vElev - uMin) / max(1.0, uMax - uMin), 0.0, 1.0);
   float shade = clamp(dot(normalize(vNormalW), normalize(uSun)) * 0.6 + 0.5, 0.15, 1.0);
   gl_FragColor = vec4(hypso(t) * shade, 1.0);

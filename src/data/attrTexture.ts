@@ -7,7 +7,7 @@ import type { AttrStore } from './store'
 // RGBA de ATTR_SIZE² texels, uno por índice de vía, que el shader indexa por
 // id. Repintar miles de tramos es entonces escribir texels y subir una
 // textura chica — el equivalente hecho a mano del setFeatureState de MapLibre.
-export function encodeAttr (reg: Registro, visible: boolean, selected: boolean):
+export function encodeAttr (reg: Registro, enfocado: boolean, selected: boolean):
   [number, number, number, number] {
   return [
     // 255 (no 0) marca "sin evaluar": un PCI de 0 es dato real, el peor
@@ -19,7 +19,11 @@ export function encodeAttr (reg: Registro, visible: boolean, selected: boolean):
     // dominio en normalizar() de store.ts. Segunda línea de defensa: esta
     // función está exportada y se puede llamar sin pasar por ningún store.
     Math.max(0, FUENTES.indexOf(reg.fuente)),
-    (visible ? 1 : 0) | (selected ? 2 : 0),
+    // Bit 0: en foco. Bit 1: seleccionado. "En foco" NO es "visible": lo que
+    // queda fuera se sigue dibujando, más tenue (roadsShader.ts). Nada en esta
+    // aplicación esconde una vía del mapa, y de eso depende que el pase de
+    // picking pueda dibujarlas todas sin mentir.
+    (enfocado ? 1 : 0) | (selected ? 2 : 0),
     0,
   ]
 }
@@ -31,9 +35,9 @@ export class AttrTexture {
   constructor (private store: AttrStore) {
     // Uint8Array nace en ceros: los 184 texels sobrantes (164²-26.712) que
     // refresh() nunca visita (el for corre hasta store.length) quedan en
-    // (0,0,0,0) para siempre — B=0 decodifica "no visible". Relleno inerte a
-    // propósito, no un descuido: ningún segId real de la geometría cae ahí,
-    // así que el shader jamás los lee.
+    // (0,0,0,0) para siempre. Relleno inerte a propósito, no un descuido:
+    // ningún segId real de la geometría cae ahí, así que el shader jamás los
+    // lee.
     this.data = new Uint8Array(ATTR_SIZE * ATTR_SIZE * 4)
     this.texture = new THREE.DataTexture(
       this.data, ATTR_SIZE, ATTR_SIZE, THREE.RGBAFormat, THREE.UnsignedByteType,
@@ -48,12 +52,13 @@ export class AttrTexture {
 
   /** Relee los ATTR_SIZE² texels completos en cada llamada — a este tamaño
    * (26.896) es barato, así que no hace falta rastrear qué texels ensuciaron.
-   * `visible` y `selected` son máscaras opcionales de un byte por vía. */
-  refresh (visible?: Uint8Array, selected?: Uint8Array) {
+   * `enfocado` y `selected` son máscaras opcionales de un byte por vía;
+   * ausentes valen "todo en foco, nada seleccionado". */
+  refresh (enfocado?: Uint8Array, selected?: Uint8Array) {
     for (let i = 0; i < this.store.length; i++) {
       const [r, g, b, a] = encodeAttr(
         this.store.get(i),
-        visible ? visible[i] === 1 : true,
+        enfocado ? enfocado[i] === 1 : true,
         selected ? selected[i] === 1 : false,
       )
       const o = i * 4

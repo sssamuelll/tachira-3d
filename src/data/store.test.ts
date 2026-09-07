@@ -17,7 +17,7 @@ test('arranca sin evaluar y sin fuente', () => {
 // Fix ronda final: sembrar la rodadura NO escribe `fuente`. Ese campo
 // describe la procedencia del PCI (fix Task 19) y acá no hay PCI ninguno --
 // escribir 'heredado' para marcar que la rodadura venía de OSM metía dos
-// significados en un campo, y el filtro de "Procedencia" mezclaba PCI
+// significados en un campo, y buscar por "Procedencia" mezclaba PCI
 // aplicados en bloque con vías sin PCI cuya rodadura salió del mapa.
 // Tampoco escribe `fecha` (fix hallazgo menor, re-revisión final): mismo
 // criterio, un campo más fino -- `fecha` es cuándo se midió el PCI, y acá
@@ -138,14 +138,6 @@ test('set SI aplica la fuente cuando el patch trae pci, aunque sea null', () => 
   s.set([0], { pci: null, fuente: 'sin' })   // des-evaluar es una acción real sobre el pci
   expect(s.get(0).pci).toBeNull()
   expect(s.get(0).fuente).toBe('sin')
-})
-
-test('la cobertura por municipio cuenta evaluados sobre total', () => {
-  const s = new AttrStore(ways)
-  s.set([0], { pci: 80, fuente: 'medido' })
-  const c = s.coverageByMunicipio()
-  expect(c.get('Rubio')).toEqual({ total: 2, evaluados: 1 })
-  expect(c.get('Junín')).toEqual({ total: 1, evaluados: 0 })
 })
 
 test('loadJSON restaura por osmId y reporta huerfanos sin borrarlos', () => {

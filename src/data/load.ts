@@ -14,12 +14,26 @@ const json = async <T>(path: string): Promise<T> => (await getOk(path)).json()
 // distinto: json<T>() tipa sin validar, así que TypeScript no puede atrapar
 // esto solo. roads-index.bin es CSR (count+1 entradas) y roads-segid.bin
 // lleva un id por segmento (positions.length/6, 6 floats por segmento).
-export function checkCoherence (roads: RoadsMeta, positions: Float32Array, segIds: Float32Array, index: Uint32Array) {
+export function checkCoherence (
+  roads: RoadsMeta, positions: Float32Array, segIds: Float32Array, index: Uint32Array, nrm: Int8Array,
+) {
   if (index.length !== roads.count + 1) {
     throw new Error(`roads-index.bin incoherente: ${index.length} entradas, esperado roads.count + 1 = ${roads.count + 1}`)
   }
   if (segIds.length !== positions.length / 6) {
     throw new Error(`roads-segid.bin incoherente: ${segIds.length} segmentos, esperado positions.length / 6 = ${positions.length / 6}`)
+  }
+  // La última entrada del CSR es el total de segmentos, y se lee como tal para
+  // dimensionar buffers por segmento sin volver a mirar positions
+  // (cortePorSegmento, roadStyle.ts). Si termina corta, esos buffers salen más
+  // chicos que la geometría que los consume.
+  if (index[roads.count] !== segIds.length) {
+    throw new Error(`roads-index.bin incoherente: el CSR termina en ${index[roads.count]}, esperado ${segIds.length} segmentos`)
+  }
+  // La normal del terreno en cada extremo del tramo (roadsShader.ts extruye
+  // la calzada sobre ella): tres bytes por extremo, dos extremos.
+  if (nrm.length !== segIds.length * 6) {
+    throw new Error(`roads-nrm.bin incoherente: ${nrm.length} bytes, esperado 6 por segmento = ${segIds.length * 6}`)
   }
 }
 
@@ -39,7 +53,7 @@ export function checkOrigin (terrainOrigin: TerrainMeta['origin'], expected: typ
 }
 
 export async function loadAll () {
-  const [terrain, roads, municipios, tBuf, pBuf, sBuf, iBuf] = await Promise.all([
+  const [terrain, roads, municipios, tBuf, pBuf, sBuf, iBuf, nBuf] = await Promise.all([
     json<TerrainMeta>('/data/terrain.json'),
     json<RoadsMeta>('/data/roads-meta.json'),
     json<Municipio[]>('/data/municipios.json'),
@@ -47,12 +61,19 @@ export async function loadAll () {
     bin('/data/roads-pos.bin'),
     bin('/data/roads-segid.bin'),
     bin('/data/roads-index.bin'),
+    bin('/data/roads-nrm.bin'),
   ])
   const positions = new Float32Array(pBuf)
   const segIds = new Float32Array(sBuf)
   const index = new Uint32Array(iBuf)
-  checkCoherence(roads, positions, segIds, index)
+  const normals = new Int8Array(nBuf)
+  checkCoherence(roads, positions, segIds, index, normals)
   checkOrigin(terrain.origin, ORIGIN)
+  // Las posiciones llegan apoyadas desde el pipeline sobre la triangulación
+  // del DEM completo (scripts/lib/drape.mjs), que es exactamente la
+  // superficie que el nivel fino del relieve dibuja (nodoTerreno.ts). Ya no
+  // hay que redrapearlas acá contra otra malla: la malla de 1024² que sigue
+  // llegando en terrain.bin es solo la del minimapa.
   return {
     terrain,
     terrainGrid: new Int16Array(tBuf),
@@ -60,6 +81,7 @@ export async function loadAll () {
     positions,
     segIds,
     index,
+    normals,
     municipios,
   }
 }

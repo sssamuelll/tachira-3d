@@ -35,3 +35,26 @@ export function geodeticToEnu (f: EnuFrame, latDeg: number, lonDeg: number, h = 
      f.cLat * f.cLon * dx + f.cLat * f.sLon * dy + f.sLat * dz,
   ]
 }
+
+/**
+ * Inversa de geodeticToEnu. Hace falta para volver a drapear las vías sobre la
+ * malla del relieve que de verdad se dibuja (scene/drape.ts): roads-pos.bin
+ * trae puntos en ENU y la rejilla del DEM se indexa por lat/lon.
+ *
+ * La latitud sale por Bowring en un paso, sin iterar: el error de esa fórmula
+ * es de micrómetros para alturas terrestres, cinco órdenes de magnitud por
+ * debajo de lo que aquí se compara (celdas de relieve de 130 m).
+ */
+export function enuToGeodetic (f: EnuFrame, e: number, n: number, u: number): [number, number, number] {
+  // La matriz de ENU a ECEF es la transpuesta de la de geodeticToEnu.
+  const X = f.origin[0] + (-f.sLon * e - f.sLat * f.cLon * n + f.cLat * f.cLon * u)
+  const Y = f.origin[1] + (f.cLon * e - f.sLat * f.sLon * n + f.cLat * f.sLon * u)
+  const Z = f.origin[2] + (f.cLat * n + f.sLat * u)
+  const p = Math.hypot(X, Y)
+  const th = Math.atan2(Z * A, p * B)
+  const ep2 = (A * A - B * B) / (B * B)
+  const lat = Math.atan2(Z + ep2 * B * Math.sin(th) ** 3, p - E2 * A * Math.cos(th) ** 3)
+  const lon = Math.atan2(Y, X)
+  const N = A / Math.sqrt(1 - E2 * Math.sin(lat) ** 2)
+  return [lat / D2R, lon / D2R, p / Math.cos(lat) - N]
+}

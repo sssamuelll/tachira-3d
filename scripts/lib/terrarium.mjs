@@ -8,11 +8,16 @@ const TILE = 256
 
 export const decodeTerrarium = (r, g, b) => (r * 256 + g + b / 256) - 32768
 
-export const lonToTileX = (lon, z) => Math.floor((lon + 180) / 360 * 2 ** z)
-export const latToTileY = (lat, z) => {
+// Coordenada de tesela fraccionaria: la parte entera es la tesela, la
+// fraccionaria dónde cae el punto dentro de ella. Misma matemática que
+// src/data/mercator.ts en el navegador.
+export const tileXf = (lon, z) => (lon + 180) / 360 * 2 ** z
+export const tileYf = (lat, z) => {
   const r = lat * Math.PI / 180
-  return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z)
+  return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z
 }
+export const lonToTileX = (lon, z) => Math.floor(tileXf(lon, z))
+export const latToTileY = (lat, z) => Math.floor(tileYf(lat, z))
 export const tileXToLon = (x, z) => x / 2 ** z * 360 - 180
 export const tileYToLat = (y, z) =>
   Math.atan(Math.sinh(Math.PI * (1 - 2 * y / 2 ** z))) * 180 / Math.PI
@@ -68,7 +73,10 @@ export async function fetchDem (bbox, z) {
     w: tileXToLon(r.x0, z), e: tileXToLon(r.x1 + 1, z),
     n: tileYToLat(r.y0, z), s: tileYToLat(r.y1 + 1, z),
   }
-  return { data, width, height, bounds }
+  // El rango de teselas es la convención de rejilla del resto del pipeline
+  // (drape.mjs, dem-tiles.mjs) y del navegador: el post (c, f) está en la
+  // coordenada de tesela (x0 + c/256, y0 + f/256).
+  return { data, width, height, bounds, tile: { z, x0: r.x0, y0: r.y0, nx: r.nx, ny: r.ny } }
 }
 
 export function sampleBilinear (dem, lon, lat) {

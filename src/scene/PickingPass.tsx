@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect, useRef } from 'react'
+import { useMemo, useCallback, useEffect } from 'react'
 import * as THREE from 'three'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
@@ -9,9 +9,10 @@ import { useThree } from '@react-three/fiber'
 // el material real: duplicarlas acá dejaba este pase sin cobertura, así que
 // una actualización de three que las moviera ponía roja la suite por el otro
 // lado, se arreglaba allá, y el picking quedaba roto hasta el primer clic.
-import { ANCLA_VERT, ANCLA_FRAG, ATTR_VERT_GLSL, DISCARD_OCULTAS_GLSL } from './roadsShader'
-import { ATTR_SIZE } from '../data/constants'
-import type { AttrTexture } from '../data/attrTexture'
+import { ANCLA_VERT, ANCLA_FRAG, extrusionGlsl, parcharExtrusion } from './roadsShader'
+import { cortePorSegmento, porSegmento, metrosPorPixel } from './roadStyle'
+import { anchoCalzada } from './calzada'
+import type { Way } from '../data/types'
 
 export const encodeId = (i: number): [number, number, number] =>
   [(i >> 16) & 255, (i >> 8) & 255, i & 255]
@@ -19,34 +20,92 @@ export const encodeId = (i: number): [number, number, number] =>
 export const decodeId = (r: number, g: number, b: number): number =>
   (r << 16) | (g << 8) | b
 
-// Más ancho que el pase visible (2 px, Roads.tsx): da tolerancia de clic sobre
-// una vía fina. Demasiado ancho y las vías paralelas se tapan entre sí en el
-// id buffer. Calibrable -- ver task-16-report.md para el valor probado.
+// Piso en píxeles de la extrusión del pase de ids: más ancho que el piso del
+// pase visible (0,8 a 3,4 px por nivel, roadStyle.ts) para dar tolerancia de
+// clic sobre una vía fina a lo lejos. De cerca no manda: la vía se extruye a
+// su ancho real en metros, igual que en el pase visible, así que una avenida
+// de 400 px se selecciona en sus 400 px. Demasiado ancho y las vías paralelas
+// se tapan entre sí en el id buffer. Calibrable -- ver task-16-report.md.
 export const PICK_WIDTH = 8
 
-/** El buffer de ids lee la MISMA textura de atributos que el pase visible y
- * descarta con el MISMO bloque (roadsShader.ts): una vía que el filtro oculta
- * no puede escribir su id acá. Sin esto el buffer dibujaba las 26.712 vías
- * siempre, filtradas o no -- un clic o un lazo sobre un mapa vacío devolvían
- * miles de vías invisibles, y el panel de edición les escribía PCI con marca
- * de procedencia encima. Se arregla en el buffer y no en onPick/onLassoFinish
- * a propósito: así cualquier consumidor futuro hereda la corrección en vez de
- * tener que acordarse de intersectar con la máscara. */
-export function patchPickMaterial (
-  material: THREE.Material, attrTexture: THREE.DataTexture, attrSize: number,
-) {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uAttr = { value: attrTexture }
-    shader.uniforms.uAttrSize = { value: attrSize }
+// Radio en píxeles de pantalla que explora pickAt alrededor del cursor.
+// 7 px da un objetivo de 15x15: cómodo con ratón o trackpad y todavía chico
+// frente a la separación entre dos vías paralelas a cualquier acercamiento
+// razonable. Calibrable.
+const RADIO_CLIC = 7
 
+// Cuánto se HUNDE el relieve que oclusiona el pase de picking, en metros.
+//
+// Nació cuando las vías iban drapeadas sobre el DEM completo y el relieve
+// dibujado era una malla de 130 m: sobre terreno cóncavo la malla gruesa
+// pasaba por encima de la vía y el oclusor tapaba vías a la vista (medido:
+// 67.210 píxeles de vía en el id buffer con el oclusor pegado, 337.574 sin
+// él). Hoy el relieve es el quadtree (TerrainLod.tsx) y de cerca es la misma
+// triangulación sobre la que el pipeline apoyó las vías, así que el desfase
+// que queda es el error del LOD en los nodos gruesos, nunca más que ERROR_PX
+// en pantalla. Este margen puede bajar en cuanto se mida; el precio de
+// dejarlo es que una vía detrás de una loma de menos de 250 m de altura se
+// puede seleccionar. Calibrable.
+const OCLUSOR_ABAJO = 250
+
+/** Escribe el id de cada vía como color, descartando las que el acercamiento
+ * ya apagó.
+ *
+ * Ese descarte es la contraparte exacta de una sola regla: lo que se dibuja,
+ * se puede tocar; lo que no se dibuja, no. El pase ya la rompió una vez --
+ * cuando existía el panel de filtros, lo que el filtro escondía seguía
+ * escribiendo su id acá, y un clic o un lazo sobre un mapa vacío devolvían
+ * miles de vías invisibles que una edición masiva pintaba de PCI sin que nadie
+ * las viera. El filtro se fue, pero el desvanecimiento por acercamiento
+ * (roadStyle.ts) volvió a esconder vías del mapa, y con ello volvió el deber
+ * de descartarlas: a vista de estado el id buffer traería la red entera con la
+ * pantalla mostrando solo troncales.
+ *
+ * Lo que NO se consulta acá es el estado editable de la vía (la textura de
+ * atributos): eso cambia con lo que el usuario pinta, y el id buffer no puede
+ * depender de ello. El corte sí, porque sale del mismo sitio que el pase
+ * visible y de nada más -- `uMpp` contra el `aCorte` de cada segmento, los dos
+ * definidos en roadStyle.ts. */
+export function patchPickMaterial (material: THREE.Material) {
+  // LineMaterial es un ShaderMaterial: `uniforms` existe desde la construcción
+  // y el programa se enlaza por nombre al dibujar. Declararlo acá y no dentro
+  // de onBeforeCompile (que corre en el primer render, DESPUÉS de que render()
+  // haya querido escribirlo) es lo que evita que el primer clic de la sesión
+  // se haga con el corte sin aplicar.
+  ;(material as THREE.ShaderMaterial).uniforms.uMpp = { value: 0 }
+  ;(material as THREE.ShaderMaterial).uniforms.uPisoPx = { value: PICK_WIDTH }
+
+  // Ver el comentario gemelo en patchLineMaterial: la clave de caché de
+  // programas de three ignora onBeforeCompile. Este material hoy difiere del
+  // visible en transparent/depthWrite, así que por casualidad no colisiona --
+  // pero que el id buffer salga correcto no puede depender de una casualidad
+  // de flags que cualquiera puede igualar sin darse cuenta.
+  material.customProgramCacheKey = () => 'vias:picking'
+
+  material.onBeforeCompile = (shader) => {
     if (!shader.vertexShader.includes(ANCLA_VERT)) {
       throw new Error('PickingPass: no se encontró el ancla del vertex shader de LineMaterial')
     }
-    shader.vertexShader = shader.vertexShader.replace(ANCLA_VERT, `
-      varying float vSegId;
-      ${ATTR_VERT_GLSL}
-        vSegId = segId;
-    `)
+    shader.vertexShader = parcharExtrusion(
+      shader.vertexShader.replace(ANCLA_VERT, `
+        attribute float segId;
+        attribute float aCorte;
+        attribute float aCalzada;
+        attribute vec3 instanceNormalStart;
+        attribute vec3 instanceNormalEnd;
+        uniform float uPisoPx;
+        varying float vSegId;
+        varying float vCorte;
+        void main() {
+          vSegId = segId;
+          vCorte = aCorte;
+      `),
+      // Misma extrusión que el pase visible (roadsShader.ts): lo que se dibuja
+      // se puede tocar, también de cerca. El piso es PICK_WIDTH, no el del
+      // nivel: el área de acierto de una vía fina a lo lejos sigue siendo
+      // generosa.
+      extrusionGlsl(false),
+    )
     if (!shader.fragmentShader.includes(ANCLA_VERT)) {
       throw new Error('PickingPass: no se encontró el ancla de void main() en el fragment shader de LineMaterial')
     }
@@ -54,9 +113,13 @@ export function patchPickMaterial (
       throw new Error('PickingPass: no se encontró el ancla del fragment shader de LineMaterial')
     }
     shader.fragmentShader = shader.fragmentShader
-      .replace(ANCLA_VERT, 'varying float vSegId;\nvarying vec4 vAttr;\nvoid main() {')
+      .replace(ANCLA_VERT, 'uniform float uMpp;\nvarying float vSegId;\nvarying float vCorte;\nvoid main() {')
       .replace(ANCLA_FRAG, `
-        ${DISCARD_OCULTAS_GLSL}
+        // Fuera antes de escribir nada: un discard posterior al color no borra
+        // lo ya escrito en algunos drivers, y de todos modos pagaría la
+        // escritura. vCorte lo pone cortePorSegmento() con el mismo número que
+        // apaga el objeto en el pase visible (roadStyle.ts).
+        if (uMpp > vCorte) discard;
         float id = vSegId + 1.0;   // 0 queda reservado para "nada"
         // El id buffer tiene que ser OPACO: cualquier mezcla de color entre
         // dos vías vecinas decodifica como un id que no existe. gl_FragColor
@@ -75,10 +138,11 @@ export function patchPickMaterial (
 }
 
 export function usePicking (
-  { positions, segIds, attr }:
-  { positions: Float32Array; segIds: Float32Array; attr: AttrTexture },
+  { positions, segIds, ways, index, normals }: {
+    positions: Float32Array; segIds: Float32Array; ways: Way[]; index: Uint32Array; normals: Int8Array
+  },
 ) {
-  const { gl, scene, camera, size } = useThree()
+  const { gl, scene, camera, size, controls } = useThree()
 
   // Geometría, material y escena del pase de picking: independientes del
   // pase visible (Roads.tsx) porque necesitan su propio ancho de línea y su
@@ -89,14 +153,21 @@ export function usePicking (
     const geometry = new LineSegmentsGeometry()
     geometry.setPositions(positions)
     geometry.setAttribute('segId', new THREE.InstancedBufferAttribute(segIds, 1))
-    const material = new LineMaterial({ linewidth: PICK_WIDTH, worldUnits: false })
-    patchPickMaterial(material, attr.texture, ATTR_SIZE)
+    geometry.setAttribute('aCorte', new THREE.InstancedBufferAttribute(cortePorSegmento(ways, index), 1))
+    geometry.setAttribute('aCalzada', new THREE.InstancedBufferAttribute(porSegmento(ways, index, anchoCalzada), 1))
+    // La misma normal del terreno que el pase visible: la extrusión es la
+    // misma fórmula, y lo que se dibuja se puede tocar.
+    const nrmBuf = new THREE.InstancedInterleavedBuffer(normals, 6, 1)
+    geometry.setAttribute('instanceNormalStart', new THREE.InterleavedBufferAttribute(nrmBuf, 3, 0, true))
+    geometry.setAttribute('instanceNormalEnd', new THREE.InterleavedBufferAttribute(nrmBuf, 3, 3, true))
+    const material = new LineMaterial({ worldUnits: false })
+    patchPickMaterial(material)
     const pickLine = new LineSegments2(geometry, material)
     pickLine.frustumCulled = false     // el bbox de una geometría instanciada no es fiable (Roads.tsx)
     const pickScene = new THREE.Scene()
     pickScene.add(pickLine)
     return { pickScene, pickLine }
-  }, [positions, segIds, attr])
+  }, [positions, segIds, ways, index, normals])
 
   // Render target sin antialiasing ni mipmaps: un texel debe decodificar a un
   // id exacto, no a un promedio entre vecinos. Se crea una sola vez;
@@ -114,66 +185,53 @@ export function usePicking (
     ;(pickLine.material as LineMaterial).resolution.set(size.width, size.height)
   }, [target, pickLine, size.width, size.height])
 
-  // El mesh de solo-profundidad del terreno se engancha perezosamente (al
-  // primer render(), no en el useMemo de arriba): cuando ese useMemo corre,
-  // durante la fase de render de React, <Terrain> puede todavía no haberse
-  // montado en la escena real -- todos los hermanos de un mismo padre
-  // renderizan antes de que cualquiera confirme (commit) su objeto de three.
-  // Al primer clic (render() corre solo bajo demanda) el montaje ya pasó.
-  const depthTerrainRef = useRef<THREE.Mesh | null>(null)
+  // Las mallas de solo profundidad del relieve. El relieve son los nodos
+  // visibles del quadtree (TerrainLod.tsx), que cambian con la cámara, así que
+  // se rearman en cada render() -- corre por clic, no por cuadro -- reusando
+  // la geometría real de cada nodo (no se clona) con un material que solo
+  // escribe profundidad: las vías ocluidas fallan el depth test sin pintar
+  // nada encima del id buffer.
+  //
+  // Sin polygonOffset: el sesgo que hace falta acá no es de precisión del
+  // depth buffer sino geométrico, y se aplica hundiendo el oclusor
+  // OCLUSOR_ABAJO metros con `bajada`. Dos sesgos superpuestos, uno en metros
+  // y otro en unidades de profundidad, se calibran peleándose.
+  const depthMaterial = useMemo(() => new THREE.MeshBasicMaterial({ colorWrite: false }), [])
+  const oclusores = useMemo(() => new THREE.Group(), [])
+  const bajada = useMemo(() => new THREE.Matrix4().makeTranslation(0, -OCLUSOR_ABAJO, 0), [])
 
   const render = useCallback(() => {
     // Sin el relieve en el pase de picking no hay nada contra qué ocluir: una
     // vía detrás de una montaña se seleccionaría igual que una visible. Mismo
     // criterio que las anclas del shader -- si no aparece, esto debe reventar
-    // ruidosamente, no dar picking sin oclusión en silencio.
-    // scene.getObjectByName tipa Object3D -- este objeto lo nombramos
-    // nosotros mismos en Terrain.tsx y siempre es el <mesh> real, así que el
-    // cast a Mesh (para .geometry) es seguro.
-    const terrainObj = scene.getObjectByName('terrain') as THREE.Mesh | undefined
+    // ruidosamente, no dar picking sin oclusión en silencio. El grupo lo
+    // nombra TerrainLod.tsx.
+    const terrainObj = scene.getObjectByName('terrain')
     if (!terrainObj) {
-      throw new Error('PickingPass: no se encontró el mesh "terrain" en la escena -- el picking quedaría sin oclusión del relieve')
+      throw new Error('PickingPass: no se encontró el grupo "terrain" en la escena -- el picking quedaría sin oclusión del relieve')
     }
-    if (!depthTerrainRef.current) {
-      // Reusa la geometría real (1M de vértices, no se clona) con un
-      // material que solo escribe profundidad -- las vías ocluidas fallan el
-      // depth test sin pintar nada encima del id buffer.
-      //
-      // polygonOffset negativo sesga al terreno un poco más cerca de cámara
-      // de lo que realmente está. Necesario incluso con near/far ya acotados
-      // al alcance real (ver más abajo): quedó un punto de prueba que seguía
-      // filtrando con precisión de sobra (razón far/near ~4.7:1) -- caso
-      // límite de la extrusión en pantalla de LineSegments2 (las vías no son
-      // geometría plana pegada al terreno, son quads que miran a cámara), no
-      // de precisión de depth buffer. Probado en vivo contra los 3 puntos
-      // ciegos del fix round 1 más un control sobre una vía visible real:
-      // -3 ya resuelve los 3 puntos sin tocar el control; -8 ya sobre-ocluye
-      // el control (falso negativo en una vía visible). -4 dado por bueno,
-      // con margen a ambos lados. Calibrable si aparecen más casos.
-      const depthMaterial = new THREE.MeshBasicMaterial({
-        colorWrite: false,
-        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
-      })
-      const depthMesh = new THREE.Mesh(terrainObj.geometry, depthMaterial)
-      depthMesh.frustumCulled = false   // igual que el terreno real (Terrain.tsx)
-      depthMesh.matrixAutoUpdate = false
-      // Objetos opacos con el mismo renderOrder (default 0 los dos) three.js
-      // los ordena por material.id -- orden de creación, no por profundidad
-      // real (WebGLRenderLists.js: painterSortStable). Este material se crea
-      // perezosamente, después del de pickLine, así que sin esto SIEMPRE
-      // dibujaría el terreno después de las vías: la vía ya habría escrito su
-      // color antes de que el terreno "gane" el depth test y solo actualice
-      // profundidad (colorWrite:false no borra lo ya pintado). renderOrder
-      // negativo fuerza que el terreno se dibuje primero pase lo que pase.
-      depthMesh.renderOrder = -1
-      pickScene.add(depthMesh)
-      depthTerrainRef.current = depthMesh
-    }
-    // El terreno no se mueve hoy, pero si alguna vez lo hiciera, la
-    // profundidad quedaría desalineada sin esto -- barato de mantener
-    // sincronizada en cada clic (esto no corre por frame).
+    if (!oclusores.parent) pickScene.add(oclusores)
+    oclusores.clear()
     terrainObj.updateMatrixWorld()
-    depthTerrainRef.current.matrix.copy(terrainObj.matrixWorld)
+    const caja = new THREE.Box3()
+    for (const nodo of terrainObj.children) {
+      if (!(nodo as THREE.Mesh).isMesh || !nodo.visible) continue
+      const geometry = (nodo as THREE.Mesh).geometry
+      const depthMesh = new THREE.Mesh(geometry, depthMaterial)
+      depthMesh.frustumCulled = false
+      depthMesh.matrixAutoUpdate = false
+      depthMesh.matrix.copy(nodo.matrixWorld).premultiply(bajada)
+      // Objetos opacos con el mismo renderOrder three.js los ordena por
+      // material.id (WebGLRenderLists.js: painterSortStable), no por
+      // profundidad: sin esto la vía escribiría su color antes de que el
+      // terreno "gane" el depth test y solo actualice profundidad
+      // (colorWrite:false no borra lo ya pintado). renderOrder negativo
+      // fuerza que el relieve se dibuje primero pase lo que pase.
+      depthMesh.renderOrder = -1
+      oclusores.add(depthMesh)
+      if (!geometry.boundingBox) geometry.computeBoundingBox()
+      caja.union(geometry.boundingBox!.clone().applyMatrix4(nodo.matrixWorld))
+    }
 
     // La cámara real usa near=10/far=2.000.000 (App.tsx) para que el cielo de
     // la atmósfera no se recorte -- con un depth buffer estándar (no
@@ -193,8 +251,8 @@ export function usePicking (
     // bounding box, proyectadas al eje de la cámara (view-space Z, no
     // distancia radial), dan la cota óptima -- el mín/máx de una función
     // lineal sobre un poliedro convexo siempre cae en un vértice.
-    if (!terrainObj.geometry.boundingBox) terrainObj.geometry.computeBoundingBox()
-    const bb = terrainObj.geometry.boundingBox!
+    // `caja` es la unión de los nodos visibles, ya en mundo.
+    const bb = caja.isEmpty() ? new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) : caja
     camera.updateMatrixWorld()
     let minViewDist = Infinity
     let maxViewDist = -Infinity
@@ -204,7 +262,6 @@ export function usePicking (
         i & 2 ? bb.max.y : bb.min.y,
         i & 4 ? bb.max.z : bb.min.z,
       )
-        .applyMatrix4(terrainObj.matrixWorld)
         .applyMatrix4(camera.matrixWorldInverse)
       const viewDist = -corner.z   // three.js: la cámara mira hacia -Z en su propio espacio
       if (viewDist < minViewDist) minViewDist = viewDist
@@ -215,6 +272,15 @@ export function usePicking (
     camera.near = Math.max(1, minViewDist)
     camera.far = Math.max(camera.near + 1, maxViewDist)
     camera.updateProjectionMatrix()
+
+    // El mismo acercamiento que el pase visible mide en cada cuadro
+    // (Roads.tsx), calculado acá y no guardado desde allá: este render corre
+    // por clic, no por cuadro, y leer la cámara viva es una operación contra
+    // un estado compartido que puede quedar desfasado.
+    const objetivo = (controls as { target?: THREE.Vector3 } | null)?.target
+    const distancia = objetivo ? camera.position.distanceTo(objetivo) : camera.position.length()
+    ;(pickLine.material as LineMaterial).uniforms.uMpp.value =
+      metrosPorPixel(distancia, (camera as THREE.PerspectiveCamera).fov ?? 45, size.height)
 
     const prevTarget = gl.getRenderTarget()
     const prevTone = gl.toneMapping
@@ -231,17 +297,42 @@ export function usePicking (
     camera.near = prevNear
     camera.far = prevFar
     camera.updateProjectionMatrix()
-  }, [gl, scene, camera, target, pickScene])
+  }, [gl, scene, camera, target, pickScene, pickLine, bajada, depthMaterial, oclusores, controls, size.height])
 
   const pickAt = useCallback((x: number, y: number): number | null => {
     render()
-    const buf = new Uint8Array(4)
+    // Se lee un cuadrado alrededor del cursor y gana la vía más cercana, no el
+    // texel exacto de debajo. Un texel suelto exige que el clic caiga dentro
+    // del ancho de la línea en el id buffer, y a vista de estado una vía mide
+    // 2 px con 130 m de terreno por píxel: fallar por dos píxeles era lo
+    // normal, y un clic fallido no es inocuo -- limpia la selección. Con el
+    // radio, la tolerancia deja de depender de acertarle a un trazo fino.
+    const r = RADIO_CLIC
+    const cx = Math.round(x)
     // readRenderTargetPixels cuenta desde abajo-izquierda; el mouse, desde
-    // arriba-izquierda -- de ahí el size.height - y.
-    gl.readRenderTargetPixels(target, x, size.height - y, 1, 1, buf)
-    const id = decodeId(buf[0], buf[1], buf[2])
-    return id === 0 ? null : id - 1
-  }, [gl, target, render, size.height])
+    // arriba-izquierda.
+    const cy = Math.round(size.height - y)
+    const x0 = Math.max(0, cx - r)
+    const y0 = Math.max(0, cy - r)
+    const w = Math.min(size.width - x0, cx + r + 1 - x0)
+    const h = Math.min(size.height - y0, cy + r + 1 - y0)
+    if (w <= 0 || h <= 0) return null
+    const buf = new Uint8Array(w * h * 4)
+    gl.readRenderTargetPixels(target, x0, y0, w, h, buf)
+    let mejor: number | null = null
+    let mejorDist = Infinity
+    for (let row = 0; row < h; row++) {
+      for (let col = 0; col < w; col++) {
+        const o = (row * w + col) * 4
+        const id = decodeId(buf[o], buf[o + 1], buf[o + 2])
+        if (id === 0) continue
+        const dx = x0 + col - cx, dy = y0 + row - cy
+        const d = dx * dx + dy * dy
+        if (d < mejorDist) { mejorDist = d; mejor = id - 1 }
+      }
+    }
+    return mejor
+  }, [gl, target, render, size.height, size.width])
 
   const pickRegion = useCallback(
     (rect: { x: number; y: number; w: number; h: number }, inside: (px: number, py: number) => boolean) => {

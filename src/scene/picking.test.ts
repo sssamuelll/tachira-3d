@@ -1,14 +1,12 @@
 import { test, expect } from 'vitest'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
-import { encodeId, decodeId, patchPickMaterial } from './PickingPass'
-import type { DataTexture } from 'three'
-
+import { encodeId, decodeId, patchPickMaterial, PICK_WIDTH } from './PickingPass'
+import { ANCLA_EXTRUSION_FIN } from './roadsShader'
 // Mismo patrón que roadsShader.test.ts: se parchea un LineMaterial REAL y se
 // lee el GLSL que sale, no una copia del shader escrita en el test.
 function shaderParcheado () {
   const material = new LineMaterial()
-  const attr = { needsUpdate: false } as unknown as DataTexture
-  patchPickMaterial(material, attr, 164)
+  patchPickMaterial(material)
   const shader = {
     uniforms: material.uniforms,
     vertexShader: material.vertexShader,
@@ -59,19 +57,61 @@ test('la codificacion GLSL del id buffer coincide con encodeId', () => {
   }
 })
 
-// El fallo que este test cubre no es visual: el pase de picking dibujaba las
-// 26.712 vías siempre, filtradas o no. Con un filtro que dejaba 0 vías (mapa
-// vacío) un clic devolvía 1 seleccionada y un lazo 4.817, y el panel de
-// edición les escribía PCI con marca de procedencia encima -- sobre vías que
-// nunca estuvieron en pantalla.
-test('el pase de picking descarta lo que el filtro oculta, igual que el visible', () => {
+// La regla del pase de ids: lo que se dibuja, se puede tocar. Antes este pase
+// descartaba lo que el filtro escondía, porque con el filtro había vías
+// dibujadas en el id buffer que NO estaban en pantalla: un clic sobre un mapa
+// vacío devolvía 1 vía y un lazo 4.817, y la edición masiva les escribía PCI
+// encima sin que nadie las hubiera visto. Ya no existe ese filtro -- lo que
+// queda fuera del foco se sigue dibujando, más tenue (roadsShader.ts) -- así
+// que descartar acá volvería a partir las dos listas en dos, ahora al revés:
+// vías visibles que no se pueden seleccionar.
+//
+// Lo que fija este test es que el pase de ids no consulte la textura de
+// atributos. Mientras no la lea, no hay ningún estado que pueda hacer que una
+// vía dibujada deje de escribir su id.
+test('el pase de picking no consulta la textura de atributos: dibuja todas', () => {
   const { vertexShader, fragmentShader, uniforms } = shaderParcheado()
-  expect(vertexShader).toContain('uniform sampler2D uAttr;')
-  expect(vertexShader).toContain('texture2D(uAttr')
-  expect(fragmentShader).toContain('varying vec4 vAttr;')
-  expect(fragmentShader).toContain('if (visible < 0.5) discard;')
-  // sin los uniforms conectados el discard leería una textura vacía y
-  // descartaría TODO -- el fallo opuesto, igual de silencioso.
-  expect(uniforms.uAttr.value).toBeDefined()
-  expect(uniforms.uAttrSize.value).toBe(164)
+  expect(vertexShader).toContain('attribute float segId;')
+  expect(fragmentShader).toContain('varying float vSegId;')
+  expect(vertexShader).not.toContain('uAttr')
+  expect(fragmentShader).not.toContain('vAttr')
+  expect(uniforms.uAttr).toBeUndefined()
+})
+
+// La otra mitad de "lo que se dibuja, se puede tocar". El pase visible apaga
+// del todo los niveles menores al alejarse (presencia() llega a 0,
+// roadStyle.ts): sin este descarte, a vista de estado el id buffer seguiría
+// lleno de calles que no están en pantalla, y un lazo sobre un mapa que se ve
+// vacío devolvería miles de vías invisibles a las que la edición masiva les
+// escribiría el PCI encima. Es exactamente el bug que documenta el comentario
+// de patchPickMaterial, ahora por el lado del acercamiento en vez del filtro.
+test('el pase de picking descarta lo que el acercamiento ya apagó', () => {
+  const { vertexShader, fragmentShader, uniforms } = shaderParcheado()
+  expect(vertexShader).toContain('attribute float aCorte;')
+  expect(fragmentShader).toContain('discard')
+  // El descarte compara el acercamiento actual contra el corte de la vía, y no
+  // al revés: invertir el signo escondería justo lo que sí se ve.
+  expect(fragmentShader).toMatch(/if\s*\(\s*uMpp\s*>\s*vCorte\s*\)\s*discard;/)
+  expect(uniforms.uMpp).toBeDefined()
+})
+
+// Lo que se dibuja se puede tocar, también a 30 m: el pase visible extruye
+// cada vía a su ancho en metros, y si el de ids siguiera picando en 8 px
+// fijos, una avenida de 400 px solo se seleccionaría por su eje.
+test('el pase de ids extruye en metros con la misma fórmula que el visible', () => {
+  const { vertexShader, uniforms } = shaderParcheado()
+  expect(vertexShader).toContain('attribute float aCalzada;')
+  expect(vertexShader).toContain('attribute vec3 instanceNormalStart;')
+  expect(vertexShader).toContain('float anchoBase = max( aCalzada, uPisoPx * mppV );')
+  expect(vertexShader).not.toContain(ANCLA_EXTRUSION_FIN)
+  // El piso del pase de ids es el área de acierto generosa de siempre.
+  expect(uniforms.uPisoPx?.value).toBe(PICK_WIDTH)
+})
+
+test('el descarte ocurre antes de escribir el id, no después', () => {
+  // Un discard después del gl_FragColor no borra lo ya escrito en algunos
+  // drivers, y de todos modos pagaría la escritura. Se comprueba el orden real
+  // en el GLSL, no la mera presencia de las dos líneas.
+  const { fragmentShader } = shaderParcheado()
+  expect(fragmentShader.indexOf('discard')).toBeLessThan(fragmentShader.indexOf('float id = vSegId'))
 })
