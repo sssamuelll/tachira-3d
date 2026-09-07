@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { T } from './theme'
 import { Encuadre, Lazo, Archivo, Mas, Menos } from './icons'
+import { Camara } from '../foto/Foto'
 import type { Escala } from './escala'
 
 const botonera: CSSProperties = {
@@ -36,15 +37,19 @@ const par: CSSProperties = {
   background: T.fondo, borderRadius: T.radioChico, boxShadow: T.sombraChica, overflow: 'hidden',
 }
 
-export function MapControls ({ lazo, onLazo, onEncuadrar, onAcercar, onAlejar }: {
+export function MapControls ({ lazo, onLazo, onEncuadrar, onAcercar, onAlejar, onFoto }: {
   lazo: boolean
   onLazo: () => void
   onEncuadrar: () => void
   onAcercar: () => void
   onAlejar: () => void
+  onFoto: () => void
 }) {
   return (
     <div style={botonera}>
+      {/* Arriba del todo y separado del resto: no es una herramienta de
+          navegar, es la que produce algo que sale de la aplicación. */}
+      <Boton titulo="Foto trazada" onClick={onFoto}><Camara /></Boton>
       <Boton titulo="Encuadrar el estado" onClick={onEncuadrar}><Encuadre /></Boton>
       <Boton titulo={lazo ? 'Salir del lazo' : 'Seleccionar por lazo'} activo={lazo} onClick={onLazo}>
         <Lazo />
