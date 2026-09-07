@@ -18,16 +18,93 @@ const CELDAS = LADO_NODO - 1
 type Dem = TerrainMeta['dem']
 
 /** Qué tesela de la pirámide alimenta al nodo y dónde caen sus vértices:
- *  píxel (offI + i·paso, offJ + j·paso). z ≤ 12 lee su propia tesela cada 8
+ *  post (offI + i·paso, offJ + j·paso). z ≤ 12 lee su propia tesela cada 8
  *  píxeles; z13 a z15 leen la tesela z12 ancestro a paso 4, 2 y 1. Es la
  *  misma regla con la que errorNodo (dem-tiles.mjs) mide el error de cada
- *  nodo, así que el error mide exactamente lo que se dibuja. */
+ *  nodo, así que el error mide exactamente lo que se dibuja.
+ *
+ *  z16 y z17 (los que existen solo para colgarles una tesela de imagen más
+ *  fina, TerrainLod.tsx) tienen paso 0,5 y 0,25: sus vértices caen ENTRE
+ *  posts y se muestrean sobre la triangulación (alturaEnTesela). La superficie
+ *  que sale es exactamente la misma de z15 -- un punto sobre un triángulo del
+ *  DEM sigue estando sobre ese triángulo -- y por eso su error geométrico es
+ *  0. El arranque (offI, offJ) sigue siendo entero a cualquier nivel. */
 export function ventana (n: Nodo, dem: Dem) {
   const k = Math.max(0, n.z - dem.z)
   return {
-    zt: Math.min(n.z, dem.z), xt: n.x >> k, yt: n.y >> k, paso: 8 >> k,
+    zt: Math.min(n.z, dem.z), xt: n.x >> k, yt: n.y >> k, paso: 8 / 2 ** k,
     offI: ((n.x & ((1 << k) - 1)) * 256) >> k, offJ: ((n.y & ((1 << k) - 1)) * 256) >> k,
   }
+}
+
+/**
+ * Altura de la triangulación de la tesela en coordenadas de post
+ * fraccionarias. La diagonal de cada celda va de arriba-derecha a
+ * abajo-izquierda -- triángulos (a,c,b) y (b,c,d), `fx + fy <= 1` cae en el
+ * primero -- que es LA MISMA regla de `alturaEnPosts` (scripts/lib/drape.mjs),
+ * con la que el pipeline apoyó cada punto de vía. Si las dos se separan, las
+ * vías se hunden en el relieve; nodoTerreno.test.ts las compara de verdad.
+ *
+ * En un post exacto devuelve el post, así que sirve para todos los niveles y
+ * no hay dos caminos que puedan divergir: a paso entero, fx = fy = 0.
+ */
+export function alturaEnTesela (alturas: Float32Array, u: number, v: number): number {
+  const x = Math.min(LADO - 2, Math.max(0, Math.floor(u)))
+  const y = Math.min(LADO - 2, Math.max(0, Math.floor(v)))
+  const fx = u - x, fy = v - y
+  const ha = alturas[y * LADO + x], hb = alturas[y * LADO + x + 1]
+  const hc = alturas[(y + 1) * LADO + x], hd = alturas[(y + 1) * LADO + x + 1]
+  return fx + fy <= 1
+    ? ha + fx * (hb - ha) + fy * (hc - ha)
+    : hd + (1 - fx) * (hc - hd) + (1 - fy) * (hb - hd)
+}
+
+/**
+ * Dónde cae cada vértice dentro de la tesela de imagen del nodo: (i/32, j/32),
+ * fila 0 = norte, la convención de una tesela Web Mercator y la misma de
+ * uvMascara.
+ *
+ * Es idéntico en todos los nodos -- la rejilla es siempre 33×33 sobre 0..1, y
+ * el faldón copia el uv de su borde -- así que se arma una sola vez y todas
+ * las geometrías comparten el mismo BufferAttribute: 9 KB en total en vez de
+ * 9 KB por nodo, y una subida a la GPU en vez de una por nodo. El nodo que no
+ * usa su propia tesela sino la de un ancestro corrige con un offset/escala en
+ * el uniform, no con otro atributo.
+ *
+ * Efecto de compartirlo: cuando la LRU de TerrainLod desecha una geometría,
+ * three borra el buffer de TODOS sus atributos, este incluido. No rompe nada
+ * -- WebGLGeometries.update lo vuelve a subir en el siguiente cuadro que lo
+ * necesite -- pero son 9 KB de subida por desalojo. Barato al lado de rearmar
+ * el atributo en cada nodo.
+ */
+let uvImg: THREE.BufferAttribute | null = null
+export function uvImagen (): THREE.BufferAttribute {
+  if (uvImg) return uvImg
+  const total = VERTICES + 4 * LADO_NODO
+  const a = new Float32Array(total * 2)
+  for (let j = 0; j < LADO_NODO; j++) {
+    for (let i = 0; i < LADO_NODO; i++) {
+      const k = j * LADO_NODO + i
+      a[k * 2] = i / CELDAS; a[k * 2 + 1] = j / CELDAS
+    }
+  }
+  let k = VERTICES
+  for (const b of bordesNodo()) {
+    for (const src of b) { a[k * 2] = a[src * 2]; a[k * 2 + 1] = a[src * 2 + 1]; k++ }
+  }
+  uvImg = new THREE.BufferAttribute(a, 2)
+  return uvImg
+}
+
+/** Los cuatro bordes de la rejilla, en el orden en que el faldón los copia:
+ *  norte (j=0), sur (j=32), oeste (i=0), este (i=32). */
+function bordesNodo (): number[][] {
+  const bordes: number[][] = [[], [], [], []]
+  for (let t = 0; t < LADO_NODO; t++) {
+    bordes[0].push(t); bordes[1].push(CELDAS * LADO_NODO + t)
+    bordes[2].push(t * LADO_NODO); bordes[3].push(t * LADO_NODO + CELDAS)
+  }
+  return bordes
 }
 
 /** Las teselas z8 que cubren el rango z12 del DEM. */
@@ -67,8 +144,7 @@ export function geometriaNodo (n: Nodo, tesela: Tesela, dem: Dem, frame: EnuFram
     const lat = latDeTesela(n.y + j / CELDAS, n.z)
     for (let i = 0; i < LADO_NODO; i++) {
       const lon = lonDeTesela(n.x + i / CELDAS, n.z)
-      const p = (offJ + j * paso) * LADO + (offI + i * paso)
-      const h = tesela.alturas[p]
+      const h = alturaEnTesela(tesela.alturas, offI + i * paso, offJ + j * paso)
       const [e, no, u] = geodeticToEnu(frame, lat, lon, h)
       const k = j * LADO_NODO + i
       pos[k * 3] = e; pos[k * 3 + 1] = u; pos[k * 3 + 2] = -no
@@ -106,13 +182,8 @@ export function geometriaNodo (n: Nodo, tesela: Tesela, dem: Dem, frame: EnuFram
   // borde. La caja no incluye el faldón hacia los lados (no sobresale), sí
   // hacia abajo.
   const cuelga = Math.max(FALDON_MIN, error) + FALDON_REL * (caja.max.x - caja.min.x)
-  const bordes: number[][] = [[], [], [], []]
-  for (let t = 0; t < LADO_NODO; t++) {
-    bordes[0].push(t); bordes[1].push(CELDAS * LADO_NODO + t)
-    bordes[2].push(t * LADO_NODO); bordes[3].push(t * LADO_NODO + CELDAS)
-  }
   let k = VERTICES
-  bordes.forEach((b, q) => {
+  bordesNodo().forEach((b, q) => {
     const base = k
     for (const src of b) {
       pos[k * 3] = pos[src * 3]; pos[k * 3 + 1] = pos[src * 3 + 1] - cuelga; pos[k * 3 + 2] = pos[src * 3 + 2]
@@ -134,6 +205,7 @@ export function geometriaNodo (n: Nodo, tesela: Tesela, dem: Dem, frame: EnuFram
   geometry.setAttribute('normal', new THREE.BufferAttribute(nor, 3))
   geometry.setAttribute('elevation', new THREE.BufferAttribute(elev, 1))
   geometry.setAttribute('uvMascara', new THREE.BufferAttribute(uvm, 2))
+  geometry.setAttribute('uvImagen', uvImagen())
   geometry.setIndex(idx)
   return { geometry, caja }
 }
