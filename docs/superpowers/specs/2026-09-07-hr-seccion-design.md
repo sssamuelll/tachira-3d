@@ -128,8 +128,24 @@ Tres consecuencias que hay que ver juntas:
 
 `frustumCulled` está en `false` en los dos pases (el bbox de una geometría
 instanciada no es fiable), así que ensanchar no puede hacer desaparecer un tramo
-en el borde de pantalla: no hay esfera envolvente que se quede corta. Verificado
-en pantalla igual, con la cámara a 30 m y la vía saliendo por el borde.
+en el borde de pantalla: no hay esfera envolvente que se quede corta.
+
+**Que el clic caiga sobre la franja está medido, no supuesto.** En la Libertador
+cenital a 30 m se localizó el filo del relleno DIBUJADO por el borde interior de
+su contorno, y se fue pulsando hacia afuera píxel a píxel:
+
+```
+filo −12  no        filo −8  SELECCIONA
+filo −11  no        filo −7  SELECCIONA
+filo −10  no        filo −6  SELECCIONA
+filo  −9  no        filo −5  SELECCIONA
+```
+
+El último acierto cae **8 px por FUERA del borde dibujado**, que es `RADIO_CLIC`
+(7 px, `PickingPass.tsx`) más el píxel de la medida. Si el pase de ids extruyera
+solo la calzada, el último acierto habría caído en filo +2, porque el brocal
+mide 9 px a esa escala. Dos predicciones separadas por 10 px, y el resultado no
+es ambiguo.
 
 ## 4. El remapeo de `t`
 
