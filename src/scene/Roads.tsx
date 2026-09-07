@@ -1,4 +1,4 @@
-import { useMemo, useEffect } from 'react'
+import { useMemo, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
@@ -7,6 +7,7 @@ import { useThree, useFrame } from '@react-three/fiber'
 import { patchLineMaterial } from './roadsShader'
 import { TEXTURAS, TEXTURAS_BASE, type Asfalto } from './asfalto'
 import { direccionSol } from './sol'
+import { avanzarMojado } from './mojado'
 import { NIVELES, repartirPorNivel, metrosPorPixel, presencia } from './roadStyle'
 import { anchoCalzada, carrilesDe, sentidoUnico, marcasPermitidas } from './calzada'
 import { ATTR_SIZE } from '../data/constants'
@@ -19,19 +20,27 @@ import type { Way } from '../data/types'
 // decide cuánto refinar (quadtree.ts).
 
 export function Roads (
-  { positions, segIds, index, ways, attr, normals, date }: {
+  { positions, segIds, index, ways, attr, normals, date, lluvia }: {
     positions: Float32Array; segIds: Float32Array; index: Uint32Array
     ways: Way[]; attr: AttrTexture
     /** Normal del terreno en cada extremo de tramo (roads-nrm.bin). */
     normals: Int8Array
     /** Fecha de la escena: de ella sale la dirección del sol (sol.ts). */
     date: Date
+    /** Calzada mojada: charcos en las huellas y en los baches (mojado.ts). */
+    lluvia: boolean
   },
 ) {
   const { size, camera, controls, gl } = useThree()
   // Dirección HACIA el sol en ejes del mundo, la misma que ilumina el relieve.
   // La fecha no cambia mientras la app corre, así que se calcula una vez.
   const sol = useMemo(() => direccionSol(date), [date])
+
+  // Cuánto se mojó la calzada, entre 0 y 1. Vive en un ref y no en estado de
+  // React a propósito: cambia en cada cuadro durante segundo y medio y lo único
+  // que lo lee es un uniform. Por estado serían noventa re-renders del árbol
+  // entero para escribir un float.
+  const mojado = useRef(0)
 
   // Los tres mapas del asfalto (ambientCG Asphalt006, CC0 -- ver el LICENSE.md
   // de public/texturas/asfalto). Se cargan UNA vez para toda la red: los siete
@@ -151,7 +160,10 @@ export function Roads (
   // La presencia de cada nivel depende de cuánto terreno cabe en un píxel, así
   // que se recalcula mientras la cámara se mueve. Son unas pocas asignaciones
   // de float por cuadro: más barato que detectar si la cámara se movió.
-  useFrame(() => {
+  useFrame((_, dt) => {
+    // La lluvia no cae de un cuadro al otro: un salto de seco a mojado se lee
+    // como un cambio de material y no como que empezó a llover (mojado.ts).
+    mojado.current = avanzarMojado(mojado.current, lluvia ? 1 : 0, dt)
     // El objetivo de OrbitControls es el punto que se está mirando; sin
     // controles montados todavía, la distancia al origen del ENU local sirve
     // igual (el terreno está centrado ahí).
@@ -177,12 +189,17 @@ export function Roads (
       // arriba.
       for (const capa of [o.relleno, o.casing]) {
         const u = capa.material.userData.uniforms
-        if (u) u.uPisoPx.value = o.nivel.pisoPx
+        if (!u) continue
+        u.uPisoPx.value = o.nivel.pisoPx
         // La dirección del sol para el asfalto. uSol lo declara
         // roadsShader.ts en los dos materiales (asfalto.test.ts lo afirma);
         // alimentarlo desde acá y no desde el parche del shader es a
         // propósito: el sol es de la escena, no del asfalto.
-        if (u?.uSol) u.uSol.value.copy(sol)
+        u.uSol.value.copy(sol)
+        // También en el contorno, que no lo usa: el uniform existe en los dos
+        // materiales (roadsShader.ts) justo para no tener que averiguar acá
+        // cuál es cuál.
+        u.uMojado.value = mojado.current
       }
     }
   })

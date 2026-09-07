@@ -167,6 +167,8 @@ export default function App () {
   // hipsometría esa cota. El botón existe para el caso contrario -- leer el
   // relieve sin que la foto lo tape.
   const [imagen, setImagen] = useState(true)
+  // Calzada mojada. Apagada de entrada: el estado de una vía se evalúa en seco.
+  const [lluvia, setLluvia] = useState(false)
   const [q, setQ] = useState('')
   // Clave del resultado de búsqueda sobre el que está puesto el foco, y la
   // máscara de vías que ese resultado abarca. null = no hay foco, y el mapa
@@ -434,6 +436,7 @@ export default function App () {
             <Roads
               positions={data.positions} segIds={data.segIds} index={data.index}
               ways={data.roads.ways} attr={attr} normals={data.normals} date={date}
+              lluvia={lluvia}
             />
           )}
           <Picker
@@ -479,6 +482,8 @@ export default function App () {
         onLazo={() => setLassoOn(o => !o)}
         imagen={imagen}
         onImagen={() => setImagen(v => !v)}
+        lluvia={lluvia}
+        onLluvia={() => setLluvia(v => !v)}
         // Un Encuadre nuevo en cada clic: el efecto de <FlyTo> depende de la
         // identidad del objeto, así que reusar uno haría que el botón
         // funcionara una sola vez por sesión.

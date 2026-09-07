@@ -3,8 +3,12 @@ import { PCI_RANGES, SIN_EVALUAR, SELECCION, CASING, CASING_SUAVE, FUENTES } fro
 import { ERROR_PX } from './quadtree'
 import {
   ASFALTO_GLSL, ASFALTO_UNIFORMS_GLSL, ASFALTO_CUERPO_GLSL, SOL_POR_DEFECTO,
-  PINTURA_GASTE, type Asfalto,
+  PINTURA_GASTE, ANCLA_MOJADO, type Asfalto,
 } from './asfalto'
+import {
+  MOJADO_GLSL, MOJADO_UNIFORMS_GLSL, MOJADO_CUERPO_GLSL, MOJADO_LAMINA_GLSL,
+  CIELO_POR_DEFECTO,
+} from './mojado'
 
 // Las anclas del LineMaterial de three viven SOLO acá: las consumen este
 // módulo, PickingPass.tsx (el pase de ids parchea el mismo material) y
@@ -439,6 +443,14 @@ export function patchLineMaterial (
     // Dirección unitaria HACIA el sol, en ejes del mundo. El default sirve
     // sola: el agente de luz la reescribe por cuadro vía userData.uniforms.
     shader.uniforms.uSol = { value: new THREE.Vector3(...SOL_POR_DEFECTO) }
+    // Cuánta lluvia cayó: 0 seco, 1 tras el aguacero. Lo escribe Roads.tsx por
+    // cuadro con la transición de mojado.ts. Y el color del cielo que refleja
+    // el charco, con default propio como uSol -- el agente de luz puede
+    // alimentarlo con el cielo real de esa hora. Los dos van también en el
+    // contorno, aunque no los use: el GLSL sin uso lo descarta el compilador y
+    // así quien los alimente no tiene que averiguar cuál material es cuál.
+    shader.uniforms.uMojado = { value: 0 }
+    shader.uniforms.uCielo = { value: new THREE.Vector3(...CIELO_POR_DEFECTO) }
 
     material.userData.uniforms = shader.uniforms
 
@@ -510,7 +522,7 @@ export function patchLineMaterial (
         varying vec3 vPosW;
         ${PCI_COLOR_GLSL}
         ${MARCAS_GLSL}
-        ${casing ? '' : ASFALTO_UNIFORMS_GLSL + ASFALTO_GLSL}
+        ${casing ? '' : ASFALTO_UNIFORMS_GLSL + MOJADO_UNIFORMS_GLSL + ASFALTO_GLSL + MOJADO_GLSL}
         void main() {
       `)
       .replace(ANCLA_FRAG, `
@@ -559,8 +571,9 @@ export function patchLineMaterial (
           ? `float confianza = fuente >= ${F_MEDIDO} ? 1.0 : (fuente >= ${F_ESTIMADO} ? 0.6 : 0.25);
         vec3 base = mix(mix(${vec3Lit(CASING_SUAVE)}, ${vec3Lit(CASING)}, confianza), ${vec3Lit(SELECCION_CASING)}, selected);`
           : `vec3 base = mix(pciColor(pci), ${vec3Lit(SELECCION)}, selected);
-        ${ASFALTO_CUERPO_GLSL}
-        ${MARCAS_CUERPO_GLSL}`}
+        ${ASFALTO_CUERPO_GLSL.replace(ANCLA_MOJADO, MOJADO_CUERPO_GLSL)}
+        ${MARCAS_CUERPO_GLSL}
+        ${MOJADO_LAMINA_GLSL}`}
         vec4 diffuseColor = vec4( base, alpha );
       `)
   }
