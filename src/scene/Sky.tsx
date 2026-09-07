@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef } from 'react'
 import {
   Atmosphere, Sky as TakramSky, SunLight, SkyLight, AerialPerspective,
   type AtmosphereApi,
@@ -28,6 +28,13 @@ export const SKY_ORIGIN = ORIGIN
 // la dirección del sol que ilumina el relieve: una sola fuente de verdad para
 // las dos. Ver el comentario de allá.
 
+// Lo que hace falta apagarle a N8AO y su componente de r3f no expone. El
+// paquete no trae tipos, así que se describe por su forma.
+interface PaseAO {
+  autoDetectTransparency: boolean
+  configuration: { transparencyAware: boolean }
+}
+
 export function Sky ({ date }: { date: Date }) {
   const ref = useRef<AtmosphereApi>(null)
   // ORIGIN es constante — se escribe una sola vez. useLayoutEffect (no
@@ -35,6 +42,25 @@ export function Sky ({ date }: { date: Date }) {
   // si no, ese primer frame vería todavía la matriz identidad.
   useLayoutEffect(() => {
     ref.current?.worldToECEFMatrix.copy(worldToEcefMatrix())
+  }, [])
+
+  // N8AO trae un modo "consciente de la transparencia" que se ENCIENDE SOLO en
+  // cuanto encuentra un material transparente en la escena, y las 16 capas de
+  // vías lo son todas (LineMaterial con transparent: true). Encendido, cada
+  // cuadro hace tres recorridos completos del grafo y DOS renders extra de la
+  // escena entera para separar los transparentes. Medido en Chrome sobre el
+  // valle de San Cristóbal: 50 fps -> 13. Apagado no se pierde nada aquí: las
+  // vías son calcomanías pegadas al relieve, la oclusión que importa es la del
+  // relieve que tienen debajo.
+  //
+  // Va como ref de CALLBACK y no como useRef + useLayoutEffect: <EffectComposer>
+  // monta sus hijos por su cuenta y el objeto todavía no está enganchado cuando
+  // corren los efectos de este componente (comprobado en Chrome: ao.current era
+  // null). Un ref de callback corre justo cuando se engancha, sin adivinar.
+  const ajustarAO = useCallback((p: PaseAO | null) => {
+    if (!p) return
+    p.autoDetectTransparency = false
+    p.configuration.transparencyAware = false
   }, [])
 
   return (
@@ -92,12 +118,26 @@ export function Sky ({ date }: { date: Date }) {
             Es un Pass entero, no un Effect, así que parte la cadena en dos
             EffectPass -- por eso va de primero, donde solo cuesta el corte.
 
-            aoRadius en METROS de mundo: 60 m es el orden de una quebrada o del
-            pie de un talud del Táchira. screenSpaceRadius lo haría depender
-            del zoom y la oclusión cambiaría al acercarse. halfRes porque a
-            este radio la señal es de baja frecuencia y no se nota, y ahorra
-            tres cuartos del coste. Calibrables los tres. */}
-        <N8AO halfRes aoRadius={60} distanceFalloff={1} intensity={1.6} />
+            screenSpaceRadius, y aoRadius en PÍXELES, no en metros de mundo.
+            Empezó siendo 60 m de mundo (el orden de una quebrada del Táchira)
+            y era insostenible: a 125 m de altura la pantalla entera mide 150 m,
+            así que cada muestra iba a buscar un téxel al otro extremo del
+            buffer de profundidad y la caché de textura no acertaba una. Medido
+            en Chrome a 125 m sobre San Cristóbal, con A/B en la misma sesión y
+            el mismo encuadre: 42 fps sin nada -> 23 solo con esa oclusión. En
+            píxeles el coste no depende del zoom: 56 -> 53 en la misma prueba.
+            Lo que se pierde es que la oclusión ya no mide una quebrada
+            concreta sino "lo que se ve a esta distancia", que para un relieve
+            sin objetos sueltos es lo que uno quiere de todos modos.
+
+            halfRes y 8 muestras porque la señal es de baja frecuencia y a
+            media resolución no se distingue; depthAwareUpsampling apagado por
+            lo mismo. Calibrables todos. */}
+        <N8AO
+          ref={ajustarAO} halfRes screenSpaceRadius aoRadius={32}
+          distanceFalloff={1} intensity={1.6}
+          aoSamples={8} denoiseSamples={2} denoiseRadius={8} depthAwareUpsampling={false}
+        />
         <AerialPerspective />
         <ToneMapping mode={ToneMappingMode.AGX} />
       </EffectComposer>

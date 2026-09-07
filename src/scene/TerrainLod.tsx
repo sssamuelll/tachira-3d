@@ -30,14 +30,18 @@ const GEOMETRIAS_MAX = 800
 // cuadro para ganar detalle donde el relieve ya mide menos de un píxel.
 //
 // SOMBRA_MAX es hasta dónde hay sombras proyectadas, medido desde la cámara.
-// 8 km cubre de sobra el valle de San Cristóbal desde cualquier altura de
-// trabajo; a vista de estado (la cámara a ~114 km) el tramo 10 m - 8 km del
+// 5 km cubre el valle de San Cristóbal entero con sus montañas desde cualquier
+// altura de trabajo; a vista de estado (la cámara a ~114 km) ese tramo del
 // frustum cae en aire vacío, los shadow maps salen en blanco y no se paga casi
-// nada. Que las montañas dejen de sombrearse a esa distancia no se ve: una
-// ladera entera mide ahí unos pocos píxeles.
+// nada. Que las montañas dejen de sombrearse más allá no se ve: una ladera
+// entera mide ahí unos pocos píxeles.
+//
+// 1024 y no 2048 por medida, no por gusto: a 125 m la primera cascada abarca
+// unos 200 m, o sea 20 cm por téxel, y la sombra de una loma no tiene ese
+// detalle. Bajar de 2048 devolvió unos 4 fps a 125 m sin diferencia visible.
 const CASCADAS = 3
-const SOMBRA_MAX = 8000
-const SOMBRA_PX = 2048
+const SOMBRA_MAX = 5000
+const SOMBRA_PX = 1024
 
 // Cuánto se separa del relieve el punto que se compara contra el shadow map,
 // en texeles de la cascada que le toca. 1,5 texeles es el mínimo que quita el
@@ -164,7 +168,10 @@ export function TerrainLod ({ meta, municipios, date }: { meta: TerrainMeta; mun
       // Las vías no proyectan: son líneas pegadas al terreno, su sombra sería
       // la del propio asfalto sobre sí mismo, y meterlas en tres pases más de
       // sombra costaría cientos de miles de segmentos por cuadro.
-      mesh.castShadow = true
+      // castShadow lo decide cada cuadro el bucle de visibilidad, por
+      // distancia. receiveShadow no: es parte de la clave de programa de
+      // three, y alternarlo entre mallas que comparten material compilaría dos
+      // shaders y las haría parpadear al cruzar el corte.
       mesh.receiveShadow = true
       mesh.visible = false
       grupo.current!.add(mesh)
@@ -210,7 +217,17 @@ export function TerrainLod ({ meta, municipios, date }: { meta: TerrainMeta; mun
       caja: cajaDe,
     }, Z_MAX)
     const visibles = new Set(sel.map(clave))
-    for (const [k, m] of mallas) m.mesh.visible = visibles.has(k)
+    for (const [k, m] of mallas) {
+      const v = visibles.has(k)
+      m.mesh.visible = v
+      // Solo proyecta sombra lo que cae dentro del alcance de las cascadas.
+      // Sin este corte las mallas entran en los tres shadow maps AUNQUE queden
+      // fuera de su cámara ortográfica: frustumCulled está en false (el
+      // quadtree ya recorta por su caja) y three no tiene con qué descartarlas.
+      // Medido en Chrome orbitando a vista de estado: los ~200 nodos visibles
+      // se volvían 600 draw calls de sombra que no pintaban un solo texel.
+      m.mesh.castShadow = v && m.caja.distanceToPoint(camera.position) < SOMBRA_MAX
+    }
     // LRU: las más viejas primero, nunca una visible.
     for (const [k, m] of mallas) {
       if (mallas.size <= GEOMETRIAS_MAX) break
