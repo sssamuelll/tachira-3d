@@ -5,6 +5,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { useThree, useFrame } from '@react-three/fiber'
 import { patchLineMaterial } from './roadsShader'
+import { TEXTURAS, TEXTURAS_BASE, type Asfalto } from './asfalto'
 import { NIVELES, repartirPorNivel, metrosPorPixel, presencia } from './roadStyle'
 import { anchoCalzada, carrilesDe, sentidoUnico, marcasPermitidas } from './calzada'
 import { ATTR_SIZE } from '../data/constants'
@@ -24,7 +25,42 @@ export function Roads (
     normals: Int8Array
   },
 ) {
-  const { size, camera, controls } = useThree()
+  const { size, camera, controls, gl } = useThree()
+
+  // Los tres mapas del asfalto (ambientCG Asphalt006, CC0 -- ver el LICENSE.md
+  // de public/texturas/asfalto). Se cargan UNA vez para toda la red: los siete
+  // niveles y sus catorce materiales comparten los mismos objetos de textura,
+  // así que son tres subidas a la GPU, no veintiuna.
+  //
+  // El albedo va en sRGB (three lo declara como SRGB8_ALPHA8 y el decodificado
+  // lo hace el hardware al muestrear); normal y rugosidad van LINEALES, que es
+  // lo que son: una dirección y un número, no colores. Confundirlos deja el
+  // relieve del asfalto plano y la rugosidad corrida hacia lo mate.
+  //
+  // `listo` se sube a 1 cuando los tres están arriba. Hasta entonces el shader
+  // no muestrea nada: un sampler sin textura devuelve NEGRO en WebGL, sin
+  // error, y la calzada parpadearía en negro en el primer acercamiento.
+  const asfalto: Asfalto = useMemo(() => {
+    const listo = { value: 0 }
+    let faltan = 3
+    const cargador = new THREE.TextureLoader()
+    const carga = (archivo: string, srgb: boolean) => {
+      const t = cargador.load(TEXTURAS_BASE + archivo, () => { if (--faltan === 0) listo.value = 1 })
+      t.wrapS = t.wrapT = THREE.RepeatWrapping
+      if (srgb) t.colorSpace = THREE.SRGBColorSpace
+      // La calzada se ve casi de canto en cuanto la cámara baja: sin
+      // anisotropía el árido se convierte en un borrón longitudinal justo a la
+      // distancia en la que este trabajo tiene sentido.
+      t.anisotropy = gl.capabilities.getMaxAnisotropy()
+      return t
+    }
+    return {
+      albedo: carga(TEXTURAS.albedo, true),
+      normal: carga(TEXTURAS.normal, false),
+      rough: carga(TEXTURAS.rough, false),
+      listo,
+    }
+  }, [gl])
 
   // Un objeto por nivel de jerarquía y no uno solo para toda la red: el piso
   // en píxeles y la presencia son del nivel, y el orden de dibujo también. El
@@ -72,7 +108,10 @@ export function Roads (
       // parche sustituye el bloque de pantalla de three, no activa su modo de
       // mundo (roadsShader.ts, extrusionGlsl).
       const material = new LineMaterial({ worldUnits: false, transparent: true, depthWrite: false })
-      patchLineMaterial(material, attr.texture, ATTR_SIZE, casing)
+      // El asfalto solo va al relleno: el contorno es un borde oscuro de unos
+      // píxeles, no una superficie, y texturizarlo serían tres samplers y un
+      // Voronoi por fragmento para pintar el mismo gris.
+      patchLineMaterial(material, attr.texture, ATTR_SIZE, casing, casing ? undefined : asfalto)
       const linea = new LineSegments2(geometry, material)
       // Todos los contornos de un nivel van antes que sus rellenos, y un nivel
       // entero antes que el siguiente: así una troncal cruza una calle con su
@@ -87,7 +126,7 @@ export function Roads (
     })
 
     return { nivel: NIVELES[t.nivel], casing: capas[0], relleno: capas[1] }
-  }), [positions, segIds, index, ways, attr, porVia, normals])
+  }), [positions, segIds, index, ways, attr, porVia, normals, asfalto])
 
   // El vertex shader necesita el alto del lienzo para convertir el piso en
   // píxeles a metros en cada vértice (roadsShader.ts).

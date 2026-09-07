@@ -1,6 +1,10 @@
 import * as THREE from 'three'
 import { PCI_RANGES, SIN_EVALUAR, SELECCION, CASING, CASING_SUAVE, FUENTES } from '../data/constants'
 import { ERROR_PX } from './quadtree'
+import {
+  ASFALTO_GLSL, ASFALTO_UNIFORMS_GLSL, ASFALTO_CUERPO_GLSL, SOL_POR_DEFECTO,
+  PINTURA_GASTE, type Asfalto,
+} from './asfalto'
 
 // Las anclas del LineMaterial de three viven SOLO acá: las consumen este
 // módulo, PickingPass.tsx (el pase de ids parchea el mismo material) y
@@ -178,6 +182,13 @@ export const ATTR_VERT_GLSL = `
       varying float vMpp;
       varying float vCanales;
       varying float vDist;
+      // El marco de la calzada en ejes del MUNDO, para iluminar el asfalto
+      // (asfalto.ts). Se declaran acá porque el bloque de extrusión se
+      // comparte con el pase de ids y allá no existen; los rellena el colofón
+      // de patchLineMaterial, que sí es solo del pase visible.
+      varying vec3 vDirW;
+      varying vec3 vTerrW;
+      varying vec3 vPosW;
       void main() {
         vAttr = texture2D(uAttr, (vec2(
           mod(segId, uAttrSize), floor(segId / uAttrSize)) + 0.5) / uAttrSize);
@@ -300,6 +311,13 @@ export const MARCAS_CUERPO_GLSL = `
       float w = max(${MARCA_M} / max(vMpp, 1e-6), ${MARCA_MIN_PX}) / max(vCalzadaPx, 1.0);
       float unico = step(vCanales, -0.5);                  // 1 = sentido único
 
+      // Pintura gastada. En una vía mala la demarcación está comida, y se come
+      // por manchas: uniforme se leería como una capa más clara y no como
+      // pintura vieja. 'desgaste' y 'ruido()' los deja el bloque de asfalto,
+      // que corre justo antes (asfalto.ts). El piso de 0,2 es lo que queda:
+      // una vía colapsada todavía enseña por dónde iban sus canales.
+      float viva = clamp(1.0 - ${PINTURA_GASTE.toFixed(2)} * desgaste * (0.35 + 0.65 * ruido(uvM * 0.4)), 0.2, 1.0);
+
       // Rayas: 4 m de pintura por cada 10 m de vía.
       float fase = mod(vDist, ${CICLO_M.toFixed(1)});
       float e = max(vMpp, 1e-6);
@@ -326,8 +344,8 @@ export const MARCAS_CUERPO_GLSL = `
       // En sentido único no se pinta -- no hay contraflujo que separar, y
       // pintarlo diría de la vía algo que no es cierto.
       float eje = (franja(t, w * 1.6, w, aa) + franja(t, -w * 1.6, w, aa)) * (1.0 - unico);
-      float m = clamp(marca, 0.0, 1.0) * detalle;
-      float me = clamp(eje, 0.0, 1.0) * detalle;
+      float m = clamp(marca, 0.0, 1.0) * detalle * viva;
+      float me = clamp(eje, 0.0, 1.0) * detalle * viva;
       base = mix(base, pintura, m * (1.0 - me));
       base = mix(base, ${PINTURA_AMARILLA}, me);
 
@@ -352,7 +370,7 @@ export const MARCAS_CUERPO_GLSL = `
                          * (1.0 - smoothstep(semi - e, semi + e, dm));
           flecha = max(flecha, max(enTallo, enCabeza));
         }
-        base = mix(base, pintura, flecha * detalle);
+        base = mix(base, pintura, flecha * detalle * viva);
       }
     }
 `
@@ -386,7 +404,7 @@ const SELECCION_CASING: [number, number, number] =
  */
 export function patchLineMaterial (
   material: THREE.Material, attrTexture: THREE.DataTexture, attrSize: number,
-  casing = false,
+  casing = false, asfalto?: Asfalto,
 ) {
   // three cachea los programas compilados por una clave que NO mira lo que
   // hace onBeforeCompile: dos materiales con los mismos parámetros comparten
@@ -406,6 +424,22 @@ export function patchLineMaterial (
     // cámara (m/px, anchos) ya no viaja como uniform: lo calcula el vertex
     // shader por vértice (extrusionGlsl).
     shader.uniforms.uPisoPx = { value: 1 }
+
+    // Los tres mapas del asfalto (asfalto.ts). Van con `value: null` si nadie
+    // los pasó: WebGL muestrea negro sobre un sampler sin textura, no da
+    // error, y por eso existe uAsfaltoOn -- vale 0 hasta que los tres JPG
+    // están en la GPU y apaga el bloque entero mientras tanto. Los declara
+    // también el contorno, aunque no los use: el GLSL sin uso lo descarta el
+    // compilador, y así quien alimente estos uniforms no tiene que averiguar
+    // cuál de los dos materiales es cuál.
+    shader.uniforms.uAlbedo = { value: asfalto?.albedo ?? null }
+    shader.uniforms.uNormalMap = { value: asfalto?.normal ?? null }
+    shader.uniforms.uRough = { value: asfalto?.rough ?? null }
+    shader.uniforms.uAsfaltoOn = asfalto?.listo ?? { value: 0 }
+    // Dirección unitaria HACIA el sol, en ejes del mundo. El default sirve
+    // sola: el agente de luz la reescribe por cuadro vía userData.uniforms.
+    shader.uniforms.uSol = { value: new THREE.Vector3(...SOL_POR_DEFECTO) }
+
     material.userData.uniforms = shader.uniforms
 
     if (!shader.vertexShader.includes(ANCLA_VERT)) {
@@ -419,7 +453,16 @@ export function patchLineMaterial (
         // está dibujando el contorno: es la referencia de las marcas.
         vCalzadaPx = anchoBase / mppV;
         vAnchoPx = anchoM / mppV;
-        vMpp = mppV;`),
+        vMpp = mppV;
+        // De cámara a MUNDO. dirV, ladoV y terrV están en espacio de cámara;
+        // en GLSL \`v * M\` es \`M^T * v\`, y para una cámara sin escala la
+        // traspuesta de la rotación de viewMatrix ES su inversa. La posición
+        // además hay que destrasladarla: view = R·mundo + t, luego
+        // mundo = (view - t) · R. Sale una resta y tres productos punto por
+        // vértice, contra una inverse(mat4) que costaría veinte veces más.
+        vDirW = dirV * mat3( viewMatrix );
+        vTerrW = terrV * mat3( viewMatrix );
+        vPosW = ( eje.xyz - viewMatrix[3].xyz ) * mat3( viewMatrix );`),
     )
 
     // Mismo patrón que el vertex shader arriba: cada ancla se comprueba antes
@@ -441,8 +484,12 @@ export function patchLineMaterial (
         varying float vMpp;
         varying float vCanales;
         varying float vDist;
+        varying vec3 vDirW;
+        varying vec3 vTerrW;
+        varying vec3 vPosW;
         ${PCI_COLOR_GLSL}
         ${MARCAS_GLSL}
+        ${casing ? '' : ASFALTO_UNIFORMS_GLSL + ASFALTO_GLSL}
         void main() {
       `)
       .replace(ANCLA_FRAG, `
@@ -491,6 +538,7 @@ export function patchLineMaterial (
           ? `float confianza = fuente >= ${F_MEDIDO} ? 1.0 : (fuente >= ${F_ESTIMADO} ? 0.6 : 0.25);
         vec3 base = mix(mix(${vec3Lit(CASING_SUAVE)}, ${vec3Lit(CASING)}, confianza), ${vec3Lit(SELECCION_CASING)}, selected);`
           : `vec3 base = mix(pciColor(pci), ${vec3Lit(SELECCION)}, selected);
+        ${ASFALTO_CUERPO_GLSL}
         ${MARCAS_CUERPO_GLSL}`}
         vec4 diffuseColor = vec4( base, alpha );
       `)
