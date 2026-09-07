@@ -179,6 +179,17 @@ test('el charco es una lámina plana con Fresnel de Schlick sobre la normal GEOM
   expect(c).toMatch(/uCielo/)
 })
 
+// Un charco dentro de la sombra de una montaña refleja el cielo, no el sol: es
+// lo más visible del hallazgo, porque el destello es un lóbulo de exponente
+// 2.000 y encendido dentro de la sombra se lee como una lámpara.
+test('el destello del sol en el charco no enciende dentro de la sombra proyectada', () => {
+  const c = codigo(MOJADO_CUERPO_GLSL)
+  expect(c).toMatch(/step\(0\.001, dot\(Ng, uSol\)\)\s*\*\s*sombra/)
+  // El reflejo del CIELO sí se queda: una superficie en sombra sigue mojada.
+  const espejo = c.slice(c.indexOf('cieloRef'))
+  expect(espejo).not.toMatch(/cieloRef[^;]*\*\s*sombra/)
+})
+
 test('el agua se embalsa donde una calzada se embalsa: huellas, baches y zonas bajas, con el nivel subiendo con uMojado', () => {
   const c = codigo(MOJADO_CUERPO_GLSL)
   expect(c).toMatch(/cota\s*=/)

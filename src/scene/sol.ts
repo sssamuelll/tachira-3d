@@ -30,6 +30,46 @@ export function worldToEcefMatrix (): Matrix4 {
   return new Matrix4().makeBasis(ESTE, ARRIBA, SUR).setPosition(x, y, z)
 }
 
+/**
+ * El nombre con el que vive en la escena la cascada de sombra más cercana.
+ *
+ * Vive acá, y no en TerrainLod.tsx (que la crea) ni en Roads.tsx (que la
+ * busca), por la misma razón que vive acá `direccionSol`: es la luz de la
+ * escena, no es de ninguno de los dos. Compartir la constante es lo que impide
+ * que el nombre se cambie de un lado y el otro deje de encontrar la luz en
+ * silencio -- la calzada volvería a salir a pleno sol dentro de la sombra del
+ * relieve, sin un solo error en consola.
+ *
+ * Es la cascada 0 del CSM, la de menos alcance (CSM.js reparte `lights` en el
+ * mismo orden que `frustums`). Con los ajustes de TerrainLod.tsx llega a unos
+ * 876 m de la cámara, que cubre de sobra el rango donde la calzada dibuja
+ * asfalto (~500 m en la Libertador).
+ */
+export const CASCADA_CERCA = 'cascada-cerca'
+
+/** La fecha con la que arranca la escena si nadie pide otra. Mediodía largo
+ *  sobre el Táchira: el sol a 48,8°, que es la luz con la que se leyó el mapa
+ *  al calibrar el relieve y el asfalto. */
+export const FECHA_POR_DEFECTO = '2026-09-05T14:00:00Z'
+
+/**
+ * La fecha de la escena, con `?hora=` de la barra de direcciones pisando el
+ * valor por defecto (`?hora=2026-09-05T12:00:00Z` son las 8 de la mañana en el
+ * Táchira, con el sol a 19°).
+ *
+ * Existe por una razón concreta y no por generalidad: de la altura del sol
+ * dependen la exposición de la calzada (asfalto.ts, `luzVia`) y si hay sombra
+ * proyectada que ver, y las dos cosas solo se pueden juzgar mirándolas. Sin
+ * esto, cada comprobación pedía recompilar con otra constante escrita a mano.
+ * Una fecha que no se entiende se ignora en silencio: es un parámetro de
+ * inspección, no un dato del mapa, y no tiene por qué romper la aplicación.
+ */
+export function fechaDeEscena (search: string): Date {
+  const q = new URLSearchParams(search).get('hora')
+  const d = q ? new Date(q) : null
+  return d && !Number.isNaN(d.getTime()) ? d : new Date(FECHA_POR_DEFECTO)
+}
+
 const ecef = new Vector3()
 
 /**

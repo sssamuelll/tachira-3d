@@ -4,10 +4,12 @@ import { test, expect } from 'vitest'
 import { readFileSync, statSync } from 'node:fs'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import {
-  ASFALTO_GLSL, ASFALTO_CUERPO_GLSL, ASFALTO_DESDE_PX, ASFALTO_HASTA_PX,
+  ASFALTO_GLSL, ASFALTO_UNIFORMS_GLSL, ASFALTO_CUERPO_GLSL, ASFALTO_DESDE_PX, ASFALTO_HASTA_PX,
   MACRO_M, MICRO_M, TINTE_PCI, PCI_SIN_EVALUAR, SOL_POR_DEFECTO, TEXTURAS,
+  AMBIENTE, SOL_DIF, AMB_SUELO, NIVEL_CERCA, PISO_NORMA, ANCLA_MOJADO,
 } from './asfalto'
-import { patchLineMaterial, extrusionGlsl } from './roadsShader'
+import * as THREE from 'three'
+import { patchLineMaterial, extrusionGlsl, SOMBRA_VACIA } from './roadsShader'
 import { patchPickMaterial } from './PickingPass'
 import type { DataTexture } from 'three'
 
@@ -171,9 +173,105 @@ test('la iluminación usa la normal perturbada, un especular con la rugosidad y 
   expect(c).toMatch(/normalize\(\s*cameraPosition\s*-\s*vPosW\s*\)/)  // vista, para el especular
   expect(c).toMatch(/pow\(\s*max\(\s*dot\(\s*N\s*,\s*H\s*\)/)         // Blinn-Phong
   expect(c).toContain('rug')                                           // con la rugosidad del mapa
-  // El ambiente de cielo: la cara en sombra no puede salir negra.
-  expect(c).toMatch(/AMBIENTE|ambiente/)
+  // El ambiente de cielo: la cara en sombra no puede salir negra. El reparto
+  // vive en luzVia (ASFALTO_GLSL); acá se comprueba que la calzada lo llama con
+  // su hemisferio y que el suelo nunca aporta cero.
+  expect(c).toMatch(/luzVia\(/)
   expect(c).toMatch(/0\.5\s*\+\s*0\.5\s*\*\s*N\.y/)
+  expect(AMB_SUELO).toBeGreaterThan(0)
+  expect(codigo(ASFALTO_GLSL)).toMatch(/AMBIENTE \* mix\(AMB_SUELO, 1\.0, cielo\)/)
+})
+
+// La calzada no pasa por lights_fragment ni por el chunk de CSM: su única luz
+// es uSol, y sin consultar el shadow map salía a pleno sol dentro de la sombra
+// que la montaña de al lado proyecta sobre el relieve.
+test('la calzada consulta la sombra PROYECTADA del relieve, con la cascada más cercana', () => {
+  // El mapa es un sampler2DShadow: con PCFShadowMap three lo crea como
+  // DepthTexture con compareFunction, y la comparación la hace el hardware.
+  expect(ASFALTO_UNIFORMS_GLSL).toContain('uniform sampler2DShadow uSombraMapa;')
+  expect(ASFALTO_UNIFORMS_GLSL).toContain('uniform mat4 uSombraMat;')
+
+  const g = codigo(ASFALTO_GLSL)
+  expect(g).toMatch(/float sombraSol\s*\(\s*vec3 posW\s*,\s*vec3 n\s*\)/)
+  // Sin mapa todavía (el primer cuadro, antes del primer pase de sombra) la
+  // calzada va iluminada, no a oscuras.
+  expect(g).toMatch(/uSombraOn\s*<\s*0\.5.*return 1\.0/s)
+  // El sesgo de normal desplaza el punto de comparación a lo largo de la
+  // normal, y el de profundidad se SUMA -- el mismo signo con el que lo suma
+  // three en shadowmap_pars_fragment, porque es el mismo número que sombrea el
+  // relieve (TerrainLod.tsx).
+  expect(g).toMatch(/posW\s*\+\s*n\s*\*\s*uSombraNormalBias/)
+  expect(g).toMatch(/\+=\s*uSombraSesgo/)
+  // Fuera de la cascada 0 no hay dato: se devuelve luz, no sombra.
+  expect(g).toMatch(/return 1\.0;\s*\n\s*return texture\(uSombraMapa/)
+
+  const c = codigo(ASFALTO_CUERPO_GLSL)
+  // Se resuelve antes del ancla del mojado: el destello del charco tampoco
+  // puede encender dentro de la sombra de la montaña.
+  expect(c).toContain('float sombra = sombraSol(vPosW, Ng);')
+  // El ancla es un comentario, así que se busca sobre el texto crudo.
+  expect(ASFALTO_CUERPO_GLSL.indexOf('float sombra ='))
+    .toBeLessThan(ASFALTO_CUERPO_GLSL.indexOf(ANCLA_MOJADO))
+  // Y apaga las dos cosas que enciende el sol: el difuso y el especular.
+  expect(c).toMatch(/float ndl = max\(dot\(N, uSol\), 0\.0\) \* somBache \* sombra;/)
+  expect(c).toMatch(/step\(0\.001, ndl\) \* sombra/)
+})
+
+test('el relleno lleva los uniforms de la sombra; el contorno los tiene sin declararlos', () => {
+  const r = relleno()
+  for (const u of ['uSombraMapa', 'uSombraMat', 'uSombraNormalBias', 'uSombraSesgo', 'uSombraOn']) {
+    expect(r.uniforms[u], u).toBeDefined()
+    // Roads.tsx escribe en los dos materiales sin averiguar cuál es cuál.
+    expect(contorno().uniforms[u], u).toBeDefined()
+  }
+  // No es null: un sampler2DShadow ligado a nada descarta la llamada de
+  // dibujo entera (roadsShader.ts, SOMBRA_VACIA).
+  expect(r.uniforms.uSombraMapa.value).toBe(SOMBRA_VACIA)
+  expect(SOMBRA_VACIA.compareFunction).toBe(THREE.LessEqualCompare)
+  expect(SOMBRA_VACIA.version).toBeGreaterThan(0)
+  expect(r.uniforms.uSombraOn.value).toBe(0)
+  expect(r.fragmentShader).toContain('uniform sampler2DShadow uSombraMapa;')
+  // El contorno es un borde oscuro de unos píxeles: no se ilumina, y un
+  // sampler de sombra por fragmento para pintar el mismo gris no se paga.
+  expect(contorno().fragmentShader).not.toContain('sampler2DShadow')
+})
+
+// El reparto AMBIENTE/SOL_DIF estaba calibrado contra SOL_POR_DEFECTO, que
+// Roads.tsx pisa cada cuadro con el sol real de la hora de la escena.
+test('la exposición de la calzada de cerca se normaliza al sol REAL, no al de por defecto', () => {
+  const g = codigo(ASFALTO_GLSL)
+  expect(g).toMatch(/float luzVia\s*\(\s*float ndl\s*,\s*float cielo\s*,\s*float ao\s*\)/)
+  // La norma es la irradiancia que recibe una calzada HORIZONTAL con el sol de
+  // este cuadro, con piso para no amplificar sin límite de noche.
+  expect(g).toMatch(/max\(AMBIENTE \+ SOL_DIF \* max\(uSol\.y, 0\.0\), PISO_NORMA\)/)
+  const c = codigo(ASFALTO_CUERPO_GLSL)
+  expect(c).toMatch(/luzVia\(ndl, cielo, aoBache\)/)
+  // Y ya no queda el reparto suelto que dependía del sol por defecto.
+  expect(c).not.toMatch(/0\.42 \* mix\(0\.55/)
+
+  // Los números, con la misma cuenta que hace el shader sobre una calzada
+  // horizontal a pleno sol (ndl = uSol.y, cielo = 1, sin oclusión).
+  const viejo = (solY: number) => (AMBIENTE + SOL_DIF * Math.max(solY, 0)) * NIVEL_CERCA
+  const nuevo = (solY: number) => {
+    const norma = Math.max(AMBIENTE + SOL_DIF * Math.max(solY, 0), PISO_NORMA)
+    return (AMBIENTE + SOL_DIF * Math.max(solY, 0)) / norma * NIVEL_CERCA
+  }
+  // Alturas del sol sobre San Cristóbal el 2026-09-05 (sol.ts): 8:00 → 19,1°,
+  // 10:00 (la fecha de App.tsx) → 48,8°, 12:00 → 78,4°, 16:00 → 41,9°.
+  for (const y of [Math.sin(19.1 * Math.PI / 180), 0.752, 0.980, 0.668]) {
+    expect(nuevo(y)).toBeCloseTo(NIVEL_CERCA, 6)
+  }
+  // Lo que había antes: a las 8 la calzada se oscurecía a la mitad al cruzar
+  // los 500 m, y a mediodía salía MÁS clara que el color plano de lejos.
+  expect(viejo(Math.sin(19.1 * Math.PI / 180))).toBeLessThan(0.47)
+  expect(viejo(0.980)).toBeGreaterThan(NIVEL_CERCA)
+  // De noche no se normaliza hasta el nivel de día: el piso lo impide, y la
+  // calzada nocturna queda más oscura, que es lo que debe pasar.
+  expect(nuevo(-0.7)).toBeLessThan(NIVEL_CERCA)
+  expect(nuevo(-0.7)).toBeGreaterThan(viejo(-0.7))
+  // Con el sol rasante el piso también topa cuánto puede encenderse un grano
+  // de árido encarado al sol.
+  expect((AMBIENTE * AMB_SUELO + SOL_DIF) / PISO_NORMA * NIVEL_CERCA).toBeLessThan(1.5)
 })
 
 test('las marcas viales van ENCIMA del asfalto y se gastan con el PCI', () => {

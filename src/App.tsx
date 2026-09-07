@@ -4,6 +4,7 @@ import { OrbitControls } from '@react-three/drei'
 import { Sky } from './scene/Sky'
 import { TerrainLod } from './scene/TerrainLod'
 import { Roads } from './scene/Roads'
+import { fechaDeEscena } from './scene/sol'
 import { FlyTo, Vista, bboxCenterAndSpan, idsCenterAndSpan, type Encuadre, type ApiVista } from './scene/Camera'
 import { usePicking } from './scene/PickingPass'
 import { LassoOverlay, pointInLasso, type Pt } from './ui/LassoOverlay'
@@ -158,7 +159,10 @@ function textoAviso (a: AvisoCarga | null): string | null {
 
 export default function App () {
   const [data, setData] = useState<Data | null>(null)
-  const [date] = useState(() => new Date('2026-09-05T14:00:00Z'))
+  // La fecha de la escena: de ella salen el sol, el cielo y las sombras. Se
+  // puede pisar con ?hora= para mirar el mapa a otra altura de sol (sol.ts,
+  // fechaDeEscena).
+  const [date] = useState(() => fechaDeEscena(location.search))
   const [objetivo, setObjetivo] = useState<Encuadre | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [lassoOn, setLassoOn] = useState(false)

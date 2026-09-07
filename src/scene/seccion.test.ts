@@ -218,8 +218,22 @@ test('la franja se ilumina con el mismo reparto de luz que el asfalto, pero sin 
   const c = codigo(SECCION_CUERPO_GLSL)
   expect(c).toMatch(/dot\(Nf, uSol\)/)
   expect(c).toMatch(/0\.5 \+ 0\.5 \* Nf\.y/)   // el mismo ambiente de hemisferio
+  // El MISMO reparto, y ahora literalmente la misma función (asfalto.ts,
+  // luzVia): si la franja y la calzada no normalizaran igual la exposición al
+  // sol real, la franja daría un salto contra la calzada a cualquier hora que
+  // no fuera la que se calibró a mano.
+  expect(c).toMatch(/float luzF = luzVia\(/)
+  expect(c).not.toMatch(/0\.42 \* mix\(0\.55/)
   // Ni la grava ni el concreto seco tienen lustre.
   expect(c).not.toContain('pow(max(dot(')
+})
+
+// El hombrillo y el brocal están pegados a la calzada: si la calzada se
+// oscurece dentro de la sombra de la montaña y la franja no, el filo de la
+// sombra se parte en el borde de la vía.
+test('la franja también se apaga dentro de la sombra proyectada del relieve', () => {
+  const c = codigo(SECCION_CUERPO_GLSL)
+  expect(c).toMatch(/max\(dot\(Nf, uSol\), 0\.0\) \* sombraSol\(vPosW, Nf\)/)
 })
 
 test('lo seleccionado tiñe también la franja: es la misma vía', () => {

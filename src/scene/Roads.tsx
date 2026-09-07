@@ -4,9 +4,9 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { useThree, useFrame } from '@react-three/fiber'
-import { patchLineMaterial } from './roadsShader'
+import { patchLineMaterial, SOMBRA_VACIA } from './roadsShader'
 import { TEXTURAS, TEXTURAS_BASE, type Asfalto } from './asfalto'
-import { direccionSol } from './sol'
+import { direccionSol, CASCADA_CERCA } from './sol'
 import { avanzarMojado } from './mojado'
 import { NIVELES, repartirPorNivel, metrosPorPixel, presencia } from './roadStyle'
 import { anchoCalzada, carrilesDe, sentidoUnico, marcasPermitidas } from './calzada'
@@ -32,7 +32,7 @@ export function Roads (
     lluvia: boolean
   },
 ) {
-  const { size, camera, controls, gl } = useThree()
+  const { size, camera, controls, gl, scene } = useThree()
   // Dirección HACIA el sol en ejes del mundo, la misma que ilumina el relieve.
   // La fecha no cambia mientras la app corre, así que se calcula una vez.
   const sol = useMemo(() => direccionSol(date), [date])
@@ -42,6 +42,13 @@ export function Roads (
   // que lo lee es un uniform. Por estado serían noventa re-renders del árbol
   // entero para escribir un float.
   const mojado = useRef(0)
+
+  // La cascada de sombra más cercana, dueña del shadow map que la calzada
+  // muestrea para no salir a pleno sol dentro de la sombra del relieve
+  // (asfalto.ts, sombraSol). La crea TerrainLod.tsx dentro de un efecto y le
+  // pone el nombre; acá se busca cada cuadro hasta encontrarla y después nunca
+  // más, igual que TerrainLod hace con el <SunLight> de takram.
+  const cascada = useRef<THREE.DirectionalLight | null>(null)
 
   // Los tres mapas del asfalto (ambientCG Asphalt006, CC0 -- ver el LICENSE.md
   // de public/texturas/asfalto). Se cargan UNA vez para toda la red: los siete
@@ -179,6 +186,20 @@ export function Roads (
     const objetivo = (controls as { target?: THREE.Vector3 } | null)?.target
     const distancia = objetivo ? camera.position.distanceTo(objetivo) : camera.position.length()
     const mpp = metrosPorPixel(distancia, (camera as THREE.PerspectiveCamera).fov ?? 45, size.height)
+
+    // El shadow map de la cascada más cercana. `shadow.map` es null hasta el
+    // primer pase de sombra, y lo que hay que pasar es su `depthTexture` y no
+    // su `texture`: el DepthTexture es el que three crea con
+    // compareFunction = LessEqualCompare, o sea el único que un sampler2DShadow
+    // puede comparar en hardware (WebGLShadowMap.js). La matriz se pasa por
+    // REFERENCIA: es la misma Matrix4 que three reescribe en cada pase de
+    // sombra, y el pase de sombra corre al principio de renderer.render(),
+    // antes de que se dibujen las vías. Los dos sesgos son los de la luz, para
+    // que la calzada y el relieve comparen contra el mismo plano.
+    if (!cascada.current) cascada.current = scene.getObjectByName(CASCADA_CERCA) as THREE.DirectionalLight | null
+    const sombra = cascada.current?.shadow
+    const mapaSombra = sombra?.map?.depthTexture ?? null
+
     for (const o of objetos) {
       const alpha = presencia(o.nivel, mpp)
       // Un nivel apagado no se dibuja en absoluto, en vez de dibujarse con
@@ -209,6 +230,16 @@ export function Roads (
         // materiales (roadsShader.ts) justo para no tener que averiguar acá
         // cuál es cuál.
         u.uMojado.value = mojado.current
+        // Mientras no hay mapa se deja el texel de relleno ligado y uSombraOn
+        // en 0: un sampler2DShadow apuntando a nada -- o a la textura vacía de
+        // three -- descarta la llamada de dibujo entera (ver SOMBRA_VACIA).
+        u.uSombraMapa.value = mapaSombra ?? SOMBRA_VACIA
+        u.uSombraOn.value = mapaSombra ? 1 : 0
+        if (sombra) {
+          u.uSombraMat.value = sombra.matrix
+          u.uSombraNormalBias.value = sombra.normalBias
+          u.uSombraSesgo.value = sombra.bias
+        }
       }
     }
   })

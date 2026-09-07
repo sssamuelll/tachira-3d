@@ -147,6 +147,32 @@ export function parcharExtrusion (vertexShader: string, glsl: string): string {
 
 const vec3Lit = ([r, g, b]: readonly [number, number, number]) => `vec3(${r}, ${g}, ${b})`
 
+/**
+ * Un texel de profundidad para que el sampler de sombra nunca quede colgando.
+ *
+ * WebGL valida la pareja sampler/textura al DIBUJAR, no dentro del shader: el
+ * `if (uSombraOn < 0.5) return 1.0;` de `sombraSol` (asfalto.ts) no salva de
+ * tener ligada una textura que no es de comparación. Y la textura vacía que
+ * three liga por defecto en un `sampler2DShadow` no sirve: nace con `version`
+ * 0, así que `WebGLTextures` nunca la sube y nunca le pone
+ * `TEXTURE_COMPARE_MODE` (le pone los parámetros en `uploadTexture`, y a esa no
+ * la sube).
+ *
+ * Medido en Chrome: sin esto, en el cuadro que va entre que las vías montan y
+ * que corre el primer pase de sombra salen tres `GL_INVALID_OPERATION:
+ * Mismatch between texture format and sampler type` y las tres llamadas de
+ * dibujo de ese cuadro se descartan. Un cuadro y tres errores de consola, pero
+ * son errores de verdad.
+ *
+ * Nunca se muestrea: mientras esta es la textura ligada, `uSombraOn` vale 0.
+ */
+export const SOMBRA_VACIA = /*@__PURE__*/ (() => {
+  const t = new THREE.DepthTexture(1, 1)
+  t.compareFunction = THREE.LessEqualCompare
+  t.needsUpdate = true                       // sin esto version sigue en 0
+  return t
+})()
+
 // La paleta ASTM D6433 tiene una sola fuente de verdad: PCI_RANGES en
 // constants.ts. Este bloque genera el GLSL de pciColor() a partir de esa
 // tabla en tiempo de módulo -- escribirla a mano una segunda vez dentro del
@@ -461,6 +487,21 @@ export function patchLineMaterial (
     // así quien los alimente no tiene que averiguar cuál material es cuál.
     shader.uniforms.uMojado = { value: 0 }
     shader.uniforms.uCielo = { value: new THREE.Vector3(...CIELO_POR_DEFECTO) }
+
+    // La sombra proyectada del relieve sobre la calzada (asfalto.ts,
+    // sombraSol). Los alimenta Roads.tsx por cuadro desde la cascada más
+    // cercana del CSM. El mapa arranca en el texel de relleno de arriba
+    // (shadow.map no existe hasta el primer pase de sombra) y uSombraOn vale 0
+    // mientras tanto, igual que uAsfaltoOn con los tres JPG del asfalto. La
+    // matriz se pisa con la de la luz POR REFERENCIA: es la misma Matrix4 que
+    // three actualiza en cada pase de sombra, así que este valor inicial solo
+    // se ve mientras uSombraOn vale 0. Van en los dos materiales, como uSol,
+    // aunque el contorno no los declare.
+    shader.uniforms.uSombraMapa = { value: SOMBRA_VACIA }
+    shader.uniforms.uSombraMat = { value: new THREE.Matrix4() }
+    shader.uniforms.uSombraNormalBias = { value: 0 }
+    shader.uniforms.uSombraSesgo = { value: 0 }
+    shader.uniforms.uSombraOn = { value: 0 }
 
     material.userData.uniforms = shader.uniforms
 

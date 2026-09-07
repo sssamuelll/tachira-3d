@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { direccionSol } from './sol'
+import { direccionSol, fechaDeEscena, FECHA_POR_DEFECTO } from './sol'
 
 // El Táchira está en UTC-4 y ORIGIN cae en lon -71.9°, así que el mediodía
 // solar verdadero ronda las 16:48 UTC. Los dos casos de abajo son el mediodía
@@ -35,5 +35,28 @@ describe('direccionSol', () => {
     const out = direccionSol(new Date('2026-09-05T17:00:00Z'))
     const mismo = direccionSol(new Date('2026-09-05T17:00:00Z'), out)
     expect(mismo).toBe(out)
+  })
+})
+
+// La hora de la escena decide la exposición de la calzada (asfalto.ts,
+// luzVia) y si hay sombra proyectada que ver. Se puede pisar por query string
+// para poder mirar las dos cosas sin recompilar.
+describe('fechaDeEscena', () => {
+  it('sin ?hora= devuelve la fecha por defecto', () => {
+    expect(fechaDeEscena('').toISOString()).toBe(new Date(FECHA_POR_DEFECTO).toISOString())
+    expect(fechaDeEscena('?imagen=0').toISOString()).toBe(new Date(FECHA_POR_DEFECTO).toISOString())
+  })
+
+  it('con ?hora= devuelve esa, y el sol la sigue', () => {
+    const d = fechaDeEscena('?hora=2026-09-05T12:00:00Z')
+    expect(d.toISOString()).toBe('2026-09-05T12:00:00.000Z')
+    // Las 8 de la mañana en el Táchira: el sol bajo y por el este.
+    const s = direccionSol(d)
+    expect(s.y).toBeLessThan(0.4)
+    expect(s.x).toBeGreaterThan(0.8)
+  })
+
+  it('una fecha que no se entiende se ignora, no rompe el mapa', () => {
+    expect(fechaDeEscena('?hora=ayer').toISOString()).toBe(new Date(FECHA_POR_DEFECTO).toISOString())
   })
 })

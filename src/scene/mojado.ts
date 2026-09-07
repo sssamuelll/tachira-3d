@@ -501,8 +501,12 @@ export const MOJADO_CUERPO_GLSL = `
         // exponente 2.000 tiene la misma energía que uno de 20 y el destello
         // del charco se pierde. Con ella el charco enciende de verdad cuando
         // la cámara cae en el ángulo del espejo, que es como se ve la calle.
+        // \`sombra\` es la sombra proyectada del relieve, que asfalto.ts deja
+        // resuelta justo antes del ancla. Solo apaga el DESTELLO: el reflejo
+        // del cielo se queda, porque una calzada a la sombra de una montaña
+        // sigue mojada y sigue devolviendo el cielo que tiene encima.
         float esp = pow(max(dot(Ng, Hm), 0.0), duro) * (duro + 8.0) * ${f3(NORM_BLINN)}
-                  * step(0.001, dot(Ng, uSol));
+                  * step(0.001, dot(Ng, uSol)) * sombra;
 
         // El agua tapa el fondo, y el fondo que queda va más oscuro.
         asf *= mix(1.0, ${f2(AGUA_FONDO)}, charco);

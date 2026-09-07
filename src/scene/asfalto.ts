@@ -146,9 +146,16 @@ export const SOL_POR_DEFECTO: readonly [number, number, number] = (() => {
 
 // Reparto de la luz. El asfalto de cerca tiene que promediar el MISMO brillo
 // que el color plano de lejos, o la calzada da un salto de exposición al
-// acercarse. Con el sol por defecto sobre una calzada horizontal N·L = 0,848,
-// así que AMBIENTE + 0,848 · SOL = 0,42 + 0,58 = 1,0. Si se cambia uno hay que
-// cambiar el otro.
+// acercarse. Cuánto pesa el ambiente contra el sol; el que promedien lo mismo
+// lo garantiza `luzVia` dividiendo por la irradiancia del sol de ESTE cuadro
+// (ver su comentario), no la relación entre estos dos números.
+//
+// La versión anterior sí los calibraba a mano: 0,42 + 0,848 · 0,684 = 1,0, con
+// 0,848 el N·L de SOL_POR_DEFECTO sobre una calzada horizontal. Esa cuenta ya
+// no describe lo que corre -- Roads.tsx pisa uSol cada cuadro con el sol real
+// de la fecha de la escena -- y con ella la calzada de cerca salía a 0,45 del
+// color plano a las 8 de la mañana y a 0,76 a mediodía.
+//
 // Exportadas porque la franja de hombrillo o brocal (seccion.ts) se ilumina
 // con el mismo reparto: si los dos no promediaran el mismo brillo, la franja
 // daría un salto de exposición contra la calzada.
@@ -157,6 +164,14 @@ export const SOL_DIF = 0.684
 // Cuánto se oscurece el ambiente en una cara que mira al suelo en vez de al
 // cielo. Nunca 0: una ladera en sombra tiene que enseñar su PCI igual.
 export const AMB_SUELO = 0.55
+// El piso de la normalización de exposición (ver `luzVia`). Con el sol bajo, la
+// irradiancia por la que se divide se va a cero y amplificar sin límite tiene
+// dos consecuencias absurdas: de noche (uSol.y <= 0) la calzada saldría
+// exactamente igual de clara que a mediodía, y con el sol rasante un grano de
+// árido encarado al sol se iría a 2,6 veces el nivel del color plano. 0,60 es
+// el punto donde la calzada nocturna queda en 0,49 (más oscura que de día, como
+// debe ser) y ese grano topa en 1,84. Calibrable.
+export const PISO_NORMA = 0.60
 const ESPECULAR = 0.35
 
 // Deterioro. Todas las medidas en METROS de calzada.
@@ -228,6 +243,85 @@ const f2 = (n: number) => n.toFixed(2)
 export const ASFALTO_GLSL = `
   const vec3 LUMA = vec3(0.299, 0.587, 0.114);
   const float MEDIA_LIN = ${f2(MEDIA_LIN)};
+  const float AMBIENTE = ${f2(AMBIENTE)};
+  const float SOL_DIF = ${f2(SOL_DIF)};
+  const float AMB_SUELO = ${f2(AMB_SUELO)};
+  const float NIVEL_CERCA = ${f2(NIVEL_CERCA)};
+  const float PISO_NORMA = ${f2(PISO_NORMA)};
+
+  // La sombra PROYECTADA del relieve sobre la calzada.
+  //
+  // El LineMaterial no pasa por lights_fragment ni por el chunk de CSM: la
+  // única luz que ve es uSol, y sin esto la vía sale a pleno sol dentro de la
+  // sombra que la montaña de al lado proyecta sobre el terreno. La sombra
+  // PROPIA sí era coherente (vTerrW es la normal del relieve); la que faltaba
+  // es la del vecino. Con la fecha de App.tsx el sol está a 48,8°, o sea que
+  // una cresta de altura h tapa 0,88·h de ladera al oeste: al pie de cualquier
+  // pared oriental el relieve quedaba en 0,2 de su nivel y la cinta encima en
+  // 0,65, con el especular encendido. Se leía pegada, no apoyada.
+  //
+  // Un solo tap de la cascada 0 -- la más cercana del CSM (TerrainLod.tsx), que
+  // con near 10, maxFar 5.000 y el reparto 'practical' llega a ~876 m de la
+  // cámara, mientras el asfalto empieza a existir a los ~500 -- y sin PCF
+  // propio: con PCFShadowMap (App.tsx, shadows="percentage") three crea el
+  // shadow map como DepthTexture con compareFunction = LessEqualCompare y
+  // filtro lineal, así que un texture() sobre sampler2DShadow ya devuelve el
+  // promedio bilineal de cuatro téxeles COMPARADOS. Los cinco taps de Vogel con
+  // que three sombrea el relieve son para radios más grandes que este filo.
+  //
+  // texture() y no texture2D(): three compila estos shaders como
+  // '#version 300 es' y declara 'precision highp sampler2DShadow' en el
+  // preámbulo del fragment (WebGLProgram.js), así que la comparación en
+  // hardware está disponible tal cual.
+  float sombraSol (vec3 posW, vec3 n) {
+    // uSombraOn vale 0 hasta que existe el mapa: shadow.map es null hasta el
+    // primer pase de sombra, y un sampler2DShadow sin textura cae en el
+    // DepthTexture vacío de three, que no tiene contenido definido. Mismo
+    // criterio que uAsfaltoOn con los tres JPG.
+    if (uSombraOn < 0.5) return 1.0;
+    // uSombraMat es shadow.matrix, que ya lleva dentro la matriz de sesgo a
+    // [0,1]. Los dos sesgos son los MISMOS con los que se sombrea el relieve
+    // (TerrainLod.tsx): el de normal en metros -- doce téxeles de la cascada --
+    // y el de profundidad SUMADO, con el mismo signo con que lo suma three en
+    // shadowmap_pars_fragment. Si la calzada usara otros, el filo de la sombra
+    // se partiría justo en el borde de la vía.
+    vec4 sc = uSombraMat * vec4(posW + n * uSombraNormalBias, 1.0);
+    vec3 c = sc.xyz / sc.w;
+    c.z += uSombraSesgo;
+    // Fuera de la cascada 0 no hay dato: se devuelve luz. Es lo mismo que hacía
+    // la calzada antes de que esto existiera, y pasa solo más allá de los
+    // ~876 m, donde la vía ya se dibuja con su color plano.
+    if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
+    return texture(uSombraMapa, c);
+  }
+
+  // La exposición de la calzada de cerca, normalizada al sol de ESTE cuadro.
+  //
+  // El fundido de \`cerca\` mezcla el asfalto iluminado con el color plano de
+  // lejos, que no tiene luz ninguna: para que no haya salto de exposición al
+  // cruzarlo, una calzada horizontal a pleno sol tiene que promediar
+  // NIVEL_CERCA del color plano. Eso se calibraba a mano contra
+  // SOL_POR_DEFECTO, y SOL_POR_DEFECTO no llega a la pantalla -- Roads.tsx
+  // escribe uSol con la efeméride de la fecha de la escena. Medido sobre San
+  // Cristóbal el 2026-09-05, el escalón que salía era:
+  //
+  //     8:00 local  (sol a 19,1°)   0,45      <- la calzada se oscurecía a la
+  //    10:00 local  (48,8°)         0,65         mitad al cruzar los 500 m
+  //    12:00 local  (78,4°)         0,76      <- más clara que el color plano
+  //    16:00 local  (41,9°)         0,61
+  //    de noche                     0,29
+  //
+  // Dividir por la irradiancia que recibe una calzada horizontal con este sol
+  // deja el promedio en NIVEL_CERCA a cualquier hora, y de paso deja la
+  // constante donde se pueda leer: es UNA división, no una tabla.
+  //
+  // PISO_NORMA topa esa amplificación (ver su comentario en el módulo). \`ao\`
+  // multiplica SOLO el término ambiente: la oclusión del cuenco de un bache es
+  // cuánto cielo le llega al fondo, y al directo ya lo ocluye somBache.
+  float luzVia (float ndl, float cielo, float ao) {
+    float norma = max(AMBIENTE + SOL_DIF * max(uSol.y, 0.0), PISO_NORMA);
+    return (AMBIENTE * mix(AMB_SUELO, 1.0, cielo) * ao + SOL_DIF * ndl) / norma * NIVEL_CERCA;
+  }
 
   float hash1 (vec2 p) {
     vec3 q = fract(vec3(p.xyx) * 0.1031);
@@ -346,6 +440,13 @@ export const ASFALTO_UNIFORMS_GLSL = `
   uniform sampler2D uRough;
   uniform float uAsfaltoOn;
   uniform vec3 uSol;
+  // El shadow map de la cascada más cercana del CSM y sus dos sesgos, tal como
+  // los tiene la luz (Roads.tsx los copia por cuadro). Ver sombraSol.
+  uniform sampler2DShadow uSombraMapa;
+  uniform mat4 uSombraMat;
+  uniform float uSombraNormalBias;
+  uniform float uSombraSesgo;
+  uniform float uSombraOn;
 `
 
 /**
@@ -520,22 +621,33 @@ ${bacheCuerpoGlsl(BACHE_TASA, GRIETA_M)}
       float relieve = 0.9 * (1.0 - 0.5 * rodada);
       vec3 N = normalize(T * nT.x * relieve + B * nT.y * relieve + Ng * max(nT.z, 0.1));
 
+      // La sombra que el relieve de al lado proyecta sobre esta calzada
+      // (sombraSol). Se resuelve ACÁ, antes del ancla, porque el destello del
+      // charco (mojado.ts) tampoco puede encender dentro de la sombra de la
+      // montaña: es un lóbulo de exponente 2.000 y encendido ahí se lee como
+      // una lámpara. Ng es la normal de la sección, la misma con la que se
+      // sesga el punto de comparación.
+      float sombra = sombraSol(vPosW, Ng);
+
       ${ANCLA_MOJADO}
 
       // somBache: la pared del cuenco que le da la espalda al sol se tapa a sí
       // misma. aoBache: al fondo del cuenco le llega menos cielo. Los dos
       // valen 1.0 fuera de un bache (mojado.ts), así que en el resto de la
       // calzada esta línea es la de siempre.
-      float ndl = max(dot(N, uSol), 0.0) * somBache;
+      float ndl = max(dot(N, uSol), 0.0) * somBache * sombra;
       vec3 H = normalize(uSol + V);
       float dureza = exp2(mix(9.0, 2.0, rug));
-      float esp = pow(max(dot(N, H), 0.0), dureza) * ${f2(ESPECULAR)} * (1.0 - rug) * step(0.001, ndl);
+      // El step apaga el especular en la cara que le da la espalda al sol; el
+      // factor de sombra lo apaga dentro de la sombra proyectada, y encima
+      // suave -- el step solo, con la sombra ya metida en ndl, cortaría el
+      // brillo de golpe en el filo.
+      float esp = pow(max(dot(N, H), 0.0), dureza) * ${f2(ESPECULAR)} * (1.0 - rug) * step(0.001, ndl) * sombra;
       // Ambiente de hemisferio: la cara que mira al cielo recibe todo, la que
       // mira al suelo una parte. Nunca cero -- una calzada en sombra tiene que
       // seguir enseñando su PCI.
       float cielo = 0.5 + 0.5 * N.y;
-      float ambiente = ${f2(AMBIENTE)} * mix(${f2(AMB_SUELO)}, 1.0, cielo) * aoBache;
-      vec3 luz = asf * (ambiente + ${f2(SOL_DIF)} * ndl) * ${f2(NIVEL_CERCA)} + esp;
+      vec3 luz = asf * luzVia(ndl, cielo, aoBache) + esp;
 
       base = mix(base, luz, cerca);
     }

@@ -5,7 +5,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { makeEnuFrame } from '../data/enu'
 import { metrosPorPixel } from './roadStyle'
 import { materialRelieve, type UniformsRelieve } from './terrainShader'
-import { direccionSol } from './sol'
+import { direccionSol, CASCADA_CERCA } from './sol'
 import { CacheTeselas } from './demTiles'
 import { CacheImagenes, Z_MAX_IMG } from './imagenTeselas'
 import { seleccionar, clave, ERROR_PX, type Nodo } from './quadtree'
@@ -227,6 +227,13 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     })
     c.updateFrustums()
     sesgar(c)
+    // La calzada no pasa por el chunk de CSM (es un LineMaterial parcheado a
+    // mano) y necesita muestrear este mismo shadow map para no salir a pleno
+    // sol dentro de la sombra del relieve. Se le pone nombre a la cascada más
+    // cercana y Roads.tsx la busca con scene.getObjectByName -- el mismo patrón
+    // con el que este archivo busca el <SunLight> de takram, y sin acoplar los
+    // dos componentes.
+    c.lights[0].name = CASCADA_CERCA
     csm.current = c
     return () => {
       csm.current = null

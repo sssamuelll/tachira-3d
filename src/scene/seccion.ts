@@ -27,9 +27,10 @@ import type { Way } from '../data/types'
 import { nivelDe } from './roadStyle'
 import { marcasPermitidas, PEATONALES } from './calzada'
 import { SELECCION } from '../data/constants'
-import {
-  ASFALTO_DESDE_PX, ASFALTO_HASTA_PX, AMBIENTE, SOL_DIF, AMB_SUELO, NIVEL_CERCA,
-} from './asfalto'
+// Solo los umbrales de fundido: el reparto de luz ya no se copia acá, se llama
+// (luzVia y sombraSol viven en ASFALTO_GLSL, que el pase de relleno inyecta
+// antes que SECCION_GLSL -- roadsShader.ts).
+import { ASFALTO_DESDE_PX, ASFALTO_HASTA_PX } from './asfalto'
 
 export type Seccion = 'hombrillo' | 'brocal' | 'ninguna'
 
@@ -261,14 +262,22 @@ export const SECCION_CUERPO_GLSL = `
       // azul con su brocal gris se lee como dos objetos.
       tinte = mix(tinte, ${vec3Lit(SELECCION)}, selected);
 
-      // La misma luz que el asfalto (AMBIENTE, SOL_DIF, AMB_SUELO, NIVEL_CERCA
-      // salen de asfalto.ts) pero SIN especular: ni la grava ni el concreto
-      // seco tienen lustre. Si los dos no promediaran el mismo brillo, la
-      // franja daría un salto de exposición contra la calzada.
+      // La misma luz que el asfalto -- literalmente la misma función, luzVia()
+      // de asfalto.ts, que normaliza la exposición al sol de este cuadro --
+      // pero SIN especular: ni la grava ni el concreto seco tienen lustre. Si
+      // los dos no promediaran el mismo brillo, la franja daría un salto de
+      // exposición contra la calzada, y a cualquier hora que no fuera la que se
+      // calibró a mano lo daba.
+      //
+      // Y con la MISMA sombra proyectada: la franja está pegada a la calzada,
+      // así que si una se oscurece dentro de la sombra de la montaña y la otra
+      // no, el filo de la sombra se parte en el borde de la vía. Es un segundo
+      // tap del shadow map por fragmento, y solo en las vías que llegan a
+      // enseñar hombrillo o brocal (este if); hoistarlo fuera costaría el tap
+      // también a vista de estado, con las 26.712 vías en pantalla.
       vec3 Nf = normalSeccion(vTerrW, vDirW, t, vCalzadaPx * vMpp, vBordeM);
       float cielo = 0.5 + 0.5 * Nf.y;
-      float luzF = (${f2(AMBIENTE)} * mix(${f2(AMB_SUELO)}, 1.0, cielo)
-                  + ${f2(SOL_DIF)} * max(dot(Nf, uSol), 0.0)) * ${f2(NIVEL_CERCA)};
+      float luzF = luzVia(max(dot(Nf, uSol), 0.0) * sombraSol(vPosW, Nf), cielo, 1.0);
       vec3 franja = tinte * val * luzF;
       base = mix(base * ao, franja, fuera * apaga);
     }
