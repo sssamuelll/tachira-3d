@@ -244,6 +244,50 @@ test('la tapa de arranque no se dibuja: la junta la remata la tapa final del tra
   }
 })
 
+test('los encuentros limitan la tapa y su textura, también en picking, sin alterar el shader común', () => {
+  for (const casing of [false, true]) {
+    const m = new LineMaterial()
+    patchLineMaterial(m, {} as DataTexture, 164, casing, undefined, 'base')
+    const s = realShader(m)
+    ;(m as any).onBeforeCompile(s)
+    expect(s.vertexShader).toContain('attribute vec2 aLimites;')
+    expect(s.vertexShader).toContain('min( hw, aLimites.y )')
+    expect(s.vertexShader).toContain('vDist += avanceTapa;')
+    expect(s.fragmentShader).toContain('if ( vUv.y < -1.0 ) discard;')
+    expect(s.fragmentShader).not.toContain('pesoJunta')
+  }
+  const p = new LineMaterial()
+  patchPickMaterial(p, true)
+  const s = realShader(p)
+  ;(p as any).onBeforeCompile(s)
+  expect(s.vertexShader).toContain('min( hw, aLimites.y )')
+  expect(extrusionGlsl(false)).not.toContain('aLimites')
+})
+
+test('la superficie de junta cubre bordes interiores con asfalto y conserva su iluminación y lluvia', () => {
+  const m = new LineMaterial()
+  patchLineMaterial(m, {} as DataTexture, 164, false, undefined, 'superficie')
+  const s = realShader(m)
+  ;(m as any).onBeforeCompile(s)
+  expect(s.vertexShader).toContain('attribute vec4 aZonaJunta;')
+  expect(s.fragmentShader).toContain('pesoJunta')
+  // Descarta fuera del asfalto ANTES de sus samplers. No se recorta la
+  // sección del pase base: sigue debajo, completa, incluso en las curvas.
+  expect(s.fragmentShader.indexOf('if ( radioAsfalto >= 1.0 ) discard;'))
+    .toBeLessThan(s.fragmentShader.indexOf('texture2D(uAlbedo'))
+  expect(s.fragmentShader).not.toContain('float flecha')
+  expect(s.fragmentShader).not.toContain('vec3 franja =')
+  expect(s.fragmentShader).toContain('vec3 normalSeccion')
+  expect(s.fragmentShader).toContain('sombraSol(vPosW, Ng)')
+  expect(s.fragmentShader).toContain('uMojado')
+  // La superposición sólo trabaja sobre base opaca: nunca acumula el alpha
+  // de las vías fuera del foco ni de un nivel que se está desvaneciendo.
+  expect(s.fragmentShader).toContain('if ( alpha < 0.999 ) discard;')
+  const base = new LineMaterial()
+  patchLineMaterial(base, {} as DataTexture, 164)
+  expect(m.customProgramCacheKey()).not.toBe(base.customProgramCacheKey())
+})
+
 test('las flechas de sentido se pintan solo en sentido único y hacia vDist creciente', () => {
   const material = new LineMaterial()
   patchLineMaterial(material, {} as DataTexture, 164)
