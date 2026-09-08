@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { makeEnuFrame, geodeticToEnu, enuToGeodetic } from './lib/enu.mjs'
+import { verifyRoadStructures } from './lib/verify-structures.mjs'
 
 const OUT = 'public/data'
 const failures = []
@@ -68,20 +69,45 @@ check(draped / meta.ways.length >= 0.5,
   `vías con km3d > km: ${draped} de ${meta.ways.length} (${(draped / meta.ways.length * 100).toFixed(1)}%, umbral >= 50%)`)
 check(inverted.length === 0, `vías con km3d menor que km: ${inverted.length}`)
 
+// 7a. El contrato del binario y las cotas de estructuras se comprueban sobre
+// disco. Una rasante redrapeada puede conservar ambos estribos: por eso se
+// contrasta cada vértice interior con la cadena completa, no solo sus puntas.
+let roadData = null
+try {
+  const [posBuf, idsBuf, idxBuf, nrmBuf, structureText] = await Promise.all([
+    readFile(`${OUT}/roads-pos.bin`), readFile(`${OUT}/roads-segid.bin`),
+    readFile(`${OUT}/roads-index.bin`), readFile(`${OUT}/roads-nrm.bin`),
+    readFile(`${OUT}/roads-structures.json`, 'utf8'),
+  ])
+  const typed = (Type, buffer) => {
+    if (buffer.byteLength % Type.BYTES_PER_ELEMENT !== 0) throw new Error('binario truncado entre valores')
+    return new Type(buffer.buffer, buffer.byteOffset, buffer.byteLength / Type.BYTES_PER_ELEMENT)
+  }
+  const positions = typed(Float32Array, posBuf), segIds = typed(Float32Array, idsBuf)
+  const index = typed(Uint32Array, idxBuf), normals = typed(Int8Array, nrmBuf)
+  const report = JSON.parse(structureText)
+  const verified = verifyRoadStructures({ meta, positions, segIds, index, normals, report, frame })
+  for (const c of verified.checks) check(c.ok, c.message)
+  console.log(`  --   puentes con penetración del DEM declarada: ${verified.stats.penetratingWays}; ` +
+    `${report.excludedWays?.length ?? 0} excluidos de la interpolación (diagnóstico, no error de empaquetado)`)
+  if (verified.checks.filter(c => c.code === 'binary-layout' || c.code === 'finite-positions').every(c => c.ok)) {
+    roadData = { positions, index }
+  }
+} catch (error) {
+  check(false, `no se pudo verificar el binario o el informe de estructuras: ${error.message}`)
+}
+
 // 7b. el tallado del DEM sirvió: la red estructurante no sube como una escalera.
 // Una troncal venezolana no pasa del 8 % de pendiente; el DEM Terrarium de
 // ~38 m por post no lo sabe, y antes del tallado (scripts/lib/carving.mjs)
 // una de cada nueve de sus tramos salía a más del 15 % y el percentil 99
 // estaba en 35,5 %. Con el tallado: 8,9 % de p90, 22,4 % de p99 y 2,7 % de
-// tramos sobre el 15 %. El umbral de 30 % deja sitio para los puentes y
-// túneles, que a propósito NO tallan y siguen la garganta que cruzan.
+// tramos sobre el 15 %. Se conserva el umbral de 30 % como guarda de la red:
+// los puentes ahora interpolan sus estribos y los túneles no aportan segmentos.
 // Se mide sobre lo que de verdad se dibuja (roads-pos.bin), no sobre el DEM:
 // es la misma superficie y ya está en disco.
-{
-  const posBuf = await readFile(`${OUT}/roads-pos.bin`)
-  const idxBuf = await readFile(`${OUT}/roads-index.bin`)
-  const pos = new Float32Array(posBuf.buffer, posBuf.byteOffset, posBuf.byteLength / 4)
-  const index = new Uint32Array(idxBuf.buffer, idxBuf.byteOffset, idxBuf.byteLength / 4)
+if (roadData) {
+  const { positions: pos, index } = roadData
   const ESTRUCTURANTE = new Set(['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link'])
   const p = []
   for (let i = 0; i < meta.ways.length; i++) {

@@ -14,6 +14,11 @@ export interface Way {
   // true = circula en el orden de los nodos: el pipeline invierte las vías
   // con oneway=-1 al empaquetar (scripts/lib/road-meta.mjs, orientar).
   oneway?: boolean | null
+  // Tags OSM originales: un valor no nulo puede ser "no" explícito.
+  bridge?: string | null
+  tunnel?: string | null
+  // Orden relativo OSM; no representa una altura en metros.
+  layer?: number | null
   tipo: Tipo
   municipio: string | null
   km: number

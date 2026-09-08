@@ -10,6 +10,7 @@ import { alturaTriangulo, normalTriangulo } from './lib/drape.mjs'
 import { tallar } from './lib/carving.mjs'
 import { stateMask } from './lib/state-mask.mjs'
 import { escribirPiramide } from './lib/dem-tiles.mjs'
+import { encadenarPuentes, elevarPuentes, esTunel, normalesTablero, layerDe } from './lib/structures.mjs'
 
 const BBOX = { s: 7.3612911, w: -72.4878225, n: 8.6826552, e: -71.3153029 }
 const ORIGIN = { lat: 8.021973, lon: -71.901563, h: 0 }
@@ -41,6 +42,11 @@ async function main () {
 
   console.log('2/9  vías')
   const lines = waysToLines(await overpass(QUERY_VIAS, 'vias'))
+  // Guardar la topología OSM antes de invertir o insertar coordenadas:
+  // los nodos compartidos distinguen continuidad de un cruce a otro nivel.
+  const topologyT0 = performance.now()
+  const topology = encadenarPuentes(lines)
+  const topologyTimingMs = performance.now() - topologyT0
   // Un oneway=-1 circula contra el orden de sus nodos: se invierte acá, para
   // que en el frontend "sentido único" signifique siempre "hacia el final".
   for (const l of lines) l.coords = subdividir(orientar(l.coords, l.tags.oneway))
@@ -68,6 +74,15 @@ async function main () {
   console.log(`     ${talla.vias} vías talladas · ${talla.posts} posts movidos ` +
               `(${(talla.posts / (dem.width * dem.height) * 100).toFixed(1)} % de la rejilla) · ` +
               `${((Date.now() - t0) / 1000).toFixed(1)} s`)
+
+  console.log('3c/9 cota propia de puentes encadenados')
+  const alturaDe = (lon, lat) => alturaTriangulo(dem, lon, lat)
+  const structureT0 = performance.now()
+  const structures = elevarPuentes(topology, alturaDe)
+  const structureTimingMs = performance.now() - structureT0
+  console.log(`     ${structures.byWay.size} vías con perfil de tablero · ` +
+              `${(structureTimingMs / 1000).toFixed(3)} s ` +
+              `(topología ${(topologyTimingMs / 1000).toFixed(3)} s)`)
 
   console.log('4/9  municipio por punto medio')
   // Un tramo que cruza límite cae en uno solo. Cortar en el límite duplicaría
@@ -113,18 +128,25 @@ async function main () {
   // partidos a 30 m ningún tramo cruza por debajo de ella. La normal del
   // triángulo inclina la calzada con la ladera (roadsShader.ts).
   let vertices = 0
-  const alturaDe = (lon, lat) => alturaTriangulo(dem, lon, lat)
   for (const l of lines) {
     // Los tramos que aún se aparten del relieve más de 20 cm se parten por
     // bisección: un tramo recto entre dos puntos apoyados cruza por debajo de
     // una arista convexa del DEM, y 20 cm es la alza mínima con la que el
     // navegador dibuja la calzada (ALZA_MIN_M, roadsShader.ts).
-    l.coords = apoyar(l.coords, alturaDe)
-    const heights = l.coords.map(([lon, lat]) => alturaDe(lon, lat))
-    l.nrm = l.coords.map(([lon, lat]) => normalTriangulo(dem, frame, lon, lat))
+    l.hidden = esTunel(l.tags)
+    const perfil = structures.byWay.get(l.osmId)
+    // Un tablero conserva sus vértices a <=30 m: partirlo contra el valle
+    // volvería a imponer el terreno que precisamente está cruzando.
+    if (!perfil && !l.hidden) l.coords = apoyar(l.coords, alturaDe)
+    // El túnel no se dibuja. Su km3d conserva una estimación drapeada del
+    // inventario, sin afirmar que el DEM mida su trazado subterráneo; tampoco
+    // necesita bisección ni normales para una superficie que no se empaqueta.
+    const heights = perfil?.heights ?? l.coords.map(([lon, lat]) => alturaDe(lon, lat))
     l.km = lineLengthMeters(l.coords) / 1000
     l.km3d = lineLength3dMeters(l.coords, heights) / 1000
     l.enu = l.coords.map(([lon, lat], i) => geodeticToEnu(frame, lat, lon, heights[i]))
+    if (perfil) l.nrmTramos = normalesTablero(l.enu, l.coords, frame)
+    else if (!l.hidden) l.nrm = l.coords.map(([lon, lat]) => normalTriangulo(dem, frame, lon, lat))
     vertices += l.coords.length
   }
   console.log(`     ${vertices} vértices en total`)
@@ -148,12 +170,28 @@ async function main () {
       surface: l.tags.surface ?? null,
       lanes: normalizeLanes(l.tags.lanes),
       oneway: normalizeOneway(l.tags.oneway),
+      // Solo tags presentes: tres null por cada vía añadían 1,09 MB al JSON
+      // que descarga el navegador, aunque solo unos cientos los necesitan.
+      ...(l.tags.bridge === undefined ? {} : { bridge: l.tags.bridge }),
+      ...(l.tags.tunnel === undefined ? {} : { tunnel: l.tags.tunnel }),
+      ...(l.tags.layer === undefined ? {} : { layer: layerDe(l.tags) }),
       tipo: SURFACE_A_TIPO[l.tags.surface] ?? 'sin_definir',
       municipio: l.municipio,
       km: +l.km.toFixed(4),
       km3d: +l.km3d.toFixed(4),
     })),
   }))
+  await writeFile(`${OUT}/roads-structures.json`, JSON.stringify({
+    ...structures.report,
+    tunnels: lines.filter(l => esTunel(l.tags)).map(l => ({
+      osmId: l.osmId, tunnel: l.tags.tunnel, km: l.km, km3d: l.km3d,
+    })),
+    tunnelLengthMethod: 'draped-dem-statistic-only',
+    timingMs: structureTimingMs,
+    topologyTimingMs,
+    segmentCount: packed.segmentCount,
+    wayCount: lines.length,
+  }, null, 2))
 
   console.log('8/9  terreno')
   const grid = downsample(dem, GRID, GRID)

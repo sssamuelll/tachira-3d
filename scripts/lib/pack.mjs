@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 
 export function packRoads (lines) {
   let segmentCount = 0
-  for (const l of lines) segmentCount += Math.max(0, l.enu.length - 1)
+  for (const l of lines) if (!l.hidden) segmentCount += Math.max(0, l.enu.length - 1)
 
   const positions = new Float32Array(segmentCount * 6)
   const segIds = new Float32Array(segmentCount)
@@ -17,6 +17,9 @@ export function packRoads (lines) {
   let s = 0
   for (let i = 0; i < lines.length; i++) {
     index[i] = s
+    // El túnel conserva su way/id y metadatos, pero no aporta superficie ni
+    // picking: el siguiente índice CSR puede ser igual al anterior.
+    if (lines[i].hidden) continue
     const pts = lines[i].enu
     const normales = lines[i].nrm
     for (let k = 1; k < pts.length; k++) {
@@ -25,7 +28,9 @@ export function packRoads (lines) {
       const o = s * 6
       positions[o]     = e1; positions[o + 1] = u1; positions[o + 2] = -n1
       positions[o + 3] = e2; positions[o + 4] = u2; positions[o + 5] = -n2
-      const na = normales?.[k - 1] ?? VERTICAL, nb = normales?.[k] ?? VERTICAL
+      const tramo = lines[i].nrmTramos?.[k - 1]
+      const na = tramo?.[0] ?? normales?.[k - 1] ?? VERTICAL
+      const nb = tramo?.[1] ?? normales?.[k] ?? VERTICAL
       for (let c = 0; c < 3; c++) { nrm[o + c] = Math.round(na[c] * 127); nrm[o + 3 + c] = Math.round(nb[c] * 127) }
       segIds[s] = i
       s++

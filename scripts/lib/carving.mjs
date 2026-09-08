@@ -71,9 +71,10 @@ export function anchoCalzadaTags (tags) {
 
 /**
  * Un puente no aplana el río y un túnel no abre una zanja en la cima: las
- * vías con `bridge` o `tunnel` en OSM NO tallan el terreno. Se quedan como
- * están — apoyadas sobre el relieve, igual que hoy —, que es lo que el
- * pipeline sabe hacer hoy; darles cota propia (pilas, gálibo) es otra tarea.
+ * vías con `bridge` o `tunnel` en OSM NO tallan el terreno. Después del
+ * tallado, structures.mjs da rasante propia a los puentes encadenados y el
+ * empaquetado omite la geometría visible de los túneles. Las piezas 3D y
+ * sus pilas se construyen aparte; la rasante no se ajusta a esas piezas.
  * Un `bridge=no` explícito sí talla: es un dato que dice que ahí no hay puente.
  */
 export const tallaTerreno = tags =>

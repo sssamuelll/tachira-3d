@@ -28,6 +28,23 @@ test('waysToLines descarta ways sin geometria o con menos de dos nodos', () => {
   expect(waysToLines(json)).toHaveLength(0)
 })
 
+test('waysToLines conserva los nodos OSM para distinguir conexión de coincidencia en planta', () => {
+  const geometry = [{ lat: 8, lon: -72 }, { lat: 8.1, lon: -72.1 }]
+  const ways = waysToLines({ elements: [
+    { type: 'way', id: 1, nodes: [10, 20], geometry },
+    { type: 'way', id: 2, nodes: [30, 40], geometry },
+  ] })
+  expect(ways[0].coords).toEqual(ways[1].coords)
+  expect(ways.map(w => w.nodes)).toEqual([[10, 20], [30, 40]])
+})
+
+test('waysToLines deja null si Overpass no entrega los nodos', () => {
+  const [way] = waysToLines({ elements: [{
+    type: 'way', id: 1, geometry: [{ lat: 8, lon: -72 }, { lat: 8.1, lon: -72.1 }],
+  }] })
+  expect(way.nodes).toBeNull()
+})
+
 // A partir de aquí: los municipios reales del Táchira traen la frontera partida
 // en varios `way` con role=outer (29/29 relaciones en el dato real, hasta 68
 // fragmentos en una sola). assembleRings es lo que los encadena.

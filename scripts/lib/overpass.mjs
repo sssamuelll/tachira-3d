@@ -47,6 +47,9 @@ export function waysToLines (json) {
     .map(el => ({
       osmId: el.id,
       tags: el.tags ?? {},
+      // La topología de puentes se resuelve antes de orientar/subdividir:
+      // compartir coordenadas no implica compartir un nodo a distinto nivel.
+      nodes: Array.isArray(el.nodes) ? el.nodes : null,
       coords: el.geometry.map(g => [g.lon, g.lat]),
     }))
 }
