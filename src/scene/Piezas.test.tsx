@@ -41,8 +41,11 @@ function modelo () {
 async function setup (piezas: readonly Pieza[] = PIEZAS, pending = false) {
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(45, 1, 1, 100000)
-  const p = enuOf(piezas[0].lat, piezas[0].lon)
-  const target = p.clone().setY(600)
+  // El suelo del fixture se expresa como una COTA (600 m) proyectada por enuOf,
+  // no como un Y literal: en ENU la vertical incluye la curvatura, asi que un
+  // 600 fijo deja de caer sobre el terreno en cuanto la pieza cambia de sitio.
+  const target = enuOf(piezas[0].lat, piezas[0].lon, 600)
+  const cota = target.y
   camera.position.copy(target).add(new THREE.Vector3(0, 400, 400))
   camera.lookAt(target)
   const csm = new CSM({ camera, parent: scene, cascades: 3 })
@@ -77,8 +80,14 @@ async function setup (piezas: readonly Pieza[] = PIEZAS, pending = false) {
   }
   await vi.waitFor(() => expect(GLTFLoader.prototype.parseAsync).toHaveBeenCalledTimes(piezas.length))
   const frame = (time = 1) => { hooks.frame!({ clock: { elapsedTime: time } }) }
-  const ready = () => { scene.userData.terrainReady = new Set(['15/9809/15674']) }
-  return { scene, camera, target, csm, terrain, ground, root, models, frame, ready,
+  // La tesela se deriva de lo que el componente pide, no de una clave escrita a
+  // mano: mover una pieza en el manifiesto no debe romper estos tests. Hace
+  // falta un cuadro previo, porque la peticion no existe hasta que corre uno.
+  const ready = () => {
+    if (!scene.userData.piezasDem?.size) frame(-1)
+    scene.userData.terrainReady = new Set(scene.userData.piezasDem ?? [])
+  }
+  return { scene, camera, target, cota, csm, terrain, ground, root, models, frame, ready,
     resolveParse: async () => { resolveParse({ scene: models[0].group }); await new Promise(resolve => setTimeout(resolve, 0)) } }
 }
 
@@ -88,14 +97,14 @@ describe('piezas GLB sobre el mapa', () => {
     app.frame()
     const piece = app.root.children[0]
     expect(piece.visible).toBe(false)
-    expect([...app.scene.userData.piezasDem]).toEqual(['15/9809/15674'])
+    expect([...app.scene.userData.piezasDem]).toHaveLength(1)
     app.ready()
     app.frame(2)
     expect(piece.visible).toBe(true)
     const [lat, lon] = geoOf(piece.position)
-    expect(lat).toBeCloseTo(7.77382, 9)
-    expect(lon).toBeCloseTo(-72.22917, 9)
-    expect(piece.position.y).toBeCloseTo(600, 6)
+    expect(lat).toBeCloseTo(PIEZAS[0].lat, 9)
+    expect(lon).toBeCloseTo(PIEZAS[0].lon, 9)
+    expect(piece.position.y).toBeCloseTo(app.cota, 6)
     expect(piece.scale.toArray()).toEqual([1, 1, 1])
     expect(piece.userData['representación']).toBe('generada')
     expect(app.models[0].mesh.castShadow).toBe(true)
@@ -111,9 +120,9 @@ describe('piezas GLB sobre el mapa', () => {
     const piece = app.root.children[0]
     expect(piece.visible).toBe(true)
     const [lat, lon] = geoOf(piece.position)
-    expect(lat).toBeCloseTo(7.77382, 9)
-    expect(lon).toBeCloseTo(-72.22917, 9)
-    const y = 600 + (piece.position.x - app.target.x) * Math.tan(0.25)
+    expect(lat).toBeCloseTo(PIEZAS[0].lat, 9)
+    expect(lon).toBeCloseTo(PIEZAS[0].lon, 9)
+    const y = app.cota + (piece.position.x - app.target.x) * Math.tan(0.25)
     expect(piece.position.y).toBeCloseTo(y, 3)
   })
 
@@ -125,20 +134,21 @@ describe('piezas GLB sobre el mapa', () => {
     app.terrain.add(parent)
     app.ready(); app.frame()
     const piece = app.root.children[0]
-    expect(piece.position.y).toBeCloseTo(600)
+    expect(piece.position.y).toBeCloseTo(app.cota)
     app.scene.userData.terrainReady.clear()
     app.frame(2)
     expect(piece.visible).toBe(false)
-    app.ground.position.y = 650
+    app.ground.position.y = app.cota + 50
     app.ready(); app.frame(3)
     expect(piece.visible).toBe(true)
-    expect(piece.position.y).toBeCloseTo(650)
+    expect(piece.position.y).toBeCloseTo(app.cota + 50)
   })
 
   it('no repite el raycast vertical en cuadros estables', async () => {
     const app = await setup()
+    app.ready()
     const raycast = vi.spyOn(app.ground, 'raycast')
-    app.ready(); app.frame()
+    app.frame()
     // Un rayo central compartido para mpp y dos de apoyo para conservar lat/lon.
     const first = raycast.mock.calls.length
     expect(first).toBe(3)
