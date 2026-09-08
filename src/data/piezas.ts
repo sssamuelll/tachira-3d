@@ -41,4 +41,22 @@ export const PIEZAS: readonly Pieza[] = [
     rumbo: 80,
     representación: 'generada',
   },
+  // Los dos viaductos van SIN rumbo: su directriz es la geometría real de OSM,
+  // ya orientada. Girarlos la estropearía.
+  {
+    id: 'way/1203013290',
+    nombre: 'Viaducto Viejo',
+    lat: 7.76271285,
+    lon: -72.23427815,
+    glb: '/data/piezas/viaducto-viejo.glb',
+    representación: 'generada',
+  },
+  {
+    id: 'way/74534876',
+    nombre: 'Viaducto Nuevo',
+    lat: 7.76432975,
+    lon: -72.2206145,
+    glb: '/data/piezas/viaducto-nuevo.glb',
+    representación: 'generada',
+  },
 ]
