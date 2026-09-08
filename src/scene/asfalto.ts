@@ -24,6 +24,7 @@
 //    24 m y en una calle de 5, y no se estira en las curvas.
 
 import * as THREE from 'three'
+import { contactoGLSL } from './buildingShadows'
 import { bacheCuerpoGlsl } from './mojado'
 
 /** Los tres mapas, en `public/texturas/asfalto/`. Fuente y licencia en el
@@ -241,6 +242,7 @@ const f2 = (n: number) => n.toFixed(2)
  * multiplicaciones pequeñas y no tiene ese acantilado.
  */
 export const ASFALTO_GLSL = `
+  ${contactoGLSL}
   const vec3 LUMA = vec3(0.299, 0.587, 0.114);
   const float MEDIA_LIN = ${f2(MEDIA_LIN)};
   const float AMBIENTE = ${f2(AMBIENTE)};
@@ -639,6 +641,7 @@ ${bacheCuerpoGlsl(BACHE_TASA, GRIETA_M)}
       // una lámpara. Ng es la normal de la sección, la misma con la que se
       // sesga el punto de comparación.
       float sombra = sombraSol(vPosW, Ng);
+      sombra *= sombraEdificios(vPosW);
 
       ${ANCLA_MOJADO}
 

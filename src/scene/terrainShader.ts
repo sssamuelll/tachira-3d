@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { parcharContacto } from './buildingShadows'
 
 /**
  * El relieve dejó de ser un ShaderMaterial propio y pasó a ser un
@@ -189,6 +190,7 @@ export function materialRelieve (o: OpcionesRelieve): THREE.MeshStandardMaterial
   const previo = material.onBeforeCompile.bind(material)
   material.onBeforeCompile = (shader, renderer) => {
     previo(shader, renderer)
+    parcharContacto(shader)
     Object.assign(shader.uniforms, uniforms)
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${declVert}`)

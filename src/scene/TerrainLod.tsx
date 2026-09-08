@@ -11,6 +11,7 @@ import { CacheImagenes, Z_MAX_IMG } from './imagenTeselas'
 import { seleccionar, clave, ERROR_PX, type Nodo } from './quadtree'
 import { geometriaNodo, raices, ventana } from './nodoTerreno'
 import { stateMask } from './stateMask'
+import { ancestrosEdificios, coberturaEdificios, errorMallaEdificios } from './buildingTerrain'
 import type { TerrainMeta, Municipio } from '../data/types'
 
 // Resolución de la máscara del estado: la misma rejilla de 1024² con la que
@@ -200,6 +201,8 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
 
   // Nodo -> malla armada (visible o no), en orden de uso para la LRU.
   const mallas = useMemo(() => new Map<string, { mesh: THREE.Mesh; caja: THREE.Box3 }>(), [])
+  const nodosPorCaja = useMemo(() => new WeakMap<THREE.Box3, Nodo>(), [])
+  const demandaEdificios = useRef(new Set<string>())
 
   // Las cascadas. Nacen y mueren en el MISMO efecto, y con ellas todas las
   // mallas armadas: CSM.dispose() le borra onBeforeCompile a cada material
@@ -235,8 +238,11 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     // dos componentes.
     c.lights[0].name = CASCADA_CERCA
     csm.current = c
+    scene.userData.csm = c
     return () => {
       csm.current = null
+      if (scene.userData.csm === c) delete scene.userData.csm
+      delete scene.userData.terrainReady
       for (const m of mallas.values()) {
         grupo.current?.remove(m.mesh)
         m.mesh.geometry.dispose()
@@ -299,6 +305,13 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
       ? e[clave(n)] ?? null
       : (e[clave({ z: 14, x: n.x >> (n.z - 14), y: n.y >> (n.z - 14) })] == null ? null : 0)
     if (geo == null) return null
+    const demanda = demandaEdificios.current
+    if (n.z < 15 && demanda.has(clave(n))) return Infinity
+    // Emisores fuera del encuadre necesitan suelo exacto, pero no foto fina.
+    if (n.z >= 15 && demanda.has(clave({ z: 15, x: n.x >> (n.z - 15), y: n.y >> (n.z - 15) }))) {
+      const caja = mallas.get(clave(n))?.caja
+      if (!caja || !frustum.intersectsBox(caja)) return 0
+    }
     return imagen ? Math.max(geo, errorImagen(n)) : geo
   }
   const teselaDe = (n: Nodo) => { const w = ventana(n, meta.dem); return cache.get(w.zt, w.xt, w.yt) }
@@ -306,7 +319,10 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     const k = clave(n)
     let m = mallas.get(k)
     if (!m) {
-      const { geometry, caja } = geometriaNodo(n, teselaDe(n)!, meta.dem, frame, errorDe(n) ?? 0, meta.bbox)
+      // Infinity es una orden de refinamiento, nunca un error de la malla:
+      // usarlo para el faldón produciría vértices con Y=-Infinity.
+      const errorMalla = errorMallaEdificios(n, errores.current)
+      const { geometry, caja } = geometriaNodo(n, teselaDe(n)!, meta.dem, frame, errorMalla, meta.bbox)
       const mesh = new THREE.Mesh(geometry, materialNodo())
       const errorGeo = n.z <= 14 ? errores.current?.[k] ?? 0 : 0
       if (errorGeo > 0) {
@@ -319,7 +335,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
         )
       }
       mesh.frustumCulled = false     // el quadtree ya recorta por su caja
-      // El relieve es lo único que proyecta sombra y lo único que la recibe.
+      // Relieve y edificios proyectan y reciben sombra.
       // Las vías no proyectan: son líneas pegadas al terreno, su sombra sería
       // la del propio asfalto sobre sí mismo, y meterlas en tres pases más de
       // sombra costaría cientos de miles de segmentos por cuadro.
@@ -333,6 +349,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
       mesh.visible = false
       grupo.current!.add(mesh)
       m = { mesh, caja }
+      nodosPorCaja.set(caja, n)
     } else {
       mallas.delete(k)               // al final del Map: recién usada
     }
@@ -364,14 +381,21 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     c.update()
     m4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
     frustum.setFromProjectionMatrix(m4)
+    demandaEdificios.current = ancestrosEdificios(scene.userData.edificiosDem ?? new Set<string>())
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 45
     const sel = seleccionar(nodosRaiz, {
       // A vista oblicua el suelo bajo la cámara cae fuera del frustum, pero
       // Vista necesita esa hoja para el límite vertical, incluso paneando.
-      intersecta: c => frustum.intersectsBox(c) || (
-        camera.position.x >= c.min.x && camera.position.x <= c.max.x &&
-        camera.position.z >= c.min.z && camera.position.z <= c.max.z
-      ),
+      intersecta: c => {
+        const n = nodosPorCaja.get(c)
+        const paraEdificio = n && demandaEdificios.current.has(clave(n.z <= 15 ? n : {
+          z: 15, x: n.x >> (n.z - 15), y: n.y >> (n.z - 15),
+        }))
+        return !!paraEdificio || frustum.intersectsBox(c) || (
+          camera.position.x >= c.min.x && camera.position.x <= c.max.x &&
+          camera.position.z >= c.min.z && camera.position.z <= c.max.z
+        )
+      },
       posicion: camera.position,
       mpp: d => metrosPorPixel(d, fov, size.height),
     }, {
@@ -381,9 +405,13 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
       caja: cajaDe,
     }, imagen ? Z_MAX_IMG : Z_MAX_RELIEVE)
     const visibles = new Set(sel.map(clave))
+    scene.userData.terrainReady = coberturaEdificios(sel)
     for (const [k, m] of mallas) {
       const v = visibles.has(k)
       m.mesh.visible = v
+      // Las hojas solicitadas solo como suelo de emisores fuera de pantalla
+      // se recortan también por cada cámara de render/sombra.
+      m.mesh.frustumCulled = !frustum.intersectsBox(m.caja)
       // Solo proyecta sombra lo que cae dentro del alcance de las cascadas.
       // Sin este corte las mallas entran en los tres shadow maps AUNQUE queden
       // fuera de su cámara ortográfica: frustumCulled está en false (el
@@ -400,7 +428,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     for (const n of sel) {
       const u = (mallas.get(clave(n))!.mesh.material as THREE.Material).userData.uniforms as UniformsRelieve
       if (!imagen) { u.uImagen.value = 0; continue }
-      imgs.pedir(n.z, n.x, n.y)
+      if (frustum.intersectsBox(mallas.get(clave(n))!.caja)) imgs.pedir(n.z, n.x, n.y)
       const mejor = imgs.mejor(n)
       if (!mejor) { u.uImagen.value = 0; continue }
       u.uImg.value = mejor.tex

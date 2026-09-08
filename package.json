@@ -11,6 +11,7 @@
     "dev": "vite",
     "build": "vite build",
     "data": "node scripts/build-data.mjs",
+    "edificios": "node scripts/build-buildings.mjs",
     "img": "node scripts/bake-img.mjs",
     "verify": "node scripts/verify-data.mjs"
   },
@@ -23,6 +24,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "jpeg-js": "^0.4.4",
     "pngjs": "^7.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",

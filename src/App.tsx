@@ -4,6 +4,8 @@ import { OrbitControls } from '@react-three/drei'
 import { Sky } from './scene/Sky'
 import { TerrainLod } from './scene/TerrainLod'
 import { Roads } from './scene/Roads'
+import { Buildings } from './scene/Buildings'
+import { SombrasEdificios } from './scene/SombrasEdificios'
 import { fechaDeEscena } from './scene/sol'
 import { FlyTo, Vista, bboxCenterAndSpan, idsCenterAndSpan, type Encuadre, type ApiVista } from './scene/Camera'
 import { usePicking } from './scene/PickingPass'
@@ -163,6 +165,8 @@ export default function App () {
   // puede pisar con ?hora= para mirar el mapa a otra altura de sol (sol.ts,
   // fechaDeEscena).
   const [date] = useState(() => fechaDeEscena(location.search))
+  // Comparación visual/performance con el mismo sol, sin nueva interfaz.
+  const [edificios] = useState(() => new URLSearchParams(location.search).get('edificios') !== '0')
   const [objetivo, setObjetivo] = useState<Encuadre | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [lassoOn, setLassoOn] = useState(false)
@@ -436,6 +440,8 @@ export default function App () {
         <Suspense fallback={null}>
           <Sky date={date} />
           <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen} date={date} />
+          {edificios && <Buildings />}
+          {edificios && <SombrasEdificios date={date} />}
           {attr && (
             <Roads
               positions={data.positions} segIds={data.segIds} index={data.index}

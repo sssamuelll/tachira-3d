@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { uniformesContacto } from './buildingShadows'
 import { PCI_RANGES, SIN_EVALUAR, SELECCION, CASING, CASING_SUAVE, FUENTES } from '../data/constants'
 import { ERROR_PX } from './quadtree'
 import {
@@ -506,6 +507,7 @@ export function patchLineMaterial (
     shader.uniforms.uSombraSesgo = { value: 0 }
     shader.uniforms.uSombraOn = { value: 0 }
 
+    Object.assign(shader.uniforms, uniformesContacto)
     material.userData.uniforms = shader.uniforms
 
     if (!shader.vertexShader.includes(ANCLA_VERT)) {
