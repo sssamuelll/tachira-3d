@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   NIVELES, NIVEL_POR_DEFECTO, CLASES_CONOCIDAS, nivelDe, metrosPorPixel,
-  presencia, repartirPorNivel, mppCorte, cortePorSegmento, porSegmento, SIN_CORTE,
+  presencia, repartirPorNivel, mppCorte, cortePorSegmento, porSegmento, SIN_CORTE, ordenCapa,
 } from './roadStyle'
 import roadsJson from '../../public/data/roads-meta.json'
 import type { RoadsMeta, Way } from '../data/types'
@@ -289,6 +289,49 @@ describe('repartirPorNivel', () => {
     const por = Object.fromEntries(tandas.map(t => [NIVELES[t.nivel].clave, t.segIds.length]))
     expect(por).toEqual({ troncal: 3, local: 1, peatonal: 3 })  // motorway+trunk juntos
     expect(tandas.every(t => t.positions.length === t.segIds.length * 6)).toBe(true)
+  })
+
+  it('el subconjunto de juntas conserva posiciones, fase y límites del pase base', () => {
+    const juntas = { limites: new Float32Array(14).fill(1e9), zonas: new Float32Array(28), niveles: new Uint8Array(7), nodos: 1 }
+    juntas.limites[3] = 0
+    juntas.zonas.set([0, 15, 0, 0], 4) // segundo segmento de la primera vía
+    const base = repartirPorNivel(positions, segIds, index, red, [], undefined, juntas)
+    const union = repartirPorNivel(positions, segIds, index, red, [], undefined, juntas, true)
+    expect(union).toHaveLength(1)
+    expect([...union[0].segIds]).toEqual([11])
+    const troncal = base.find(t => t.nivel === 6)!
+    expect([...union[0].positions]).toEqual([...troncal.positions.slice(6, 12)])
+    expect(union[0].d0[0]).toBe(troncal.d0[1])
+    expect(union[0].d1[0]).toBe(troncal.d1[1])
+    expect([...union[0].limites!]).toEqual([1e9, 0])
+    expect([...union[0].zonas!]).toEqual([0, 15, 0, 0])
+    expect(troncal.zonas).toBeUndefined() // no 4 floats nuevos en la red completa
+  })
+
+  it('la superficie de un brazo menor se agrupa con la receptora, sin promover vías ajenas', () => {
+    const juntas = { limites: new Float32Array(14).fill(1e9), zonas: new Float32Array(28), niveles: new Uint8Array(7), nodos: 1 }
+    juntas.zonas.set([0, 10, 0, 0], 2 * 4) // la residential
+    juntas.niveles[2] = 4 // llega a una secundaria
+    const union = repartirPorNivel(positions, segIds, index, red, [], undefined, juntas, true)
+    expect(union).toHaveLength(1)
+    expect(union[0].nivel).toBe(4)
+    expect([...union[0].segIds]).toEqual([12])
+    expect([...union[0].estilos!]).toEqual([
+      Math.fround(NIVELES[2].pisoPx), NIVELES[2].desvanece!.lleno, NIVELES[2].desvanece!.tenue,
+    ])
+    // Las motorway/trunk ajenas siguen fuera de la superficie de esta junta.
+    expect(union[0].positions).toEqual(positions.slice(12, 18))
+  })
+
+  it('la unión respeta la jerarquía entre participantes y respecto a vías ajenas', () => {
+    const juntas = { limites: new Float32Array(14).fill(1e9), zonas: new Float32Array(28), niveles: new Uint8Array(7).fill(6), nodos: 1 }
+    juntas.zonas.set([0, 10, 0, 0], 4) // motorway
+    juntas.zonas.set([0, 10, 0, 0], 8) // residential
+    const union = repartirPorNivel(positions, segIds, index, red, [], undefined, juntas, true)
+    expect([...union[0].segIds]).toEqual([12, 11]) // menor debajo de receptora
+    expect(ordenCapa(4, 'union')).toBeGreaterThan(ordenCapa(4, 'relleno'))
+    expect(ordenCapa(4, 'union')).toBeLessThan(ordenCapa(5, 'contorno'))
+    expect(ordenCapa(2, 'union')).toBeLessThan(ordenCapa(6, 'relleno'))
   })
 
   it('reparte la red real completa sin perder segmentos', () => {

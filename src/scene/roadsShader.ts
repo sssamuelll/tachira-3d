@@ -4,7 +4,7 @@ import { PCI_RANGES, SIN_EVALUAR, SELECCION, CASING, CASING_SUAVE, FUENTES } fro
 import { ERROR_PX } from './quadtree'
 import {
   ASFALTO_GLSL, ASFALTO_UNIFORMS_GLSL, ASFALTO_CUERPO_GLSL, SOL_POR_DEFECTO,
-  PINTURA_GASTE, ANCLA_MOJADO, type Asfalto,
+  PINTURA_GASTE, ANCLA_MOJADO, ASFALTO_DESDE_PX, ASFALTO_HASTA_PX, type Asfalto,
 } from './asfalto'
 import {
   MOJADO_GLSL, MOJADO_UNIFORMS_GLSL, MOJADO_CUERPO_GLSL, MOJADO_LAMINA_GLSL,
@@ -87,7 +87,7 @@ export const ALZA_MIN_M = 0.25
  * `attribute vec3 instanceNormalStart;`, `attribute vec3 instanceNormalEnd;` y
  * `uniform float uPisoPx;`.
  */
-export function extrusionGlsl (casing: boolean, colofon = ''): string {
+export function extrusionGlsl (casing: boolean, colofon = '', limitarTapas = false, pisoPx = 'uPisoPx'): string {
   return `
         vec4 eje = ( position.y < 0.5 ) ? start : end;
         vec3 largo = end.xyz - start.xyz;
@@ -108,7 +108,7 @@ export function extrusionGlsl (casing: boolean, colofon = ''): string {
         // un solo error: medido, no supuesto.
         vec3 ladoV = normalize( cross( dirV, terrV ) );
         float mppV = max( -eje.z, 1e-3 ) * 2.0 / ( projectionMatrix[1][1] * resolution.y );
-        float anchoBase = max( aCalzada, uPisoPx * mppV );${SECCION_ANCHO_GLSL}
+        float anchoBase = max( aCalzada, ${pisoPx} * mppV );${SECCION_ANCHO_GLSL}
         float anchoM = ${casing
           ? `anchoTot + min( ${CASING_MAX.toFixed(1)}, ${CASING_REL.toFixed(1)} * anchoTot / mppV ) * mppV;`
           : 'anchoTot;'}
@@ -120,8 +120,14 @@ export function extrusionGlsl (casing: boolean, colofon = ''): string {
         // (d²·6e-9 m: a 108 km son 70 m contra 216 m de alza); y de cerca
         // cubre el hundimiento que el pipeline deja entre dos puntos apoyados.
         eje.xyz += terrV * max( ${ERROR_PX.toFixed(1)} * mppV, ${ALZA_MIN_M.toFixed(2)} ) + ladoV * ( hw * position.x );
-        if ( position.y < 0.0 ) eje.xyz -= dirV * hw;
-        else if ( position.y > 1.0 ) eje.xyz += dirV * hw;
+        ${limitarTapas ? `// Sólo cambia la tapa que alcanzaría un cruce. Lejos conserva el
+        // ancho cartográfico y, sin vecino, min(hw, 1e9) es hw exacto.
+        float detalleJunta = smoothstep( ${ASFALTO_DESDE_PX.toFixed(1)}, ${ASFALTO_HASTA_PX.toFixed(1)}, aCalzada / mppV );
+        float avanceTapa = 0.0;
+        if ( position.y < 0.0 ) avanceTapa = -mix( hw, min( hw, aLimites.x ), detalleJunta );
+        else if ( position.y > 1.0 ) avanceTapa = mix( hw, min( hw, aLimites.y ), detalleJunta );
+        eje.xyz += dirV * avanceTapa;` : `if ( position.y < 0.0 ) eje.xyz -= dirV * hw;
+        else if ( position.y > 1.0 ) eje.xyz += dirV * hw;`}
         // Cada vértice con SU profundidad, sin el ajuste al eje que three hace
         // en su modo worldUnits ( clip.z = ndc.z * clip.w ). Ese ajuste es para
         // una cinta que mira a la cámara; en una calzada inclinada con la
@@ -449,7 +455,10 @@ const SELECCION_CASING: [number, number, number] =
 export function patchLineMaterial (
   material: THREE.Material, attrTexture: THREE.DataTexture, attrSize: number,
   casing = false, asfalto?: Asfalto,
+  encuentro: 'ninguno' | 'base' | 'superficie' = 'ninguno',
 ) {
+  const limitarTapas = encuentro !== 'ninguno'
+  const superficie = encuentro === 'superficie'
   // three cachea los programas compilados por una clave que NO mira lo que
   // hace onBeforeCompile: dos materiales con los mismos parámetros comparten
   // programa aunque inyecten GLSL distinto. Contorno y relleno se construyen
@@ -457,7 +466,7 @@ export function patchLineMaterial (
   // segundo hereda el shader del primero -- y como el contorno se crea antes,
   // las 26.712 vías salían pintadas de gris oscuro, sin color de PCI en
   // ninguna. Falla en silencio: compila, dibuja, y solo se ve mirando el mapa.
-  material.customProgramCacheKey = () => (casing ? 'vias:contorno' : 'vias:relleno')
+  material.customProgramCacheKey = () => (casing ? 'vias:contorno' : 'vias:relleno') + ':' + encuentro
 
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uAttr = { value: attrTexture }
@@ -468,6 +477,7 @@ export function patchLineMaterial (
     // cámara (m/px, anchos) ya no viaja como uniform: lo calcula el vertex
     // shader por vértice (extrusionGlsl).
     shader.uniforms.uPisoPx = { value: 1 }
+    if (superficie) shader.uniforms.uMppFuente = { value: 0 }
 
     // Los tres mapas del asfalto (asfalto.ts). Van con `value: null` si nadie
     // los pasó: WebGL muestrea negro sobre un sampler sin textura, no da
@@ -514,7 +524,10 @@ export function patchLineMaterial (
       throw new Error('roadsShader: no se encontró el ancla del vertex shader de LineMaterial')
     }
     shader.vertexShader = parcharExtrusion(
-      shader.vertexShader.replace(ANCLA_VERT, ATTR_VERT_GLSL),
+      shader.vertexShader.replace(ANCLA_VERT, `${limitarTapas ? 'attribute vec2 aLimites;' : ''}
+        ${superficie ? `attribute vec4 aZonaJunta; varying vec4 vZonaJunta;
+        attribute vec3 aEstiloJunta; uniform float uMppFuente; varying float vPresenciaFuente;` : ''}
+        ${ATTR_VERT_GLSL}`),
       extrusionGlsl(casing, `
         // Lo que el fragment necesita en píxeles, a la profundidad de ESTE
         // vértice. La calzada es siempre la del relleno, también cuando se
@@ -553,7 +566,13 @@ export function patchLineMaterial (
         //
         // La tapa se alarga hw metros sobre dirV (más abajo), así que la
         // distancia crece exactamente hw a lo largo de ella.
-        vDist += hw * ( position.y < 0.0 ? position.y : ( position.y > 1.0 ? position.y - 1.0 : 0.0 ) );
+        ${limitarTapas ? 'vDist += avanceTapa;' : 'vDist += hw * ( position.y < 0.0 ? position.y : ( position.y > 1.0 ? position.y - 1.0 : 0.0 ) );'}
+        ${superficie ? `float localJunta = vDist - instanceDistanceStart;
+        vPresenciaFuente = aEstiloJunta.z > 0.0
+          ? clamp((aEstiloJunta.z - uMppFuente) / (aEstiloJunta.z - aEstiloJunta.y), 0.0, 1.0) : 1.0;
+        float largoJunta = instanceDistanceEnd - instanceDistanceStart;
+        vZonaJunta = vec4( aZonaJunta.x + localJunta, aZonaJunta.y,
+                          aZonaJunta.z + largoJunta - localJunta, aZonaJunta.w );` : ''}
         // De cámara a MUNDO. dirV, ladoV y terrV están en espacio de cámara;
         // en GLSL \`v * M\` es \`M^T * v\`, y para una cámara sin escala la
         // traspuesta de la rotación de viewMatrix ES su inversa. La posición
@@ -562,7 +581,7 @@ export function patchLineMaterial (
         // vértice, contra una inverse(mat4) que costaría veinte veces más.
         vDirW = dirV * mat3( viewMatrix );
         vTerrW = terrV * mat3( viewMatrix );
-        vPosW = ( eje.xyz - viewMatrix[3].xyz ) * mat3( viewMatrix );`),
+        vPosW = ( eje.xyz - viewMatrix[3].xyz ) * mat3( viewMatrix );`, limitarTapas, superficie ? 'aEstiloJunta.x' : 'uPisoPx'),
     )
 
     // Mismo patrón que el vertex shader arriba: cada ancla se comprueba antes
@@ -589,6 +608,7 @@ export function patchLineMaterial (
         varying vec3 vDirW;
         varying vec3 vTerrW;
         varying vec3 vPosW;
+        ${superficie ? 'varying vec4 vZonaJunta; varying float vPresenciaFuente;' : ''}
         ${PCI_COLOR_GLSL}
         ${MARCAS_GLSL}
         ${casing ? '' : ASFALTO_UNIFORMS_GLSL + MOJADO_UNIFORMS_GLSL + ASFALTO_GLSL + MOJADO_GLSL + SECCION_GLSL}
@@ -634,6 +654,17 @@ export function patchLineMaterial (
         // Lo seleccionado sale del sistema de opacidades: va sólido pase lo
         // que pase, incluso fuera de foco. Es lo que estás a punto de editar.
         alpha *= mix(mix(${FUERA_DE_FOCO}, 1.0, enfoque), 1.0, selected);
+        ${superficie ? `// La base debe ser opaca: superponer dos capas atenuadas altera
+        // su alpha. En búsquedas se conserva el pase base para esas vías.
+        // El orden pertenece al receptor; piso y presencia siguen siendo
+        // del brazo, incluso en vistas oblicuas con profundidades distintas.
+        alpha *= vPresenciaFuente;
+        if ( alpha < 0.999 ) discard;
+        float desdeInicio = vZonaJunta.y > 0.0 ? 1.0 - smoothstep(vZonaJunta.y, 1.5 * vZonaJunta.y, vZonaJunta.x) : 0.0;
+        float desdeFin = vZonaJunta.w > 0.0 ? 1.0 - smoothstep(vZonaJunta.w, 1.5 * vZonaJunta.w, vZonaJunta.z) : 0.0;
+        float pesoJunta = max(desdeInicio, desdeFin) * smoothstep(${ASFALTO_DESDE_PX.toFixed(1)}, ${ASFALTO_HASTA_PX.toFixed(1)}, vCalzadaPx);
+        if ( pesoJunta <= 0.0 ) discard;
+        alpha *= pesoJunta;` : ''}
 
         // Coordenada transversal de la CALZADA: -1 a +1 sobre el asfalto real,
         // sea cual sea el ancho que se extruyó. Ya no hay banda de nivel que
@@ -644,6 +675,12 @@ export function patchLineMaterial (
         // calzada. El asfalto y las marcas están escritas sobre [-1, 1] y no se
         // tocan; |t| > 1 es la franja de seccion.ts.
         float t = vUv.x * (1.0 + 2.0 * abs(vBordeM) / max(vCalzadaM, 1e-6));
+        ${superficie ? `// Unión de las superficies de ASFALTO. La sección completa queda
+        // en el pase base: sólo se cubre donde hay calzada de algún brazo.
+        float radioAsfalto = abs(vUv.y) > 1.0
+          ? length(vec2(t, (abs(vUv.y) - 1.0) * vAnchoPx / max(vCalzadaPx, 1e-6))) : abs(t);
+        if ( radioAsfalto >= 1.0 ) discard;
+        alpha *= 1.0 - smoothstep(1.0 - 2.0 / max(vCalzadaPx, 1.0), 1.0, radioAsfalto);` : ''}
         // Antialiasing del filo, también en las tapas redondas: three descarta
         // fuera del círculo a secas, y a 400 px de ancho el escalón se nota en
         // cada final de vía.
@@ -658,9 +695,9 @@ export function patchLineMaterial (
         vec3 base = mix(mix(${vec3Lit(CASING_SUAVE)}, ${vec3Lit(CASING)}, confianza), ${vec3Lit(SELECCION_CASING)}, selected);`
           : `vec3 base = mix(pciColor(pci), ${vec3Lit(SELECCION)}, selected);
         ${ASFALTO_CUERPO_GLSL.replace(ANCLA_MOJADO, MOJADO_CUERPO_GLSL)}
-        ${MARCAS_CUERPO_GLSL}
+        ${superficie ? '' : MARCAS_CUERPO_GLSL}
         ${MOJADO_LAMINA_GLSL}
-        ${SECCION_CUERPO_GLSL}`}
+        ${superficie ? '' : SECCION_CUERPO_GLSL}`}
         vec4 diffuseColor = vec4( base, alpha );
       `)
   }

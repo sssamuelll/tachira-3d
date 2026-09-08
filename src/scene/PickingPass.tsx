@@ -68,7 +68,7 @@ const OCLUSOR_ABAJO = 250
  * depender de ello. El corte sí, porque sale del mismo sitio que el pase
  * visible y de nada más -- `uMpp` contra el `aCorte` de cada segmento, los dos
  * definidos en roadStyle.ts. */
-export function patchPickMaterial (material: THREE.Material) {
+export function patchPickMaterial (material: THREE.Material, limitarTapas = false) {
   // LineMaterial es un ShaderMaterial: `uniforms` existe desde la construcción
   // y el programa se enlaza por nombre al dibujar. Declararlo acá y no dentro
   // de onBeforeCompile (que corre en el primer render, DESPUÉS de que render()
@@ -82,7 +82,7 @@ export function patchPickMaterial (material: THREE.Material) {
   // visible en transparent/depthWrite, así que por casualidad no colisiona --
   // pero que el id buffer salga correcto no puede depender de una casualidad
   // de flags que cualquiera puede igualar sin darse cuenta.
-  material.customProgramCacheKey = () => 'vias:picking'
+  material.customProgramCacheKey = () => 'vias:picking' + (limitarTapas ? ':juntas' : '')
 
   material.onBeforeCompile = (shader) => {
     if (!shader.vertexShader.includes(ANCLA_VERT)) {
@@ -93,6 +93,7 @@ export function patchPickMaterial (material: THREE.Material) {
         attribute float segId;
         attribute float aCorte;
         attribute float aCalzada;
+        ${limitarTapas ? 'attribute vec2 aLimites;' : ''}
         // El hombrillo o el brocal de la vía (seccion.ts). Va acá porque el
         // bloque de extrusión es el mismo que el del pase visible: si el id
         // buffer no ensanchara igual, el clic sobre el hombrillo no
@@ -111,7 +112,7 @@ export function patchPickMaterial (material: THREE.Material) {
       // se puede tocar, también de cerca. El piso es PICK_WIDTH, no el del
       // nivel: el área de acierto de una vía fina a lo lejos sigue siendo
       // generosa.
-      extrusionGlsl(false),
+      extrusionGlsl(false, '', limitarTapas),
     )
     if (!shader.fragmentShader.includes(ANCLA_VERT)) {
       throw new Error('PickingPass: no se encontró el ancla de void main() en el fragment shader de LineMaterial')
@@ -145,8 +146,9 @@ export function patchPickMaterial (material: THREE.Material) {
 }
 
 export function usePicking (
-  { positions, segIds, ways, index, normals }: {
+  { positions, segIds, ways, index, normals, limites }: {
     positions: Float32Array; segIds: Float32Array; ways: Way[]; index: Uint32Array; normals: Int8Array
+    limites: Float32Array
   },
 ) {
   const { gl, scene, camera, size, controls } = useThree()
@@ -163,19 +165,20 @@ export function usePicking (
     geometry.setAttribute('aCorte', new THREE.InstancedBufferAttribute(cortePorSegmento(ways, index), 1))
     geometry.setAttribute('aCalzada', new THREE.InstancedBufferAttribute(porSegmento(ways, index, anchoCalzada), 1))
     geometry.setAttribute('aBorde', new THREE.InstancedBufferAttribute(porSegmento(ways, index, bordeDe), 1))
+    geometry.setAttribute('aLimites', new THREE.InstancedBufferAttribute(limites, 2))
     // La misma normal del terreno que el pase visible: la extrusión es la
     // misma fórmula, y lo que se dibuja se puede tocar.
     const nrmBuf = new THREE.InstancedInterleavedBuffer(normals, 6, 1)
     geometry.setAttribute('instanceNormalStart', new THREE.InterleavedBufferAttribute(nrmBuf, 3, 0, true))
     geometry.setAttribute('instanceNormalEnd', new THREE.InterleavedBufferAttribute(nrmBuf, 3, 3, true))
     const material = new LineMaterial({ worldUnits: false })
-    patchPickMaterial(material)
+    patchPickMaterial(material, true)
     const pickLine = new LineSegments2(geometry, material)
     pickLine.frustumCulled = false     // el bbox de una geometría instanciada no es fiable (Roads.tsx)
     const pickScene = new THREE.Scene()
     pickScene.add(pickLine)
     return { pickScene, pickLine }
-  }, [positions, segIds, ways, index, normals])
+  }, [positions, segIds, ways, index, normals, limites])
 
   // Render target sin antialiasing ni mipmaps: un texel debe decodificar a un
   // id exacto, no a un promedio entre vecinos. Se crea una sola vez;

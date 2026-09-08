@@ -45,15 +45,16 @@ const UMBRAL_CLIC_PX = 5
 // (LassoOverlay.tsx) sin ningún padre común en el árbol de React salvo App --
 // el ref es el único puente entre los dos.
 function Picker (
-  { positions, segIds, ways, index, normals, onPick, pickerRef }:
+  { positions, segIds, ways, index, normals, limites, onPick, pickerRef }:
   {
     positions: Float32Array; segIds: Float32Array
     ways: Way[]; index: Uint32Array; normals: Int8Array
+    limites: Float32Array
     onPick: (i: number | null, add: boolean) => void
     pickerRef: RefObject<PickerApi | null>
   },
 ) {
-  const { pickAt, pickRegion } = usePicking({ positions, segIds, ways, index, normals })
+  const { pickAt, pickRegion } = usePicking({ positions, segIds, ways, index, normals, limites })
   const { gl } = useThree()
 
   useEffect(() => { pickerRef.current = { pickAt, pickRegion } }, [pickerRef, pickAt, pickRegion])
@@ -448,12 +449,13 @@ export default function App () {
             <Roads
               positions={data.positions} segIds={data.segIds} index={data.index}
               ways={data.roads.ways} attr={attr} normals={data.normals} date={date}
-              lluvia={lluvia}
+              lluvia={lluvia} juntas={data.juntas}
             />
           )}
           <Picker
             positions={data.positions} segIds={data.segIds}
             ways={data.roads.ways} index={data.index} normals={data.normals}
+            limites={data.juntas.limites}
             onPick={onPick} pickerRef={pickerRef}
           />
           {/* enabled=false mientras el lazo está activo: arrastrar para dibujar

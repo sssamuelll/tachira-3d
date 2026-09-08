@@ -1,5 +1,6 @@
 import type { RoadsMeta, TerrainMeta, Municipio } from './types'
 import { ORIGIN } from './constants'
+import { prepararJuntas } from '../scene/juntas'
 
 async function getOk (path: string) {
   const res = await fetch(path)
@@ -82,6 +83,7 @@ export async function loadAll () {
     segIds,
     index,
     normals,
+    juntas: prepararJuntas(positions, index, roads.ways),
     municipios,
   }
 }

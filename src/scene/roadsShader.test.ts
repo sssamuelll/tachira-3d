@@ -270,6 +270,9 @@ test('la superficie de junta cubre bordes interiores con asfalto y conserva su i
   const s = realShader(m)
   ;(m as any).onBeforeCompile(s)
   expect(s.vertexShader).toContain('attribute vec4 aZonaJunta;')
+  expect(s.vertexShader).toContain('attribute vec3 aEstiloJunta;')
+  expect(s.vertexShader).toContain('max( aCalzada, aEstiloJunta.x * mppV )')
+  expect(s.fragmentShader).toContain('alpha *= vPresenciaFuente;')
   expect(s.fragmentShader).toContain('pesoJunta')
   // Descarta fuera del asfalto ANTES de sus samplers. No se recorta la
   // sección del pase base: sigue debajo, completa, incluso en las curvas.

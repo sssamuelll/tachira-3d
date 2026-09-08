@@ -1,4 +1,6 @@
 import type { Way } from '../data/types'
+import type { Juntas } from './juntas'
+import { marcasPermitidas } from './calzada'
 
 // Jerarquía de dibujo de la red vial. Todo lo que decide cuánto se ve una vía
 // vive acá: en qué nivel cae cada clase de OSM, qué piso en píxeles tiene a
@@ -97,6 +99,11 @@ export const NIVEL_POR_DEFECTO = 2
 
 export const nivelDe = (highway: string): number => NIVEL_DE[highway] ?? NIVEL_POR_DEFECTO
 
+/** La unión queda encima de sus participantes y debajo de jerarquías ajenas
+ * superiores. Su nivel es el máximo de los brazos, calculado en juntas.ts. */
+export const ordenCapa = (nivel: number, capa: 'contorno' | 'relleno' | 'union'): number =>
+  nivel * 2 + (capa === 'contorno' ? 0 : capa === 'relleno' ? 1 : 1.5)
+
 /** Las clases que esta tabla clasifica a propósito. Existe para que un test
  *  pueda comprobar que ninguna clase del dataset real está cayendo al nivel
  *  de reserva: `nivelDe` sola no distingue "clasificada como local" de "no
@@ -168,6 +175,11 @@ export interface Tanda {
   /** Normal del terreno en cada extremo (Int8 ×3 ×2 por segmento,
    *  roads-nrm.bin), repartida en el mismo orden que `segIds`. */
   normales: Int8Array
+  limites?: Float32Array
+  /** Sólo la tanda adicional de asfalto necesita las zonas en la GPU. */
+  zonas?: Float32Array
+  /** Piso en px y límites lleno/tenue del brazo original, no del receptor. */
+  estilos?: Float32Array
 }
 
 /**
@@ -191,13 +203,20 @@ export interface Tanda {
 export function repartirPorNivel (
   positions: Float32Array, segIds: Float32Array, index: Uint32Array, ways: Way[],
   porVia: Float32Array[] = [], normals?: Int8Array,
+  juntas?: Juntas, soloJuntas = false,
 ): Tanda[] {
   const nivel = new Uint8Array(ways.length)
   const cuenta = new Uint32Array(NIVELES.length)
+  const incluida = (s: number) => !soloJuntas || !!juntas &&
+    (juntas.zonas[s * 4 + 1] > 0 || juntas.zonas[s * 4 + 3] > 0)
+  const nivelUnion = (s: number, n: number) => Math.max(n, juntas!.niveles[s])
   for (let i = 0; i < ways.length; i++) {
     const n = nivelDe(ways[i].highway)
     nivel[i] = n
-    cuenta[n] += index[i + 1] - index[i]
+    if (!soloJuntas) cuenta[n] += index[i + 1] - index[i]
+    else if (marcasPermitidas(ways[i])) {
+      for (let s = index[i]; s < index[i + 1]; s++) if (incluida(s)) cuenta[nivelUnion(s, n)]++
+    }
   }
 
   const pos = NIVELES.map((_, n) => new Float32Array(cuenta[n] * 6))
@@ -206,26 +225,46 @@ export function repartirPorNivel (
   const d0 = NIVELES.map((_, n) => new Float32Array(cuenta[n]))
   const d1 = NIVELES.map((_, n) => new Float32Array(cuenta[n]))
   const nrm = NIVELES.map((_, n) => new Int8Array(cuenta[n] * 6))
+  const limites = juntas ? NIVELES.map((_, n) => new Float32Array(cuenta[n] * 2)) : undefined
+  const zonas = soloJuntas ? NIVELES.map((_, n) => new Float32Array(cuenta[n] * 4)) : undefined
+  const estilos = soloJuntas ? NIVELES.map((_, n) => new Float32Array(cuenta[n] * 3)) : undefined
   const k = new Uint32Array(NIVELES.length)
-  for (let i = 0; i < ways.length; i++) {
-    const n = nivel[i]
-    const p = pos[n]
+  // Dentro de una unión manda el asfalto de la receptora sobre el del brazo
+  // menor, igual que en las bases. La fase sigue reiniciándose por vía.
+  const orden = soloJuntas ? Array.from(ways.keys()).sort((a, b) => nivel[a] - nivel[b]) : undefined
+  for (let w = 0; w < ways.length; w++) {
+    const i = orden ? orden[w] : w
+    if (soloJuntas && !marcasPermitidas(ways[i])) continue
     let recorrido = 0
     for (let s = index[i]; s < index[i + 1]; s++) {
       const src = s * 6
+      const desde = recorrido
+      recorrido += Math.hypot(
+        positions[src + 3] - positions[src],
+        positions[src + 4] - positions[src + 1],
+        positions[src + 5] - positions[src + 2],
+      )
+      if (!incluida(s)) continue
+      const n = soloJuntas ? nivelUnion(s, nivel[i]) : nivel[i]
+      const p = pos[n]
       const dst = k[n] * 6
       for (let c = 0; c < 6; c++) p[dst + c] = positions[src + c]
       if (normals) for (let c = 0; c < 6; c++) nrm[n][dst + c] = normals[src + c]
       ids[n][k[n]] = segIds[s]
       // El valor es de la VÍA: todos sus segmentos se llevan el mismo.
       for (let e = 0; e < porVia.length; e++) ext[n][e][k[n]] = porVia[e][i]
-      d0[n][k[n]] = recorrido
-      recorrido += Math.hypot(
-        positions[src + 3] - positions[src],
-        positions[src + 4] - positions[src + 1],
-        positions[src + 5] - positions[src + 2],
-      )
+      d0[n][k[n]] = desde
       d1[n][k[n]] = recorrido
+      if (juntas && limites) {
+        for (let c = 0; c < 2; c++) limites[n][k[n] * 2 + c] = juntas.limites[s * 2 + c]
+        if (zonas) for (let c = 0; c < 4; c++) zonas[n][k[n] * 4 + c] = juntas.zonas[s * 4 + c]
+      }
+      if (estilos) {
+        const fuente = NIVELES[nivel[i]]
+        estilos[n][k[n] * 3] = fuente.pisoPx
+        estilos[n][k[n] * 3 + 1] = fuente.desvanece?.lleno ?? 0
+        estilos[n][k[n] * 3 + 2] = fuente.desvanece?.tenue ?? 0
+      }
       k[n]++
     }
   }
@@ -233,6 +272,7 @@ export function repartirPorNivel (
   return NIVELES
     .map((_, n) => ({
       nivel: n, positions: pos[n], segIds: ids[n], extras: ext[n], d0: d0[n], d1: d1[n], normales: nrm[n],
+      limites: limites?.[n], zonas: zonas?.[n], estilos: estilos?.[n],
     }))
     .filter(t => t.segIds.length > 0)
 }

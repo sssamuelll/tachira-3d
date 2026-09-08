@@ -5,16 +5,17 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { useThree, useFrame } from '@react-three/fiber'
 import { patchLineMaterial, SOMBRA_VACIA } from './roadsShader'
-import { TEXTURAS, TEXTURAS_BASE, type Asfalto } from './asfalto'
+import { TEXTURAS, TEXTURAS_BASE, ASFALTO_DESDE_PX, type Asfalto } from './asfalto'
 import { direccionSol, CASCADA_CERCA } from './sol'
 import { avanzarMojado } from './mojado'
-import { NIVELES, repartirPorNivel, metrosPorPixel, presencia } from './roadStyle'
+import { NIVELES, repartirPorNivel, metrosPorPixel, presencia, ordenCapa } from './roadStyle'
 import { distanciaVista } from './distanciaVista'
 import { anchoCalzada, carrilesDe, sentidoUnico, marcasPermitidas } from './calzada'
 import { bordeDe } from './seccion'
 import { ATTR_SIZE } from '../data/constants'
 import type { AttrTexture } from '../data/attrTexture'
 import type { Way } from '../data/types'
+import type { Juntas } from './juntas'
 
 // Ya no hay alza en metros desde acá: la calzada se levanta ERROR_PX píxeles
 // en el vertex shader, por vértice, y se inclina con la normal del terreno
@@ -22,7 +23,7 @@ import type { Way } from '../data/types'
 // decide cuánto refinar (quadtree.ts).
 
 export function Roads (
-  { positions, segIds, index, ways, attr, normals, date, lluvia }: {
+  { positions, segIds, index, ways, attr, normals, date, lluvia, juntas }: {
     positions: Float32Array; segIds: Float32Array; index: Uint32Array
     ways: Way[]; attr: AttrTexture
     /** Normal del terreno en cada extremo de tramo (roads-nrm.bin). */
@@ -31,6 +32,7 @@ export function Roads (
     date: Date
     /** Calzada mojada: charcos en las huellas y en los baches (mojado.ts). */
     lluvia: boolean
+    juntas: Juntas
   },
 ) {
   const { size, camera, controls, gl, scene } = useThree()
@@ -119,7 +121,11 @@ export function Roads (
     return [anchos, canales, bordes]
   }, [ways])
 
-  const objetos = useMemo(() => repartirPorNivel(positions, segIds, index, ways, porVia, normals).map(t => {
+  const objetos = useMemo(() => [
+    ...repartirPorNivel(positions, segIds, index, ways, porVia, normals, juntas),
+    ...repartirPorNivel(positions, segIds, index, ways, porVia, normals, juntas, true),
+  ].map(t => {
+    const superficie = !!t.zonas
     const geometry = new LineSegmentsGeometry()
     geometry.setPositions(t.positions)
     geometry.setAttribute('segId', new THREE.InstancedBufferAttribute(t.segIds, 1))
@@ -131,6 +137,9 @@ export function Roads (
     geometry.setAttribute('aCalzada', new THREE.InstancedBufferAttribute(t.extras[0], 1))
     geometry.setAttribute('aCanales', new THREE.InstancedBufferAttribute(t.extras[1], 1))
     geometry.setAttribute('aBorde', new THREE.InstancedBufferAttribute(t.extras[2], 1))
+    geometry.setAttribute('aLimites', new THREE.InstancedBufferAttribute(t.limites!, 2))
+    if (t.zonas) geometry.setAttribute('aZonaJunta', new THREE.InstancedBufferAttribute(t.zonas, 4))
+    if (t.estilos) geometry.setAttribute('aEstiloJunta', new THREE.InstancedBufferAttribute(t.estilos, 3))
     // La distancia recorrida a lo largo del trazo le da fase a las rayas
     // discontinuas. Se ponen a mano con los nombres que usa el modo dash de
     // LineMaterial, pero SIN activarlo: ese modo trae su propio patrón y
@@ -140,7 +149,7 @@ export function Roads (
 
     // Contorno y relleno comparten la MISMA geometría (no una copia): son el
     // mismo trazo dibujado dos veces con otro ancho y otro color.
-    const capas = [true, false].map(casing => {
+    const capas = (superficie ? [false] : [true, false]).map(casing => {
       // worldUnits: false a propósito, aunque el ancho vaya en metros: el
       // parche sustituye el bloque de pantalla de three, no activa su modo de
       // mundo (roadsShader.ts, extrusionGlsl).
@@ -148,29 +157,38 @@ export function Roads (
       // El asfalto solo va al relleno: el contorno es un borde oscuro de unos
       // píxeles, no una superficie, y texturizarlo serían tres samplers y un
       // Voronoi por fragmento para pintar el mismo gris.
-      patchLineMaterial(material, attr.texture, ATTR_SIZE, casing, casing ? undefined : asfalto)
+      patchLineMaterial(material, attr.texture, ATTR_SIZE, casing, casing ? undefined : asfalto,
+        superficie ? 'superficie' : 'base')
       const linea = new LineSegments2(geometry, material)
       // Todos los contornos de un nivel van antes que sus rellenos, y un nivel
       // entero antes que el siguiente: así una troncal cruza una calle con su
       // propio borde limpio, en vez de que la calle le pise el color. Sin
       // esto, three ordena los transparentes por distancia a la cámara y el
       // orden cambia solo al orbitar.
-      linea.renderOrder = t.nivel * 2 + (casing ? 0 : 1)
+      linea.renderOrder = ordenCapa(t.nivel, superficie ? 'union' : casing ? 'contorno' : 'relleno')
       // El bbox de una geometría instanciada no es fiable, y esto cubre el
       // estado entero de todos modos (mismo criterio que Terrain.tsx).
       linea.frustumCulled = false
       return { material, linea }
     })
 
-    return { nivel: NIVELES[t.nivel], casing: capas[0], relleno: capas[1] }
-  }), [positions, segIds, index, ways, attr, porVia, normals, asfalto])
+    let anchoMax = 0
+    if (superficie) for (const ancho of t.extras[0]) anchoMax = Math.max(anchoMax, ancho)
+    return { nivel: NIVELES[t.nivel], capas, superficie, anchoMax, geometry }
+  }), [positions, segIds, index, ways, attr, porVia, normals, asfalto, juntas])
+
+  useEffect(() => () => {
+    for (const o of objetos) {
+      o.geometry.dispose()
+      for (const c of o.capas) c.material.dispose()
+    }
+  }, [objetos])
 
   // El vertex shader necesita el alto del lienzo para convertir el piso en
   // píxeles a metros en cada vértice (roadsShader.ts).
   useEffect(() => {
     for (const o of objetos) {
-      o.casing.material.resolution.set(size.width, size.height)
-      o.relleno.material.resolution.set(size.width, size.height)
+      for (const c of o.capas) c.material.resolution.set(size.width, size.height)
     }
   }, [objetos, size])
 
@@ -206,21 +224,24 @@ export function Roads (
       // opacidad 0: son dos draw calls de decenas de miles de segmentos que a
       // vista de estado no aportan un solo píxel. El pase de ids descarta los
       // mismos por el mismo corte (PickingPass.tsx).
-      o.relleno.linea.visible = alpha > 0
-      o.casing.linea.visible = alpha > 0
+      // La pasada adicional no se envía a la GPU a vista de estado. Margen
+      // ×4 sobre el umbral de detalle para la parte cercana de una vista
+      // oblicua; el descarte por fragmento resuelve la transición exacta.
+      const visible = alpha > 0 && (!o.superficie || mpp < 4 * o.anchoMax / ASFALTO_DESDE_PX)
       // La opacidad del material es la base que el shader multiplica por el
       // foco y la selección (roadsShader.ts), así que el desvanecimiento por
       // acercamiento se compone con los otros dos sin tocar el GLSL.
-      o.relleno.material.opacity = alpha
-      o.casing.material.opacity = alpha
       // El ancho ya no se fija acá: lo extruye el vertex shader en metros, con
       // el piso en píxeles del nivel evaluado en cada vértice (roadsShader.ts).
       // Solo hay que decirle el piso; `resolution` ya la pone el efecto de
       // arriba.
-      for (const capa of [o.relleno, o.casing]) {
+      for (const capa of o.capas) {
+        capa.linea.visible = visible
+        capa.material.opacity = alpha
         const u = capa.material.userData.uniforms
         if (!u) continue
         u.uPisoPx.value = o.nivel.pisoPx
+        if (o.superficie) u.uMppFuente.value = mpp
         // La dirección del sol para el asfalto. uSol lo declara
         // roadsShader.ts en los dos materiales (asfalto.test.ts lo afirma);
         // alimentarlo desde acá y no desde el parche del shader es a
@@ -247,9 +268,8 @@ export function Roads (
   return (
     <group>
       {objetos.map(o => (
-        <group key={o.nivel.clave}>
-          <primitive object={o.casing.linea} />
-          <primitive object={o.relleno.linea} />
+        <group key={o.nivel.clave + (o.superficie ? '-juntas' : '')}>
+          {o.capas.map((c, i) => <primitive key={i} object={c.linea} />)}
         </group>
       ))}
     </group>
