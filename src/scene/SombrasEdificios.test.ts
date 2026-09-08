@@ -95,6 +95,74 @@ function setup ({ building = true, visible = true }: { building?: boolean; visib
 }
 
 describe('pase de profundidad de edificaciones', () => {
+  it('incluye piezas y edificios en el mismo pase usando las transformaciones de toda la jerarquía', () => {
+    const app = setup()
+    const piezas = new THREE.Group()
+    piezas.name = 'piezas'
+    piezas.position.set(100, 500, -200)
+    piezas.rotation.y = Math.PI / 2
+    const model = new THREE.Group()
+    model.position.set(4, 0, 2)
+    piezas.add(model)
+    const piece = new THREE.Mesh(app.geometry, app.source.material)
+    piece.position.set(0, 14, -6)
+    piece.castShadow = true
+    model.add(piece)
+    app.scene.add(piezas)
+
+    app.frame()
+    const pass = app.captures[0]
+    expect(app.gl.render).toHaveBeenCalledOnce()
+    expect(pass.scene.children).toHaveLength(2)
+    const proxy = pass.scene.children[1] as THREE.Mesh
+    expect(proxy.geometry).toBe(piece.geometry)
+    const position = new THREE.Vector3().setFromMatrixPosition(proxy.matrix)
+    expect(position.x).toBeCloseTo(96)
+    expect(position.y).toBeCloseTo(514)
+    expect(position.z).toBeCloseTo(-204)
+    expect(new THREE.Vector3(1, 0, 0).transformDirection(proxy.matrix).z).toBeCloseTo(-1)
+    expect(app.scene.userData.edificiosShadowStats).toMatchObject({ drawCalls: 2, triangles: 24 })
+    expect(app.scene.children).toEqual([app.group, piezas])
+
+    model.visible = false
+    app.frame()
+    expect(pass.scene.children).toHaveLength(1)
+    expect(app.scene.userData.edificiosShadowStats).toMatchObject({ drawCalls: 1, triangles: 12 })
+  })
+
+  it('descarta proxies si la pieza se oculta por LOD, por un ancestro o deja de proyectar', () => {
+    const app = setup({ building: false })
+    const ancestor = new THREE.Group()
+    const piezas = new THREE.Group()
+    piezas.name = 'piezas'
+    const piece = new THREE.Mesh(app.geometry, app.source.material)
+    piece.castShadow = true
+    piezas.add(piece)
+    ancestor.add(piezas)
+    app.scene.add(ancestor)
+    app.frame()
+    expect(app.captures).toHaveLength(1)
+    const passScene = app.captures[0].scene
+    expect(passScene.children).toHaveLength(1)
+
+    for (const hide of [
+      () => { piezas.visible = false },
+      () => { ancestor.visible = false },
+      () => { piece.castShadow = false },
+    ]) {
+      hide()
+      app.frame()
+      expect(passScene.children).toHaveLength(0)
+      expect(uniformesContacto.uContactoOn.value).toBe(0)
+      piezas.visible = ancestor.visible = piece.castShadow = true
+      app.frame()
+      expect(passScene.children).toHaveLength(1)
+    }
+    piezas.remove(piece)
+    app.frame()
+    expect(passScene.children).toHaveLength(0)
+  })
+
   it('proyecta con un proxy que comparte geometría, sin añadir luz a la escena', () => {
     const app = setup()
     app.frame()

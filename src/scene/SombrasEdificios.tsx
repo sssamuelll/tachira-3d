@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { direccionSol } from './sol'
 import { CONTACTO_PX,camaraContacto,uniformesContacto,liberarContacto } from './buildingShadows'
 
-/** Un pase de profundidad SOLO de edificios; ninguna luz direccional adicional
+/** Un pase de profundidad de edificios y piezas; ninguna luz direccional adicional
  * (CSM supone exactamente tres). Proxies comparten buffers, sin copiar vértices. */
 export function SombrasEdificios({date}:{date:Date}) {
   const {gl,scene,camera,controls}=useThree()
@@ -25,17 +25,23 @@ export function SombrasEdificios({date}:{date:Date}) {
     state.target.dispose();state.material.dispose();state.meshes.clear()
   },[state,scene])
   useFrame(()=>{
-    const group=scene.getObjectByName('edificios')
     const alive=new Set<THREE.Mesh>()
-    group?.updateWorldMatrix(true,true)
-    group?.traverseVisible(o=>{
-      const source=o as THREE.Mesh
-      if(!source.isMesh||!source.castShadow) return
-      alive.add(source)
-      let proxy=state.meshes.get(source)
-      if(!proxy){proxy=new THREE.Mesh(source.geometry,state.material);proxy.matrixAutoUpdate=false;state.meshes.set(source,proxy);state.scene.add(proxy)}
-      proxy.matrix.copy(source.matrixWorld)
-    })
+    for(const name of ['edificios','piezas']) {
+      const group=scene.getObjectByName(name)
+      if(!group) continue
+      let visible=true
+      for(let parent:THREE.Object3D|null=group;parent;parent=parent.parent) if(!parent.visible){visible=false;break}
+      if(!visible) continue
+      group.updateWorldMatrix(true,true)
+      group.traverseVisible(o=>{
+        const source=o as THREE.Mesh
+        if(!source.isMesh||!source.castShadow) return
+        alive.add(source)
+        let proxy=state.meshes.get(source)
+        if(!proxy){proxy=new THREE.Mesh(source.geometry,state.material);proxy.matrixAutoUpdate=false;state.meshes.set(source,proxy);state.scene.add(proxy)}
+        proxy.matrix.copy(source.matrixWorld)
+      })
+    }
     for(const [source,proxy] of state.meshes) if(!alive.has(source)){state.scene.remove(proxy);state.meshes.delete(source)}
     uniformesContacto.uContactoOn.value=0
     state.stats.drawCalls=0;state.stats.triangles=0

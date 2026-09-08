@@ -5,6 +5,7 @@ import { Sky } from './scene/Sky'
 import { TerrainLod } from './scene/TerrainLod'
 import { Roads } from './scene/Roads'
 import { Buildings } from './scene/Buildings'
+import { Piezas } from './scene/Piezas'
 import { SombrasEdificios } from './scene/SombrasEdificios'
 import { fechaDeEscena } from './scene/sol'
 import { FlyTo, Vista, bboxCenterAndSpan, idsCenterAndSpan, type Encuadre, type ApiVista } from './scene/Camera'
@@ -441,6 +442,7 @@ export default function App () {
           <Sky date={date} />
           <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen} date={date} />
           {edificios && <Buildings />}
+          {edificios && <Piezas />}
           {edificios && <SombrasEdificios date={date} />}
           {attr && (
             <Roads

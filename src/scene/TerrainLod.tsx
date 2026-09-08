@@ -381,7 +381,9 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     c.update()
     m4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
     frustum.setFromProjectionMatrix(m4)
-    demandaEdificios.current = ancestrosEdificios(scene.userData.edificiosDem ?? new Set<string>())
+    demandaEdificios.current = ancestrosEdificios(new Set([
+      ...(scene.userData.edificiosDem ?? []), ...(scene.userData.piezasDem ?? []),
+    ]))
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 45
     const sel = seleccionar(nodosRaiz, {
       // A vista oblicua el suelo bajo la cámara cae fuera del frustum, pero
