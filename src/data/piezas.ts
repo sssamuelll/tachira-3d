@@ -32,8 +32,8 @@ export const PIEZAS: readonly Pieza[] = [
     id: 'obelisco/ovalo',
     nombre: 'Óvalo de protección y fuentes del Obelisco',
     // Mismo emplazamiento que el monumento: rodea su base.
-    lat: 7.76864170796685,
-    lon: -72.2142234170396,
+    lat: 7.76865841602524,
+    lon: -72.21417741143414,
     glb: '/data/piezas/obelisco-ovalo.glb',
     // Samuel: el óvalo va 90° girado respecto al fuste. El monumento conserva su
     // dirección; la isla cruza. De ahí -10 + 90.

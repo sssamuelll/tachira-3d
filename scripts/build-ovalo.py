@@ -12,12 +12,12 @@ argv = sys.argv[sys.argv.index('--') + 1:]
 OUT = argv[0]
 
 # --- medidas, todas ESTIMADAS de la foto -------------------------------------
-OVALO_LARGO   = 30.0   # eje mayor de la isla, metros
-OVALO_ANCHO   = 14.0   # eje menor
+OVALO_LARGO   = 26.0   # eje mayor de la isla, metros
+OVALO_ANCHO   = 11.0   # eje menor; el hueco medido entre calzadas es 15,8 m
 BROCAL_ALTO   = 0.55   # altura del borde sobre la calzada
 BROCAL_ANCHO  = 0.45   # espesor del brocal
-FUENTE_DIAM   = 5.0    # diámetro de cada fuente
-FUENTE_SEP    = 9.5    # distancia del centro del obelisco al centro de cada fuente
+FUENTE_DIAM   = 4.2    # diámetro de cada fuente
+FUENTE_SEP    = 8.2    # distancia del centro del obelisco al centro de cada fuente
 FUENTE_HONDO  = 0.35   # profundidad del vaso bajo el borde
 LADOS         = 96     # resolución del óvalo
 
