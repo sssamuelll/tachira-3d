@@ -142,21 +142,25 @@ export const metrosPorPost = (lat, z) =>
  *
  * 1. Media móvil de ventana `ventanaM` CENTRADA y simétrica: cerca de los
  *    extremos la ventana se encoge en vez de truncarse. Así una rampa recta
- *    sale intacta (una ventana truncada la levantaría en la punta) y, sobre
- *    todo, el primer y el último punto conservan su altura del DEM: OSM parte
- *    las vías en los cruces, y dos trozos que comparten un nodo tienen que
- *    tallar la misma altura ahí.
+ *    sale intacta (una ventana truncada la levantaría en la punta). Esta
+ *    media conserva los extremos; el acotador del paso siguiente puede
+ *    moverlos cuando sus cotas requieren más pendiente de la permitida.
  * 2. Acotado de pendiente sin iterar: `lo` es la mayor función que cumple el
  *    límite por debajo del suavizado, `hi` la menor por encima (dos pasadas
  *    cada una, ida y vuelta), y el perfil es su media — que cumple el límite
  *    por ser media de dos funciones que lo cumplen, y queda centrada en vez
  *    de pegada a un lado.
+ * 3. Las anclas opcionales `[índice, altura]` fijan cotas exactas. Sus conos
+ *    inferior y superior se propagan en dos pasadas y recortan el perfil:
+ *    min/max de funciones con la misma pendiente máxima conserva el límite.
+ *    Devuelve null si las anclas son incompatibles con ese límite o inválidas.
+ *    Sin anclas conserva exactamente el comportamiento anterior.
  */
-export function perfil (h, s, pend, ventanaM = VENTANA_M) {
+export function perfil (h, s, pend, ventanaM = VENTANA_M, anclas = []) {
   const n = h.length
   const out = new Float64Array(n)
-  if (n === 0) return out
-  if (n === 1) { out[0] = h[0]; return out }
+  if (n === 0) return anclas.length ? null : out
+  if (n === 1 && anclas.length === 0) { out[0] = h[0]; return out }
 
   const pre = new Float64Array(n + 1)
   for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + h[i]
@@ -184,19 +188,51 @@ export function perfil (h, s, pend, ventanaM = VENTANA_M) {
     if (hi[i] < hi[i + 1] - d) hi[i] = hi[i + 1] - d
   }
   for (let i = 0; i < n; i++) out[i] = (lo[i] + hi[i]) / 2
+  if (anclas.length > 0) {
+    const inferior = new Float64Array(n).fill(-Infinity)
+    const superior = new Float64Array(n).fill(Infinity)
+    for (const [i, altura] of anclas) {
+      if (!Number.isInteger(i) || i < 0 || i >= n || !Number.isFinite(altura)) return null
+      inferior[i] = Math.max(inferior[i], altura)
+      superior[i] = Math.min(superior[i], altura)
+    }
+    for (let i = 1; i < n; i++) {
+      const d = pend * (s[i] - s[i - 1])
+      inferior[i] = Math.max(inferior[i], inferior[i - 1] - d)
+      superior[i] = Math.min(superior[i], superior[i - 1] + d)
+    }
+    for (let i = n - 2; i >= 0; i--) {
+      const d = pend * (s[i + 1] - s[i])
+      inferior[i] = Math.max(inferior[i], inferior[i + 1] - d)
+      superior[i] = Math.min(superior[i], superior[i + 1] + d)
+    }
+    for (let i = 0; i < n; i++) {
+      if (inferior[i] > superior[i] + EPS) return null
+      out[i] = Math.min(superior[i], Math.max(inferior[i], out[i]))
+    }
+    // El EPS anterior admite únicamente el redondeo de las pasadas; las
+    // cotas solicitadas se guardan exactas, incluso en una rampa al límite.
+    for (const [i, altura] of anclas) out[i] = altura
+  }
   return out
 }
 
 // smoothstep: 1 en el borde del corredor, 0 al final de la banda, con
 // derivada nula en los dos extremos — sin arista en el empalme.
-const desvanecer = x => 1 - x * x * (3 - 2 * x)
+export const desvanecer = x => 1 - x * x * (3 - 2 * x)
 
 /**
  * Talla las vías en `dem.data` (lo modifica en sitio). Devuelve
  * `{ vias, posts }`: cuántas vías tallaron y cuántos posts se movieron.
  *
  * Las vías llegan ya partidas a 30 m (`subdividir`), que es el paso con el
- * que se muestrea el perfil.
+ * que se muestrea el perfil. `carvingHeights` puede suministrar una rasante
+ * ya resuelta, y `carvingWeights` sus pesos longitudinales [0, 1], ambos
+ * alineados con coords. El peso interpolado multiplica el de la banda.
+ * `opts.maxHeight`, si existe, limita el relleno por post dentro del tallado;
+ * los posts fuera de su influencia permanecen intactos.
+ * `opts.posts`, un Set opcional de índices, limita escritura y acumuladores
+ * a una muestra. Usa los mismos perfiles y orden Float32 del horneado completo.
  */
 export function tallar (dem, lines, opts = {}) {
   const {
@@ -207,6 +243,7 @@ export function tallar (dem, lines, opts = {}) {
     pesoNivel = PESO_NIVEL,
     minPostsCorredor = MIN_POSTS_CORREDOR,
     minPostsBanda = MIN_POSTS_BANDA,
+    maxHeight,
   } = opts
   const W = dem.width, H = dem.height, N = W * H
 
@@ -216,9 +253,12 @@ export function tallar (dem, lines, opts = {}) {
   // la banda) y k el de su nivel. Es continua en todas partes: donde una vía
   // se apaga, su w se apaga con ella. De ahí que no haga falta decidir "quién
   // gana" con un if, que es lo que dejaría el escalón.
-  const sumW = new Float32Array(N)
-  const sumWH = new Float32Array(N)
-  const maxW = new Float32Array(N)
+  const selected = opts.posts ? [...opts.posts] : null
+  const slot = selected ? new Map(selected.map((j, i) => [j, i])) : null
+  const count = selected ? selected.length : N
+  const sumW = new Float32Array(count)
+  const sumWH = new Float32Array(count)
+  const maxW = new Float32Array(count)
 
   let vias = 0
   for (const l of lines) {
@@ -235,8 +275,7 @@ export function tallar (dem, lines, opts = {}) {
     for (let i = 1; i < c.length; i++) {
       s[i] = s[i - 1] + Math.hypot(uv[i][0] - uv[i - 1][0], uv[i][1] - uv[i - 1][1]) * mpp
     }
-    const h = uv.map(([u, v]) => alturaEnPosts(dem, u, v))
-    const z = perfil(h, s, pendienteMax[n], ventanaM)
+    const z = l.carvingHeights ?? perfil(uv.map(([u, v]) => alturaEnPosts(dem, u, v)), s, pendienteMax[n], ventanaM)
 
     const medio = Math.max(anchoCalzadaTags(l.tags) / 2 + hombrillo, minPostsCorredor * mpp)
     const banda = Math.max(transicion[n], minPostsBanda * mpp)
@@ -257,17 +296,20 @@ export function tallar (dem, lines, opts = {}) {
       for (let f = fa; f <= fb; f++) {
         const fila = f * W
         for (let cc = ca; cc <= cb; cc++) {
+          const j = fila + cc, a = slot ? slot.get(j) : j
+          if (a === undefined) continue
           let t = L2 > 0 ? ((cc - u0) * du + (f - v0) * dv) / L2 : 0
           t = t < 0 ? 0 : t > 1 ? 1 : t
           const ex = cc - (u0 + t * du), ey = f - (v0 + t * dv)
           const d = Math.sqrt(ex * ex + ey * ey) * mpp
           if (d >= medio + banda) continue
-          const w = d <= medio ? 1 : desvanecer((d - medio) / banda)
-          const j = fila + cc
+          let w = d <= medio ? 1 : desvanecer((d - medio) / banda)
+          if (l.carvingWeights) w *= l.carvingWeights[i - 1] + t * (l.carvingWeights[i] - l.carvingWeights[i - 1])
+          if (w <= 0) continue
           const wk = w * k
-          sumW[j] += wk
-          sumWH[j] += wk * (z0 + t * dz)
-          if (w > maxW[j]) maxW[j] = w
+          sumW[a] += wk
+          sumWH[a] += wk * (z0 + t * dz)
+          if (w > maxW[a]) maxW[a] = w
         }
       }
     }
@@ -275,10 +317,12 @@ export function tallar (dem, lines, opts = {}) {
   }
 
   let posts = 0
-  for (let j = 0; j < N; j++) {
-    const w = maxW[j]
+  for (let a = 0; a < count; a++) {
+    const j = selected ? selected[a] : a, w = maxW[a]
     if (w <= 0) continue
-    dem.data[j] += (sumWH[j] / sumW[j] - dem.data[j]) * w
+    dem.data[j] += (sumWH[a] / sumW[a] - dem.data[j]) * w
+    if (maxHeight) dem.data[j] = Math.min(dem.data[j],
+      maxHeight instanceof Map ? maxHeight.get(j) ?? Infinity : maxHeight[j])
     posts++
   }
   return { vias, posts }

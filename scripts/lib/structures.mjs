@@ -104,7 +104,7 @@ const distances = coords => {
  * extremos usan el DEM ya tallado, igual que las vías de acceso. No se
  * bisecciona contra el valle ni se fuerza h >= DEM: eso recrearía el drapeado.
  * La auditoría muestrea también ENTRE vértices y declara las penetraciones. */
-export function elevarPuentes (topology, alturaDe) {
+export function elevarPuentes (topology, alturaDe, endpointsByChain = new Map()) {
   const byWay = new Map(), chains = [], excludedWays = [...topology.excludedWays]
   let auditSamples = 0
   for (const chain of topology.chains) {
@@ -114,7 +114,9 @@ export function elevarPuentes (topology, alturaDe) {
     })
     const lengthM = segments.reduce((sum, e) => sum + e.s.at(-1), 0)
     const start = chain[0].from, end = chain.at(-1).to
-    const h0 = alturaDe(...start), h1 = alturaDe(...end)
+    // Los acuerdos pueden levantar un extremo; la auditoría sigue usando el DEM.
+    const anchored = endpointsByChain.get(Math.min(...chain.map(e => e.line.osmId)))
+    const h0 = anchored?.[0] ?? alturaDe(...start), h1 = anchored?.[1] ?? alturaDe(...end)
     const reason = !Number.isFinite(h0) || !Number.isFinite(h1) ? 'invalid-height'
       : !(lengthM > 0) || segments.some(e => !(e.s.at(-1) > 0)) ? 'zero-length' : null
     if (reason) {

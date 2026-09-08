@@ -11,6 +11,8 @@ import { tallar } from './lib/carving.mjs'
 import { stateMask } from './lib/state-mask.mjs'
 import { escribirPiramide } from './lib/dem-tiles.mjs'
 import { encadenarPuentes, elevarPuentes, esTunel, normalesTablero, layerDe } from './lib/structures.mjs'
+import { capturarAccesos, empalmarAccesos } from './lib/bridge-approaches.mjs'
+import { tallarAccesos } from './lib/approach-terrain.mjs'
 
 const BBOX = { s: 7.3612911, w: -72.4878225, n: 8.6826552, e: -71.3153029 }
 const ORIGIN = { lat: 8.021973, lon: -71.901563, h: 0 }
@@ -46,6 +48,7 @@ async function main () {
   // los nodos compartidos distinguen continuidad de un cruce a otro nivel.
   const topologyT0 = performance.now()
   const topology = encadenarPuentes(lines)
+  const accessTopology = capturarAccesos(lines)
   const topologyTimingMs = performance.now() - topologyT0
   // Un oneway=-1 circula contra el orden de sus nodos: se invierte acá, para
   // que en el frontend "sentido único" signifique siempre "hacia el final".
@@ -67,8 +70,7 @@ async function main () {
   //
   // Que el minimapa use el tallado es deliberado y es cosmético: es la misma
   // malla de 1024² (~130 m por celda) remuestreada por vecino más próximo, y
-  // un post movido unos metros no cambia un disco de 148 px. Tener DOS DEM
-  // en memoria para que uno de ellos no se entere sí costaría 62 MB.
+  // un post movido unos metros no cambia un disco de 148 px.
   const t0 = Date.now()
   const talla = tallar(dem, lines)
   console.log(`     ${talla.vias} vías talladas · ${talla.posts} posts movidos ` +
@@ -76,13 +78,33 @@ async function main () {
               `${((Date.now() - t0) / 1000).toFixed(1)} s`)
 
   console.log('3c/9 cota propia de puentes encadenados')
-  const alturaDe = (lon, lat) => alturaTriangulo(dem, lon, lat)
+  // Los acuerdos usan una copia estable. Adaptar su terreno después no debe
+  // redrapear las calles ajenas al acuerdo ni mover sus cotas compartidas.
+  const roadDem = { ...dem, data: dem.data.slice() }
+  const alturaDe = (lon, lat) => alturaTriangulo(roadDem, lon, lat)
   const structureT0 = performance.now()
-  const structures = elevarPuentes(topology, alturaDe)
+  let structures = elevarPuentes(topology, alturaDe)
+  const originalStructures = structures.report
   const structureTimingMs = performance.now() - structureT0
   console.log(`     ${structures.byWay.size} vías con perfil de tablero · ` +
               `${(structureTimingMs / 1000).toFixed(3)} s ` +
               `(topología ${(topologyTimingMs / 1000).toFixed(3)} s)`)
+
+  console.log('3d/9 acuerdos verticales de acceso')
+  const approaches = empalmarAccesos(lines, accessTopology, topology, structures, alturaDe)
+  structures = approaches.structures
+  approaches.report.terrain = tallarAccesos(dem, approaches.corridors, topology)
+  const fixedEnds = new Map(structures.report.chains.map(c => [c.id, c.endpoints.map(p => p[2])]))
+  structures = elevarPuentes(topology, (lon, lat) => alturaTriangulo(dem, lon, lat), fixedEnds)
+  const originalClearance = new Map(originalStructures.chains.flatMap(c => c.ways).map(w => [w.osmId, w.minClearanceM]))
+  const regressions = structures.report.chains.flatMap(c => c.ways)
+    .filter(w => w.minClearanceM < originalClearance.get(w.osmId) - 1e-7)
+  if (regressions.length) throw new Error(`Los acuerdos empeoraron el gálibo de ${regressions.length} puentes`)
+  approaches.report.clearance = { beforePenetratingWays: originalStructures.penetratingWays,
+    afterPenetratingWays: structures.report.penetratingWays, regressedWays: regressions.length }
+  console.log(`     ${approaches.report.paths.length} acuerdos · ${approaches.byWay.size} vías · ` +
+    `${approaches.report.deckChanges.length} tableros corregidos · ${approaches.report.skipped.length} casos declarados`)
+  await writeFile(`${OUT}/roads-approaches.json`, JSON.stringify(approaches.report, null, 2))
 
   console.log('4/9  municipio por punto medio')
   // Un tramo que cruza límite cae en uno solo. Cortar en el límite duplicaría
@@ -135,18 +157,24 @@ async function main () {
     // navegador dibuja la calzada (ALZA_MIN_M, roadsShader.ts).
     l.hidden = esTunel(l.tags)
     const perfil = structures.byWay.get(l.osmId)
+    const acceso = approaches.byWay.get(l.osmId)
     // Un tablero conserva sus vértices a <=30 m: partirlo contra el valle
     // volvería a imponer el terreno que precisamente está cruzando.
-    if (!perfil && !l.hidden) l.coords = apoyar(l.coords, alturaDe)
+    if (!perfil && !acceso && !l.hidden) l.coords = apoyar(l.coords, alturaDe)
     // El túnel no se dibuja. Su km3d conserva una estimación drapeada del
     // inventario, sin afirmar que el DEM mida su trazado subterráneo; tampoco
     // necesita bisección ni normales para una superficie que no se empaqueta.
-    const heights = perfil?.heights ?? l.coords.map(([lon, lat]) => alturaDe(lon, lat))
+    const heights = perfil?.heights ?? acceso?.heights ?? l.coords.map(([lon, lat]) => alturaDe(lon, lat))
     l.km = lineLengthMeters(l.coords) / 1000
     l.km3d = lineLength3dMeters(l.coords, heights) / 1000
     l.enu = l.coords.map(([lon, lat], i) => geodeticToEnu(frame, lat, lon, heights[i]))
     if (perfil) l.nrmTramos = normalesTablero(l.enu, l.coords, frame)
-    else if (!l.hidden) l.nrm = l.coords.map(([lon, lat]) => normalTriangulo(dem, frame, lon, lat))
+    else if (acceso) {
+      const ownNormals = normalesTablero(l.enu, l.coords, frame)
+      l.nrmTramos = acceso.ownSegments.map((own, i) => own ? ownNormals[i] :
+        [normalTriangulo(roadDem, frame, ...l.coords[i]), normalTriangulo(roadDem, frame, ...l.coords[i + 1])])
+    }
+    else if (!l.hidden) l.nrm = l.coords.map(([lon, lat]) => normalTriangulo(roadDem, frame, lon, lat))
     vertices += l.coords.length
   }
   console.log(`     ${vertices} vértices en total`)

@@ -40,6 +40,33 @@ const viaRecta = (tags, f = 20, c0 = 4, c1 = 43) => ({
 const ANCHO = { hombrillo: 60, transicion: [80, 80, 80, 80, 80, 80, 80] }
 
 describe('perfil', () => {
+  it('fija cota y tangente con anclas sin exceder la pendiente entre muestras', () => {
+    const h = [120, 80, 140, 90, 150, 110]
+    const s = [0, 10, 30, 70, 100, 150]
+    const z = perfil(h, s, 0.12, 150, [[0, 100], [1, 101], [5, 109]])
+    expect(z).not.toBeNull()
+    expect(z[0]).toBe(100)
+    expect(z[1]).toBe(101)
+    expect(z[5]).toBe(109)
+    for (let i = 1; i < s.length; i++) {
+      expect(Math.abs(z[i] - z[i - 1]) / (s[i] - s[i - 1])).toBeLessThanOrEqual(0.12 + 1e-9)
+    }
+  })
+
+  it('declara imposibles dos anclas que requieren exceder el límite', () => {
+    expect(perfil([0, 100], [0, 30], 0.08, 150, [[0, 0], [1, 100]])).toBeNull()
+    expect(perfil([100, 100], [0, 30], 0.08, 150, [[0, 100], [0, 101]])).toBeNull()
+  })
+
+  it('aplica también una ancla a un perfil de una sola muestra', () => {
+    expect(Array.from(perfil([80], [0], 0.12, 150, [[0, 100]]))).toEqual([100])
+  })
+
+  it('sin anclas conserva el acotado previo, incluso cuando mueve los extremos', () => {
+    expect(Array.from(perfil([0, 100], [0, 30], 0.08))).toEqual([48.8, 51.2])
+    expect(Array.from(perfil([0, 100], [0, 30], 0.08, 150, []))).toEqual([48.8, 51.2])
+  })
+
   it('acota la pendiente al límite de la clase', () => {
     // Serrucho de 20 m de amplitud cada 30 m: 66 % de pendiente cruda.
     const n = 40
@@ -76,6 +103,55 @@ describe('perfil', () => {
 })
 
 describe('tallar', () => {
+  it('talla una rasante suministrada en vez de volver a suavizar el DEM', () => {
+    const dem = ladera()
+    const via = viaRecta({ highway: 'trunk' })
+    via.carvingHeights = via.coords.map(() => 500)
+    tallar(dem, [via])
+    expect(dem.data[20 * W + 24]).toBeCloseTo(500, 4)
+  })
+
+  it('interpola el peso longitudinal y deja intacta la zona donde se apaga', () => {
+    const dem = ladera()
+    const original = ladera()
+    const via = {
+      tags: { highway: 'trunk' },
+      coords: [[lonDe(10), latDe(20)], [lonDe(14), latDe(20)]],
+      carvingHeights: [500, 500],
+      carvingWeights: [1, 0],
+    }
+    tallar(dem, [via])
+    expect(dem.data[20 * W + 10]).toBeCloseTo(500, 4)
+    expect(dem.data[20 * W + 12]).toBeCloseTo(392, 4)
+    expect(dem.data[20 * W + 14]).toBeCloseTo(original.data[20 * W + 14], 4)
+    expect(dem.data[20 * W + 16]).toBe(original.data[20 * W + 16])
+    expect(dem.data[0]).toBe(original.data[0])
+  })
+
+  it('un corredor de peso cero no modifica ningún post', () => {
+    const dem = ladera()
+    const via = viaRecta({ highway: 'trunk' })
+    via.carvingHeights = via.coords.map(() => 500)
+    via.carvingWeights = via.coords.map(() => 0)
+    const result = tallar(dem, [via])
+    expect(dem.data).toEqual(ladera().data)
+    expect(result.posts).toBe(0)
+  })
+
+  it('limita el relleno por post sin tocar posts fuera del corredor ni impedir cortes', () => {
+    const dem = ladera()
+    const maxHeight = new Float32Array(W * H).fill(300)
+    maxHeight[0] = 0
+    const via = viaRecta({ highway: 'trunk' })
+    via.carvingHeights = via.coords.map(() => 500)
+    tallar(dem, [via], { maxHeight })
+    expect(dem.data[20 * W + 24]).toBe(300)
+    expect(dem.data[0]).toBe(100)
+    via.carvingHeights.fill(200)
+    tallar(dem, [via], { maxHeight })
+    expect(dem.data[20 * W + 24]).toBeCloseTo(200, 4)
+  })
+
   it('deja el corredor plano de lado a lado', () => {
     const dem = ladera()
     tallar(dem, [viaRecta({ highway: 'trunk' })], ANCHO)
@@ -202,6 +278,25 @@ describe('tallar', () => {
     expect(r.vias).toBe(1)
     expect(r.posts).toBeGreaterThan(100)
     expect(r.posts).toBeLessThan(W * H)
+  })
+})
+
+describe('tallado de una muestra de posts', () => {
+  it('reproduce bit a bit el tallado completo en los posts pedidos y conserva el resto', () => {
+    const full = ladera(), sparse = ladera(), original = sparse.data.slice()
+    const lines = [viaRecta({ highway: 'primary' }), viaRecta({ highway: 'residential' })]
+    const posts = new Set([20 * W + 24, 21 * W + 24, 19 * W + 17, 0])
+    tallar(full, lines)
+    tallar(sparse, lines, { posts })
+    for (let j = 0; j < original.length; j++) {
+      expect(sparse.data[j]).toBe(posts.has(j) ? full.data[j] : original[j])
+    }
+  })
+
+  it('no toca el DEM si la muestra está vacía', () => {
+    const dem = ladera(), original = dem.data.slice()
+    expect(tallar(dem, [viaRecta({ highway: 'primary' })], { posts: new Set() }).posts).toBe(0)
+    expect(dem.data).toEqual(original)
   })
 })
 
