@@ -151,7 +151,7 @@ describe('piezas GLB sobre el mapa', () => {
     app.frame()
     // Un rayo central compartido para mpp y dos de apoyo para conservar lat/lon.
     const first = raycast.mock.calls.length
-    expect(first).toBe(3)
+    expect(first).toBe(1 + 2 * PIEZAS.length)
     for (let i = 1; i <= 60; i++) app.frame(1 + i / 60)
     expect(raycast.mock.calls.length - first).toBe(60)
   })
@@ -162,8 +162,8 @@ describe('piezas GLB sobre el mapa', () => {
     app.ground.raycast = vi.fn()
     for (let i = 0; i < 60; i++) app.frame(i / 60)
     expect(app.root.children[0].visible).toBe(false)
-    // 60 rayos centrales para mpp y como máximo 5 verticales fallidos.
-    expect(app.ground.raycast).toHaveBeenCalledTimes(65)
+    // 60 rayos centrales para mpp y como máximo 5 verticales fallidos por pieza.
+    expect(app.ground.raycast).toHaveBeenCalledTimes(60 + 5 * PIEZAS.length)
   })
 
   it('usa el corte mpp de edificios y deja de pedir DEM lejos de la pieza', async () => {
@@ -195,7 +195,7 @@ describe('piezas GLB sobre el mapa', () => {
     app.ready(); app.frame()
     expect(app.root.children).toHaveLength(2)
     const [first, second] = app.root.children
-    expect(first.rotation.y).toBeCloseTo(0)
+    expect(first.rotation.y).toBeCloseTo(-PIEZAS[0].rumbo! * Math.PI / 180)
     expect(new THREE.Vector3(0, 0, -1).applyEuler(second.rotation).x).toBeCloseTo(1)
     expect(app.models[1].mesh.position.y).toBe(14)
     expect(app.models[1].mesh.scale.toArray()).toEqual([1, 1, 1])

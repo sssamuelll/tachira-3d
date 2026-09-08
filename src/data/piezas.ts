@@ -22,9 +22,22 @@ export const PIEZAS: readonly Pieza[] = [
     lat: 7.76864170796685,
     lon: -72.2142234170396,
     glb: '/data/piezas/obelisco-italianos.glb',
-    // SUPUESTO: no conocemos el rumbo real. 0° conserva los ejes del GLB.
-    // Afecta a la silueta proyectada de su sombra; no es un dato levantado.
-    rumbo: 0,
+    // Samuel, que conoce el sitio: el fuste va unos 10° girado a la izquierda,
+    // ortogonal a las direcciones de la avenida. Horario desde el norte, así que
+    // a la izquierda es negativo. Sigue sin ser un rumbo levantado en campo.
+    rumbo: -10,
+    representación: 'generada',
+  },
+  {
+    id: 'obelisco/ovalo',
+    nombre: 'Óvalo de protección y fuentes del Obelisco',
+    // Mismo emplazamiento que el monumento: rodea su base.
+    lat: 7.76864170796685,
+    lon: -72.2142234170396,
+    glb: '/data/piezas/obelisco-ovalo.glb',
+    // Samuel: el óvalo va 90° girado respecto al fuste. El monumento conserva su
+    // dirección; la isla cruza. De ahí -10 + 90.
+    rumbo: 80,
     representación: 'generada',
   },
 ]
