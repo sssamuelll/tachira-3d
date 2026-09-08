@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { makeEnuFrame, geodeticToEnu, enuToGeodetic } from '../data/enu'
 import { ORIGIN } from '../data/constants'
 import { metrosPorPixel } from './roadStyle'
-import { distanciaVista } from './distanciaVista'
+import { alturaTerreno, distanciaTerreno, distanciaVista } from './distanciaVista'
 import { escalaBonita, type Escala } from '../ui/escala'
 import type { Mirilla } from '../ui/disco'
 
@@ -83,7 +83,14 @@ export function FlyTo ({ objetivo }: { objetivo: Encuadre | null }) {
     const { center, span } = objetivo
     camera.position.set(center.x, center.y + span * 0.7, center.z + span * 0.9)
     camera.updateProjectionMatrix()
-    if (controls) { controls.target.copy(center); controls.update() }
+    if (controls) {
+      controls.target.copy(center)
+      // El límite anterior pertenece al lugar del que venimos. Vista mide
+      // el suelo del encuadre nuevo antes de dibujar el siguiente cuadro.
+      controls.minDistance = RADIO_MINIMO
+      controls.update()
+      controls.dispatchEvent({ type: 'encuadre' })
+    }
     // El efecto depende de la IDENTIDAD del objeto: quien llame tiene que
     // construir un Encuadre nuevo en cada petición, incluso para volver al
     // mismo sitio. bboxCenterAndSpan e idsCenterAndSpan siempre construyen
@@ -113,6 +120,14 @@ const PASO = 2
 // completo tarda unos 250 ms: el ojo sigue el movimiento (un salto seco pierde
 // de vista dónde estabas) y el segundo clic no tiene que esperar al primero.
 const LAMBDA = 9
+
+// Deja inspeccionar a 30 m y reserva 5 m sobre el near plane (10 m).
+// El freno solo entra en los últimos 45 m de holgura: a 125 m no interviene.
+const ALTURA_MINIMA = 15
+const FRENO = 45
+// Piso propio del radio, incluso mirando al horizonte: coincide con el near
+// (10 m, App.tsx) y deja trabajar a 15 m mirando hacia abajo.
+const RADIO_MINIMO = 10
 
 // Ancho al que apunta la barra de escala. Google la dibuja de unos 60 px y
 // tenue; ésta pide 104 y va sobre pastilla blanca, porque acá el número es
@@ -154,6 +169,9 @@ export function Vista ({ api, onEscala, mirilla }: {
   const centro = useRef<THREE.Vector3 | null>(null)
   // Última escala avisada, para no repetirla.
   const escala = useRef<Escala | null>(null)
+  const anterior = useRef<{ radio: number | null; altura: number; cota: number | null; medido: boolean }>({
+    radio: null, altura: Infinity, cota: null, medido: true,
+  })
 
   useEffect(() => {
     if (!controls) return
@@ -171,9 +189,12 @@ export function Vista ({ api, onEscala, mirilla }: {
     // esto distingue "lo movió él" de "lo estoy moviendo yo". Sin esto, la
     // animación sigue tirando de la cámara contra la mano.
     const soltar = () => { destino.current = null; centro.current = null }
+    const encuadrar = () => { soltar(); anterior.current.radio = null; anterior.current.cota = null }
     controls.addEventListener('start', soltar)
+    controls.addEventListener('encuadre', encuadrar)
     return () => {
       controls.removeEventListener('start', soltar)
+      controls.removeEventListener('encuadre', encuadrar)
       api.current = null
     }
   }, [api, camera, controls])
@@ -199,7 +220,9 @@ export function Vista ({ api, onEscala, mirilla }: {
     brazo.subVectors(camera.position, target)
     let d = Math.max(brazo.length(), 1e-3)
     const meta = destino.current
-    if (meta != null) {
+    // El primer cuadro establece el pivote y convierte un destino pendiente
+    // al radio sobre el suelo antes de dar el primer paso de la animación.
+    if (meta != null && anterior.current.radio !== null) {
       // El amortiguado va sobre el LOGARITMO de la distancia, no sobre la
       // distancia: el zoom se percibe por factores, no por metros. En lineal,
       // acercarse desde 100 km arranca de un tirón y el último kilómetro se
@@ -210,7 +233,62 @@ export function Vista ({ api, onEscala, mirilla }: {
       camera.position.copy(target).addScaledVector(brazo.normalize(), d)
       movio = true
     }
-    if (movio) controls.update()
+    // OrbitControls ya hizo su update (-1). El cambio de radio identifica el
+    // dolly (rueda/pinch); panear u orbitar conservan el radio. Los botones
+    // pasan por aquí también. Solo se frena al acercarse, nunca al alejarse.
+    const previo = anterior.current
+    if (previo.radio !== null && d < previo.radio) {
+      // A vista de estado la columna puede caer fuera del DEM. Hay que
+      // permitir volver desde allí; solo se espera cerca del suelo desconocido.
+      const freno = previo.medido || previo.altura > ALTURA_MINIMA + FRENO
+        ? THREE.MathUtils.smoothstep(previo.altura - ALTURA_MINIMA, 0, FRENO) : 0
+      d = THREE.MathUtils.lerp(previo.radio, d, freno)
+      camera.position.copy(target).addScaledVector(brazo.normalize(), d)
+      movio = true
+    }
+    // No repetir controls.update(): consumiría dos veces el damping del pan.
+    if (movio) camera.lookAt(target)
+  }, -0.9) // movimiento antes de que el LOD seleccione el suelo bajo la cámara
+
+  useFrame((state) => {
+    if (!controls) return
+    const target = controls.target as THREE.Vector3
+    const previo = anterior.current
+    // La envolvente del DEM protege mientras faltan las mallas. Al llegar
+    // el suelo baja el límite, no la cámara. Si se pierde cobertura después,
+    // conserva la última cota y suspende el descenso hasta volver a medir;
+    // sustituirla por el máximo del estado lanzaría la cámara kilómetros.
+    const medida = alturaTerreno(camera.position, scene, true)
+    const cota = medida ?? previo.cota ?? scene.getObjectByName('terrain')?.userData.alturaMaxima
+    const altura = cota == null ? Infinity : camera.position.y - cota
+    const subir = Math.max(0, ALTURA_MINIMA - altura)
+    camera.position.y += subir
+    target.y += subir // traslación rígida: el tope no cambia la inclinación
+    if (subir > 0) camera.lookAt(target)
+
+    const suelo = distanciaTerreno(camera, scene, state.clock.elapsedTime)
+    brazo.subVectors(target, camera.position)
+    const radio = brazo.length()
+    if (suelo !== null && suelo > 1e-3 && radio > 1e-3) {
+      // Mismo rayo de visión, pivote en la superficie. Subir solo target.y
+      // inclinaría la cámara; conservar el radio enterrado vuelve a hundirla.
+      // Una ladera puede tocar el rayo antes del near: el pivote conserva
+      // su piso sin mover la cámara ni cambiar la dirección de la vista.
+      const distancia = Math.max(RADIO_MINIMO, suelo)
+      target.copy(camera.position).addScaledVector(brazo, distancia / radio)
+      if (destino.current !== null) destino.current *= distancia / radio
+    }
+    brazo.subVectors(camera.position, target)
+    const d = brazo.length()
+    const holgura = Math.max(0, altura + subir - ALTURA_MINIMA)
+    // Tope preventivo del dolly sobre el plano bajo la cámara; el vertical
+    // por cuadro resuelve además laderas, paneo y cambios del LOD.
+    controls.minDistance = brazo.y > 0 ? Math.max(RADIO_MINIMO, d - holgura * d / brazo.y) : RADIO_MINIMO
+    if (destino.current !== null) destino.current = Math.max(controls.minDistance, destino.current)
+    previo.radio = d
+    previo.altura = altura + subir
+    previo.cota = cota ?? null
+    previo.medido = medida !== null
 
     // Dónde estás mirando y desde dónde, para el minimapa. Sale de la cámara
     // viva y no de un estado de React a propósito: esto cambia en cada cuadro
@@ -227,7 +305,7 @@ export function Vista ({ api, onEscala, mirilla }: {
       avisar({ lat, lon, camLat, camLon, semi })
     }
 
-    const mpp = metrosPorPixel(distanciaVista(camera, scene, target), (camera as THREE.PerspectiveCamera).fov ?? 45, size.height)
+    const mpp = metrosPorPixel(distanciaVista(camera, scene, target, state.clock.elapsedTime), (camera as THREE.PerspectiveCamera).fov ?? 45, size.height)
     const e = escalaBonita(mpp, ESCALA_PX)
     // Solo se avisa cuando cambia lo que se VE -- el texto o el ancho en
     // píxeles enteros. Sin este filtro esto sería un setState por cuadro, o
@@ -237,6 +315,6 @@ export function Vista ({ api, onEscala, mirilla }: {
       escala.current = e
       onEscala(e)
     }
-  })
+  }, -0.5) // después del LOD (-0.75), antes de Roads (0): comparten la medida
   return null
 }

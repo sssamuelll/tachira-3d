@@ -177,14 +177,14 @@ export function Roads (
   // La presencia de cada nivel depende de cuánto terreno cabe en un píxel, así
   // que se recalcula mientras la cámara se mueve. Son unas pocas asignaciones
   // de float por cuadro: más barato que detectar si la cámara se movió.
-  useFrame((_, dt) => {
+  useFrame((state, dt) => {
     // La lluvia no cae de un cuadro al otro: un salto de seco a mojado se lee
     // como un cambio de material y no como que empezó a llover (mojado.ts).
     mojado.current = avanzarMojado(mojado.current, lluvia ? 1 : 0, dt)
     // La misma superficie que mide la barra, aunque el pivote de la órbita
     // haya quedado bajo el terreno al panear.
     const objetivo = (controls as { target?: THREE.Vector3 } | null)?.target
-    const distancia = distanciaVista(camera, scene, objetivo)
+    const distancia = distanciaVista(camera, scene, objetivo, state.clock.elapsedTime)
     const mpp = metrosPorPixel(distancia, (camera as THREE.PerspectiveCamera).fov ?? 45, size.height)
 
     // El shadow map de la cascada más cercana. `shadow.map` es null hasta el

@@ -268,6 +268,9 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
   const frustum = useMemo(() => new THREE.Frustum(), [])
   const m4 = useMemo(() => new THREE.Matrix4(), [])
   const nodosRaiz = useMemo(() => raices(meta.dem), [meta])
+  // terrain.json viene de la rejilla reducida: el pico del DEM fino supera
+  // su max unos 3 m. Estos 10 m solo reservan altura durante la carga.
+  const techoInicial = meta.max + 10
 
   // Ancho de una tesela de nivel z sobre el terreno. La latitud varía 1,3°
   // dentro del estado y con ella el coseno un 0,3 %: no vale la pena calcularla
@@ -305,6 +308,16 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     if (!m) {
       const { geometry, caja } = geometriaNodo(n, teselaDe(n)!, meta.dem, frame, errorDe(n) ?? 0, meta.bbox)
       const mesh = new THREE.Mesh(geometry, materialNodo())
+      const errorGeo = n.z <= 14 ? errores.current?.[k] ?? 0 : 0
+      if (errorGeo > 0) {
+        const padre = mallas.get(clave({ z: n.z - 1, x: n.x >> 1, y: n.y >> 1 }))
+        // Un padre provisional puede estar cientos de metros bajo su hijo.
+        // Reserva la cota máxima + error hasta recibir geometría exacta.
+        // El techo nunca crece al refinar, así que cargar no levanta la cámara.
+        mesh.userData.techoCarga = Math.min(
+          padre?.mesh.userData.techoCarga ?? techoInicial, caja.max.y + errorGeo,
+        )
+      }
       mesh.frustumCulled = false     // el quadtree ya recorta por su caja
       // El relieve es lo único que proyecta sombra y lo único que la recibe.
       // Las vías no proyectan: son líneas pegadas al terreno, su sombra sería
@@ -353,7 +366,12 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     frustum.setFromProjectionMatrix(m4)
     const fov = (camera as THREE.PerspectiveCamera).fov ?? 45
     const sel = seleccionar(nodosRaiz, {
-      intersecta: c => frustum.intersectsBox(c),
+      // A vista oblicua el suelo bajo la cámara cae fuera del frustum, pero
+      // Vista necesita esa hoja para el límite vertical, incluso paneando.
+      intersecta: c => frustum.intersectsBox(c) || (
+        camera.position.x >= c.min.x && camera.position.x <= c.max.x &&
+        camera.position.z >= c.min.z && camera.position.z <= c.max.z
+      ),
       posicion: camera.position,
       mpp: d => metrosPorPixel(d, fov, size.height),
     }, {
@@ -402,7 +420,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
       ;(m.mesh.material as THREE.Material).dispose()
       mallas.delete(k)
     }
-  })
+  }, -0.75) // controles (-1) → animación (-0.9) → LOD → tope (-0.5) → vías (0)
 
-  return <group ref={grupo} name="terrain" />
+  return <group ref={grupo} name="terrain" userData={{ alturaMaxima: techoInicial }} />
 }

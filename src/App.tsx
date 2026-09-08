@@ -451,9 +451,8 @@ export default function App () {
           {/* enabled=false mientras el lazo está activo: arrastrar para dibujar
               y arrastrar para orbitar son el mismo gesto -- si OrbitControls
               también escucha, el lazo sale torcido y la vista se mueve sola. */}
-          {/* minDistance no es cosmético: es el tope al que llegan los
-              botones de zoom, y por debajo de ~30 m el relieve de delante
-              empieza a recortarse contra el near plane (10). */}
+          {/* Radio inicial; Vista lo ajusta cada cuadro a la altura mínima
+              sobre el terreno, que no equivale a la distancia al target. */}
           <OrbitControls makeDefault minDistance={30} maxDistance={400000} enabled={!lassoOn} />
           <FlyTo objetivo={objetivo} />
           <Vista api={vista} onEscala={setEscala} mirilla={mirilla} />

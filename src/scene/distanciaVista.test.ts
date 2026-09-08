@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import * as THREE from 'three'
-import { distanciaVista } from './distanciaVista'
+import { alturaTerreno, distanciaTerreno, distanciaVista } from './distanciaVista'
 import { metrosPorPixel, NIVELES, presencia } from './roadStyle'
 
 function vista () {
@@ -71,4 +71,37 @@ test('el ajuste temporal de near/far del picking no cambia la distancia de la vi
   camera.far = 3001
   camera.updateProjectionMatrix()
   expect(distanciaVista(camera, scene, objetivo)).toBeCloseTo(2000, 6)
+})
+
+test('la cota vertical es independiente de la distancia oblicua y recupera una cámara enterrada', () => {
+  const { camera, scene, terreno, suelo } = vista()
+  const oculto = suelo.clone()
+  oculto.position.y = 900
+  oculto.visible = false
+  terreno.add(oculto)
+  expect(distanciaTerreno(camera, scene)).toBeCloseTo(2000, 6)
+  expect(alturaTerreno(camera.position, scene)).toBeCloseTo(600, 6)
+  camera.position.y = 500
+  expect(alturaTerreno(camera.position, scene)).toBeCloseTo(600, 6)
+  terreno.visible = false
+  expect(alturaTerreno(camera.position, scene)).toBeNull()
+})
+
+test('cámara, escala y vías comparten el rayo central y el siguiente LOD se vuelve a medir', () => {
+  const { camera, objetivo, scene, suelo } = vista()
+  let consultas = 0
+  const raycast = suelo.raycast.bind(suelo)
+  suelo.raycast = (...args) => { consultas++; raycast(...args) }
+  expect(distanciaTerreno(camera, scene, 1)).toBeCloseTo(2000, 6)
+  expect(distanciaVista(camera, scene, objetivo, 1)).toBeCloseTo(2000, 6)
+  expect(distanciaVista(camera, scene, objetivo, 1)).toBeCloseTo(2000, 6)
+  expect(consultas).toBe(1)
+  // El LOD puede cambiar aunque la cámara esté quieta.
+  suelo.position.y = 300
+  expect(distanciaVista(camera, scene, objetivo, 2)).toBeCloseTo(1500, 6)
+  expect(consultas).toBe(2)
+  // Un movimiento dentro del mismo cuadro tampoco puede reutilizar el rayo.
+  camera.position.y += 600
+  expect(distanciaVista(camera, scene, objetivo, 2)).toBeCloseTo(2500, 6)
+  expect(consultas).toBe(3)
 })
