@@ -1,6 +1,53 @@
-import { test, expect } from 'vitest'
-import { enuOf, bboxCenterAndSpan, idsCenterAndSpan } from './Camera'
+import { test, expect, vi } from 'vitest'
+import { createElement } from 'react'
+import { renderToString } from 'react-dom/server'
+import * as THREE from 'three'
+import { OrbitControls } from 'three-stdlib'
+import { enuOf, bboxCenterAndSpan, idsCenterAndSpan, Vista } from './Camera'
 import { ORIGIN, BBOX } from '../data/constants'
+import type { Escala } from '../ui/escala'
+
+// Solo se sustituye el puente de r3f: cámara, controles, mallas y el cuadro
+// de Vista son reales. No hace falta WebGL para medir la escala que publica.
+let estado: { camera: THREE.PerspectiveCamera; controls: OrbitControls; scene: THREE.Scene; size: { width: number; height: number } }
+let cuadro: (state: unknown, dt: number) => void
+vi.mock('@react-three/fiber', () => ({
+  useThree: () => estado,
+  useFrame: (f: typeof cuadro) => { cuadro = f },
+}))
+
+test('la escala sigue el suelo al acercarse aunque el paneo haya enterrado el target', () => {
+  const camera = new THREE.PerspectiveCamera(45, 1600 / 870, 10, 2_000_000)
+  const controls = new OrbitControls(camera)
+  // El paneo en pantalla puede dejar el pivote kilómetros bajo el suelo.
+  // La superficie está 25 km por delante de él sobre el eje de la cámara.
+  controls.target.set(0, -15_000, -20_000)
+  const scene = new THREE.Scene()
+  const terreno = new THREE.Group()
+  terreno.name = 'terrain'
+  const suelo = new THREE.Mesh(new THREE.PlaneGeometry(10_000, 10_000), new THREE.MeshBasicMaterial())
+  suelo.rotation.x = -Math.PI / 2
+  terreno.add(suelo)
+  scene.add(terreno)
+  scene.updateMatrixWorld(true)
+  estado = { camera, controls, scene, size: { width: 1600, height: 870 } }
+  const publicadas: Escala[] = []
+  renderToString(createElement(Vista, {
+    api: { current: null }, mirilla: { current: null }, onEscala: e => publicadas.push(e),
+  }))
+
+  // En cada paso, 2*d*tan(22,5°)/870 da 1,904 / 0,952 / 0,095 m/px.
+  // La barra de 104 px debe bajar de 100 m a 50 m y a 5 m.
+  for (const d of [2000, 1000, 100]) {
+    camera.position.set(0, d * 0.6, d * 0.8)
+    controls.update()
+    cuadro(null, 1 / 60)
+  }
+  expect(publicadas.map(e => e.metros)).toEqual([100, 50, 5])
+  expect(publicadas.map(e => e.px)).toEqual([53, 53, 53])
+  suelo.geometry.dispose()
+  suelo.material.dispose()
+})
 
 test('el origen del proyecto cae en el cero de la escena', () => {
   const v = enuOf(ORIGIN.lat, ORIGIN.lon, 0)

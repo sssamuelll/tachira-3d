@@ -9,6 +9,7 @@ import { TEXTURAS, TEXTURAS_BASE, type Asfalto } from './asfalto'
 import { direccionSol, CASCADA_CERCA } from './sol'
 import { avanzarMojado } from './mojado'
 import { NIVELES, repartirPorNivel, metrosPorPixel, presencia } from './roadStyle'
+import { distanciaVista } from './distanciaVista'
 import { anchoCalzada, carrilesDe, sentidoUnico, marcasPermitidas } from './calzada'
 import { bordeDe } from './seccion'
 import { ATTR_SIZE } from '../data/constants'
@@ -180,11 +181,10 @@ export function Roads (
     // La lluvia no cae de un cuadro al otro: un salto de seco a mojado se lee
     // como un cambio de material y no como que empezó a llover (mojado.ts).
     mojado.current = avanzarMojado(mojado.current, lluvia ? 1 : 0, dt)
-    // El objetivo de OrbitControls es el punto que se está mirando; sin
-    // controles montados todavía, la distancia al origen del ENU local sirve
-    // igual (el terreno está centrado ahí).
+    // La misma superficie que mide la barra, aunque el pivote de la órbita
+    // haya quedado bajo el terreno al panear.
     const objetivo = (controls as { target?: THREE.Vector3 } | null)?.target
-    const distancia = objetivo ? camera.position.distanceTo(objetivo) : camera.position.length()
+    const distancia = distanciaVista(camera, scene, objetivo)
     const mpp = metrosPorPixel(distancia, (camera as THREE.PerspectiveCamera).fov ?? 45, size.height)
 
     // El shadow map de la cascada más cercana. `shadow.map` es null hasta el

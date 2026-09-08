@@ -11,6 +11,7 @@ import { useThree } from '@react-three/fiber'
 // lado, se arreglaba allá, y el picking quedaba roto hasta el primer clic.
 import { ANCLA_VERT, ANCLA_FRAG, extrusionGlsl, parcharExtrusion } from './roadsShader'
 import { cortePorSegmento, porSegmento, metrosPorPixel } from './roadStyle'
+import { distanciaVista } from './distanciaVista'
 import { anchoCalzada } from './calzada'
 import { bordeDe } from './seccion'
 import type { Way } from '../data/types'
@@ -285,7 +286,7 @@ export function usePicking (
     // por clic, no por cuadro, y leer la cámara viva es una operación contra
     // un estado compartido que puede quedar desfasado.
     const objetivo = (controls as { target?: THREE.Vector3 } | null)?.target
-    const distancia = objetivo ? camera.position.distanceTo(objetivo) : camera.position.length()
+    const distancia = distanciaVista(camera, scene, objetivo)
     ;(pickLine.material as LineMaterial).uniforms.uMpp.value =
       metrosPorPixel(distancia, (camera as THREE.PerspectiveCamera).fov ?? 45, size.height)
 

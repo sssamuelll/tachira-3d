@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { makeEnuFrame, geodeticToEnu, enuToGeodetic } from '../data/enu'
 import { ORIGIN } from '../data/constants'
 import { metrosPorPixel } from './roadStyle'
+import { distanciaVista } from './distanciaVista'
 import { escalaBonita, type Escala } from '../ui/escala'
 import type { Mirilla } from '../ui/disco'
 
@@ -145,7 +146,7 @@ export function Vista ({ api, onEscala, mirilla }: {
    *  porque cambia sesenta veces por segundo mientras arrastras. */
   mirilla: RefObject<((m: Mirilla) => void) | null>
 }) {
-  const { camera, controls: rawControls, size } = useThree()
+  const { camera, controls: rawControls, size, scene } = useThree()
   const controls = rawControls as any
   // Distancia a la que va la cámara, o null si no hay acercamiento en curso.
   const destino = useRef<number | null>(null)
@@ -226,7 +227,7 @@ export function Vista ({ api, onEscala, mirilla }: {
       avisar({ lat, lon, camLat, camLon, semi })
     }
 
-    const mpp = metrosPorPixel(d, (camera as THREE.PerspectiveCamera).fov ?? 45, size.height)
+    const mpp = metrosPorPixel(distanciaVista(camera, scene, target), (camera as THREE.PerspectiveCamera).fov ?? 45, size.height)
     const e = escalaBonita(mpp, ESCALA_PX)
     // Solo se avisa cuando cambia lo que se VE -- el texto o el ancho en
     // píxeles enteros. Sin este filtro esto sería un setState por cuadro, o
