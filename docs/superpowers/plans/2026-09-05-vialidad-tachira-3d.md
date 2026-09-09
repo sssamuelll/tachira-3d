@@ -499,7 +499,20 @@ git commit -m "feat: longitud geodesica por ECEF, punto medio y point-in-polygon
   - `QUERY_MUNICIPIOS` (string) — relaciones `admin_level=6` con geometría
   - `QUERY_VIAS` (string) — ways con `highway` y geometría
   - `waysToLines(json) → Array<{ osmId, tags, coords }>` — `coords` en `[[lon, lat], …]`
-  - `relationsToPolygons(json) → Array<{ osmId, name, polygon }>`
+  - `assembleRings(members, role) → { rings, orphanFragments }` — encadena los fragmentos
+    de un rol por extremos compartidos (tolerancia `1e-7` grados) y devuelve solo anillos
+    **cerrados**; los que no cierran se cuentan como huérfanos, nunca se cierran con una
+    cuerda arbitraria
+  - `relationsToPolygons(json) → Array<{ osmId, name, polygons, orphanFragments }>` —
+    `polygons` es un array de polígonos y cada polígono es `[exterior, ...huecos]`
+
+> **Corregido durante la ejecución.** La primera versión de esta tarea trataba cada
+> miembro `outer` como un anillo cerrado independiente. En OSM los bordes administrativos
+> vienen partidos porque los tramos de frontera se comparten entre municipios vecinos:
+> verificado contra Overpass el 2026-09-05, **los 29 municipios del Táchira tienen 2 o más
+> miembros `outer`** — 1.001 fragmentos en total, hasta 68 en uno solo (Cárdenas), y ningún
+> rol `inner`. Sin ensamblado, del segundo fragmento en adelante se trataban como huecos y
+> la asignación de municipio de las 26.712 vías salía mal sin que nada fallara.
 
 - [ ] **Step 1: Escribir los tests**
 
@@ -537,18 +550,36 @@ test('waysToLines descarta ways sin geometria o con menos de dos nodos', () => {
   expect(waysToLines(json)).toHaveLength(0)
 })
 
-test('relationsToPolygons arma el anillo exterior desde los members outer', () => {
+// El caso real: la frontera viene partida en fragmentos abiertos, uno de ellos
+// con los puntos en orden invertido. Un test con un único member ya cerrado
+// pasa aunque el ensamblado no exista — es el caso que nunca ocurre.
+const frag = (...pts) => ({ type: 'way', role: 'outer', geometry: pts.map(([lon, lat]) => ({ lat, lon })) })
+
+test('relationsToPolygons encadena los fragmentos partidos de la frontera', () => {
   const json = { elements: [{
     type: 'relation', id: 7, tags: { name: 'Municipio Junín' },
-    members: [{ type: 'way', role: 'outer', geometry: [
-      { lat: 0, lon: 0 }, { lat: 0, lon: 1 }, { lat: 1, lon: 1 }, { lat: 1, lon: 0 }, { lat: 0, lon: 0 },
-    ] }],
+    members: [
+      frag([0, 0], [0, 1]),
+      frag([1, 1], [1, 0], [0, 0]),   // este cierra el anillo
+      frag([0, 1], [1, 1]),
+    ],
   }] }
   const [m] = relationsToPolygons(json)
   expect(m.osmId).toBe(7)
   expect(m.name).toBe('Municipio Junín')
-  expect(m.polygon[0]).toHaveLength(5)
-  expect(m.polygon[0][0]).toEqual([0, 0])
+  expect(m.polygons).toHaveLength(1)
+  expect(m.polygons[0][0][0]).toEqual(m.polygons[0][0].at(-1))   // anillo cerrado
+  expect(m.orphanFragments).toBe(0)
+})
+
+test('un fragmento que no cierra se cuenta como huerfano, no se cierra solo', () => {
+  const json = { elements: [{
+    type: 'relation', id: 8, tags: { name: 'X' },
+    members: [frag([0, 0], [0, 1]), frag([5, 5], [6, 6])],
+  }] }
+  const [m] = relationsToPolygons(json)
+  expect(m.polygons).toHaveLength(0)
+  expect(m.orphanFragments).toBeGreaterThan(0)
 })
 ```
 
@@ -950,8 +981,10 @@ git commit -m "feat: empaquetado de vias a binarios con ejes de three"
   - `terrain.bin` — `Int16Array` 1024×1024, row-major desde el norte
   - `terrain.json` — `{ width, height, bbox: {s,w,n,e}, min, max, origin: {lat, lon, h} }`
   - `roads-pos.bin`, `roads-segid.bin`, `roads-index.bin`
-  - `roads-meta.json` — `{ count, ways: Array<{ osmId, ref, name, highway, surface, municipio, km, km3d }> }`
-  - `municipios.json` — `Array<{ osmId, name, polygon }>`
+  - `roads-meta.json` — `{ count, ways: Array<{ osmId, ref, name, highway, surface, tipo, municipio, km, km3d }> }`
+    (`tipo` es la rodadura sembrada desde `surface`, ver §3.2)
+  - `municipios.json` — `Array<{ osmId, name, polygons }>`, donde `polygons` es un array
+    de polígonos y cada polígono es `[exterior, ...huecos]` (ver la nota en la Task 4)
 
 - [ ] **Step 1: Escribir el pipeline**
 
@@ -972,12 +1005,19 @@ const OUT = 'public/data'
 
 // El surface de OSM siembra el tipo de rodadura (spec §3.2)
 const SURFACE_A_TIPO = {
-  asphalt: 'asfalto', paved: 'asfalto',
-  concrete: 'concreto', concrete_plates: 'concreto',
+  asphalt: 'asfalto', paved: 'asfalto', chipseal: 'asfalto',
+  concrete: 'concreto', 'concrete:plates': 'concreto', 'concrete:lanes': 'concreto',
   gravel: 'granzon', compacted: 'granzon', fine_gravel: 'granzon', unpaved: 'granzon',
-  ground: 'tierra', dirt: 'tierra', earth: 'tierra', mud: 'tierra',
+  ground: 'tierra', dirt: 'tierra', earth: 'tierra', mud: 'tierra', grass: 'tierra',
   sett: 'empedrado', cobblestone: 'empedrado', paving_stones: 'empedrado',
+  unhewn_cobblestone: 'empedrado', pebblestone: 'empedrado',
 }
+// `wood`, `metal` y `asfalto_y_grava` quedan en sin_definir a propósito. Los dos
+// primeros son superficies de puente, no rodadura de carretera; el tercero es un valor
+// libre que inventó un mapeador y no pertenece al esquema de OSM. Meterlos en una
+// categoría que no les toca es peor que dejar que el usuario los clasifique.
+// (La primera versión de esta tabla escribía `concrete_plates` con guión bajo. El valor
+//  real de OSM lleva dos puntos, así que esa entrada nunca coincidió con nada.)
 
 async function main () {
   await mkdir(OUT, { recursive: true })
@@ -998,13 +1038,37 @@ async function main () {
   console.log('4/9  municipio por punto medio')
   // Un tramo que cruza límite cae en uno solo. Cortar en el límite duplicaría
   // segmentos y rompería los ids, que es lo que ancla los datos del usuario.
+  // un municipio puede ser multipolígono (enclaves), de ahí el .some()
+  const findMunicipio = (lon, lat) =>
+    municipios.find(mm => mm.polygons.some(p => pointInPolygon(lon, lat, p))) ?? null
+
+  let resolvedByVote = 0
   for (const l of lines) {
     const [lon, lat] = l.coords[midpointIndex(l.coords)]
-    const m = municipios.find(mm => pointInPolygon(lon, lat, mm.polygon))
-    l.municipio = m ? m.name : null
+    const m = findMunicipio(lon, lat)
+    if (m) { l.municipio = m.name; continue }
+
+    // El punto medio cayó en una grieta de precisión entre fronteras vecinas.
+    // Se resuelve por voto: gana el municipio con más vértices de esta vía.
+    // No "el primer vértice que resuelva" — eso depende del orden del array.
+    // Empate: gana el primero insertado. Arbitrario, pero determinista.
+    const votes = new Map()
+    for (const [vlon, vlat] of l.coords) {
+      const v = findMunicipio(vlon, vlat)
+      if (v) votes.set(v.name, (votes.get(v.name) ?? 0) + 1)
+    }
+    let winner = null, best = 0
+    for (const [name, count] of votes) if (count > best) { winner = name; best = count }
+    l.municipio = winner
+    if (winner) resolvedByVote++
   }
-  const sinMunicipio = lines.filter(l => !l.municipio).length
-  console.log(`     sin municipio: ${sinMunicipio}`)
+  const unassigned = lines.filter(l => !l.municipio).length
+  console.log(`     ${resolvedByVote} resueltas por voto · sin municipio: ${unassigned}`)
+
+  const totalOrphanFragments = municipios.reduce((s, m) => s + m.orphanFragments, 0)
+  if (totalOrphanFragments > 0) {
+    console.warn(`     AVISO: ${totalOrphanFragments} fragmentos de frontera sin cerrar`)
+  }
 
   console.log('5/9  drapeado y longitudes')
   let vertices = 0
@@ -1053,9 +1117,9 @@ async function main () {
   console.log('9/9  municipios')
   await writeFile(`${OUT}/municipios.json`, JSON.stringify(municipios))
 
-  const sembrados = lines.filter(l => SURFACE_A_TIPO[l.tags.surface]).length
+  const seeded = lines.filter(l => SURFACE_A_TIPO[l.tags.surface]).length
   console.log(`\nlisto. ${lines.length} vías · ${packed.segmentCount} segmentos · ` +
-              `${sembrados} con tipo sembrado desde surface`)
+              `${seeded} con tipo sembrado desde surface`)
 }
 
 main().catch(e => { console.error(e); process.exit(1) })
@@ -1100,7 +1164,14 @@ git commit -m "feat: pipeline de datos del Tachira desde OSM y Terrarium"
 - Consumes: la salida de la Task 7 y `enu.mjs`, `geo.mjs`
 - Produces: código de salida 0 si todo pasa, 1 si algo falla
 
-Implementa los 6 checks del spec §11.
+Implementa los 8 checks del spec §11.
+
+> **Corregido durante la ejecución.** La primera versión tenía 6 checks y tres de ellos no
+> podían fallar nunca: `suma por municipio == total` comparaba dos sumas del mismo array,
+> `elevación >= -500` vigilaba un límite que `downsample()` ya garantiza por construcción, y
+> `km3d >= km` pasaba con el drapeado completamente plano. Los umbrales de los checks nuevos
+> se fijaron midiendo el dato real, y cada uno se probó rompiéndolo a propósito. Un check que
+> no puedes hacer fallar a mano es un check que no sirve.
 
 - [ ] **Step 1: Escribir el verificador**
 
@@ -1111,64 +1182,88 @@ import { existsSync } from 'node:fs'
 import { makeEnuFrame, geodeticToEnu, enuToGeodetic } from './lib/enu.mjs'
 
 const OUT = 'public/data'
-const fallos = []
-const check = (ok, msg) => { console.log(`${ok ? '  ok  ' : 'FALLA '} ${msg}`); if (!ok) fallos.push(msg) }
+const failures = []
+const check = (ok, msg) => { console.log(`${ok ? '  ok  ' : 'FALLA '} ${msg}`); if (!ok) failures.push(msg) }
 
 const meta = JSON.parse(await readFile(`${OUT}/roads-meta.json`, 'utf8'))
 const terrain = JSON.parse(await readFile(`${OUT}/terrain.json`, 'utf8'))
+const municipios = JSON.parse(await readFile(`${OUT}/municipios.json`, 'utf8'))
 const bin = await readFile(`${OUT}/terrain.bin`)
 const grid = new Int16Array(bin.buffer, bin.byteOffset, bin.byteLength / 2)
 
-// 1. round-trip geodetic → ENU → geodetic bajo 1 m en todo el bbox
-const f = makeEnuFrame(terrain.origin.lat, terrain.origin.lon, terrain.origin.h)
-let peor = 0
+// 1. round-trip geodetic → ENU → geodetic bajo 1 m en todo el bbox, con altura != 0.
+// Si la proyección está mal, todo el mapa está mal y no se nota a simple vista.
+const frame = makeEnuFrame(terrain.origin.lat, terrain.origin.lon, terrain.origin.h)
+let worst = 0
 for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) {
   const lat = terrain.bbox.s + (terrain.bbox.n - terrain.bbox.s) * i / 20
   const lon = terrain.bbox.w + (terrain.bbox.e - terrain.bbox.w) * j / 20
-  const [e, n, u] = geodeticToEnu(f, lat, lon, 1000)
-  const [lat2, lon2, h2] = enuToGeodetic(f, e, n, u)
-  peor = Math.max(peor, Math.hypot(
+  const [e, n, u] = geodeticToEnu(frame, lat, lon, 1000)
+  const [lat2, lon2, h2] = enuToGeodetic(frame, e, n, u)
+  worst = Math.max(worst, Math.hypot(
     (lat2 - lat) * 111320,
     (lon2 - lon) * 111320 * Math.cos(lat * Math.PI / 180),
     h2 - 1000,
   ))
 }
-check(peor < 1, `round-trip ENU: peor error ${peor.toExponential(2)} m (umbral 1 m)`)
+check(worst < 1, `round-trip ENU: peor error ${worst.toExponential(2)} m (umbral 1 m)`)
 
-// 2. la suma de km por municipio da el total
-const total = meta.ways.reduce((s, w) => s + w.km, 0)
-const porMunicipio = new Map()
-for (const w of meta.ways) porMunicipio.set(w.municipio, (porMunicipio.get(w.municipio) ?? 0) + w.km)
-const suma = [...porMunicipio.values()].reduce((a, b) => a + b, 0)
-check(Math.abs(suma - total) < 0.001, `suma por municipio ${suma.toFixed(2)} vs total ${total.toFixed(2)} km`)
+// 2. ningún osmId se repite en roads-meta.json (doble conteo)
+const ids = meta.ways.map(w => w.osmId)
+const uniqueIds = new Set(ids)
+check(uniqueIds.size === ids.length, `osmId únicos: ${uniqueIds.size} de ${ids.length}`)
 
-// 3. toda vía tiene municipio
-const huerfanas = meta.ways.filter(w => !w.municipio)
-check(huerfanas.length === 0, `vías sin municipio: ${huerfanas.length}`)
+// 3. todo municipio asignado existe de verdad en municipios.json (no es un nombre inventado)
+const municipioNames = new Set(municipios.map(m => m.name))
+const invented = meta.ways.filter(w => w.municipio && !municipioNames.has(w.municipio))
+check(invented.length === 0, `vías con municipio inventado: ${invented.length}`)
 
-// 4. las elevaciones caen en un rango plausible para el Táchira
-check(terrain.min >= -500 && terrain.max <= 4200,
-  `elevación entre ${terrain.min} y ${terrain.max} m (esperado -500 a 4200)`)
+// 4. km y km3d finitos y positivos en toda vía (cierra el hueco de NaN, que "< umbral" no detecta)
+const badLengths = meta.ways.filter(w =>
+  !Number.isFinite(w.km) || !Number.isFinite(w.km3d) || w.km <= 0 || w.km3d <= 0)
+check(badLengths.length === 0, `vías con km/km3d no finito o no positivo: ${badLengths.length}`)
+
+// 5. toda vía tiene municipio
+const noMunicipio = meta.ways.filter(w => !w.municipio)
+check(noMunicipio.length === 0, `vías sin municipio: ${noMunicipio.length}`)
+
+// 6. terreno no degenerado: rango, media, clamp y tamaño de grid, cada uno con su propio umbral
+let sum = 0, clamped = 0
+for (const v of grid) { sum += v; if (v === -500 || v === 9000) clamped++ }
+const mean = sum / grid.length
+const range = terrain.max - terrain.min
+check(range >= 1000, `rango de elevación: ${range} m (umbral >= 1000 m)`)
+check(mean >= 100 && mean <= 2000, `elevación media: ${mean.toFixed(1)} m (esperado 100-2000)`)
+check(clamped / grid.length < 0.01,
+  `celdas en el tope del clamp: ${clamped} de ${grid.length} (${(clamped / grid.length * 100).toFixed(2)}%, umbral < 1%)`)
 check(grid.length === terrain.width * terrain.height,
   `terrain.bin tiene ${grid.length} celdas, esperadas ${terrain.width * terrain.height}`)
 
-// 5. todo id en pci-tachira.json existe en roads-meta.json
+// 7. drapeado no plano: la mayoría de las vías sube o baja con el terreno, y ninguna queda invertida
+const draped = meta.ways.filter(w => w.km3d > w.km).length
+const inverted = meta.ways.filter(w => w.km3d < w.km)
+check(draped / meta.ways.length >= 0.5,
+  `vías con km3d > km: ${draped} de ${meta.ways.length} (${(draped / meta.ways.length * 100).toFixed(1)}%, umbral >= 50%)`)
+check(inverted.length === 0, `vías con km3d menor que km: ${inverted.length}`)
+
+// 8. todo id en pci-tachira.json existe en roads-meta.json.
+// Ausente se omite; ilegible o con JSON inválido falla (no aborta el script); presente y válido se verifica.
 if (existsSync('pci-tachira.json')) {
-  const pci = JSON.parse(await readFile('pci-tachira.json', 'utf8'))
-  const conocidos = new Set(meta.ways.map(w => String(w.osmId)))
-  const perdidos = Object.keys(pci.registros ?? {}).filter(id => !conocidos.has(id))
-  check(perdidos.length === 0,
-    `ids huérfanos en pci-tachira.json: ${perdidos.length}${perdidos.length ? ' → ' + perdidos.slice(0, 5).join(', ') : ''}`)
+  try {
+    const pci = JSON.parse(await readFile('pci-tachira.json', 'utf8'))
+    const knownIds = new Set(meta.ways.map(w => String(w.osmId)))
+    const orphanIds = Object.keys(pci.registros ?? {}).filter(id => !knownIds.has(id))
+    check(orphanIds.length === 0,
+      `ids huérfanos en pci-tachira.json: ${orphanIds.length}${orphanIds.length ? ' → ' + orphanIds.slice(0, 5).join(', ') : ''}`)
+  } catch (e) {
+    check(false, `pci-tachira.json existe pero no se pudo leer/parsear: ${e.message}`)
+  }
 } else {
   console.log('  --   pci-tachira.json todavía no existe, se omite el chequeo de huérfanos')
 }
 
-// 6. km3d ≥ km siempre: la longitud con desnivel no puede ser menor que la plana
-const malas = meta.ways.filter(w => w.km3d < w.km - 1e-6)
-check(malas.length === 0, `vías con km3d menor que km: ${malas.length}`)
-
-console.log(`\n${fallos.length === 0 ? 'todo en orden' : `${fallos.length} fallas`}`)
-process.exit(fallos.length === 0 ? 0 : 1)
+console.log(`\n${failures.length === 0 ? 'todo en orden' : `${failures.length} fallas`}`)
+process.exit(failures.length === 0 ? 0 : 1)
 ```
 
 - [ ] **Step 2: Correr la verificación**
@@ -1176,9 +1271,15 @@ process.exit(fallos.length === 0 ? 0 : 1)
 Run: `npm run verify`
 Expected: todos los checks en `ok`, salida `todo en orden`, código 0.
 
-Si el check 3 falla con pocas vías sin municipio, son tramos fronterizos cuyo punto medio cayó
-fuera de todo polígono. Asignarlas al municipio del vértice más cercano en `build-data.mjs` paso 4
-y volver a correr.
+Si el check 5 falla con pocas vías sin municipio, son tramos fronterizos cuyo punto medio cayó
+en una grieta de precisión entre polígonos vecinos. El fallback del paso 4 de `build-data.mjs`
+las resuelve por **voto mayoritario de vértices**: se cuenta en cuántos vértices de la vía cae
+cada municipio y gana el que más tenga.
+
+No "el primer vértice que resuelva" — eso depende del orden del array y asignaría una vía entera
+al municipio de un ramal corto inicial cuando el grueso de su longitud está en otro. Tampoco "el
+vértice más cercano", que exige calcular distancias para responder peor: la pregunta real no es
+qué vértice está cerca, sino dónde está la mayor parte de la vía.
 
 - [ ] **Step 3: Commit**
 
@@ -1295,7 +1396,14 @@ export interface TerrainMeta {
   min: number; max: number
   origin: { lat: number; lon: number; h: number }
 }
-export interface Municipio { osmId: number; name: string; polygon: number[][][] }
+// `polygons` en plural y con un nivel más de anidamiento: un municipio puede ser
+// multipolígono, y cada polígono es [exterior, ...huecos]. Ver la nota de la Task 4.
+export interface Municipio {
+  osmId: number
+  name: string
+  polygons: number[][][][]
+  orphanFragments: number
+}
 
 export interface Registro { pci: number | null; fuente: Fuente; tipo: Tipo; fecha: string; nota: string }
 ```
@@ -1375,36 +1483,44 @@ createRoot(document.getElementById('root')!).render(<App />)
 
 - [ ] **Step 2: Crear el wrapper del cielo**
 
-Los nombres exactos de los props de `<Atmosphere>` están en la documentación del paquete; si alguno
-no existe en la versión instalada, quitarlo y dejar los valores por defecto antes que inventar.
+> **Corregido durante la ejecución.** La primera versión de este bloque tenía tres errores
+> que solo se ven abriendo `node_modules/@takram/three-atmosphere/`:
+>
+> 1. **`<AerialPerspective>` iba anidado directo dentro de `<Atmosphere>`.** Es un efecto de
+>    post-proceso: fuera de un `<EffectComposer>` se construye pero nunca se engancha a un
+>    render pass. **No lanza error — simplemente no hace nada.**
+> 2. **El prop es `date`, no `referenceDate`**, que me lo inventé. Y `<Atmosphere date={...}>`
+>    ya reacciona solo al cambio, así que el `useRef` + `useFrame` + `updateByDate` sobraba.
+> 3. **Los props `sky`/`sunLight`/`skyLight` de `<AerialPerspective>` existen**, pero
+>    pertenecen al modo de iluminación por post-proceso, documentado como incompatible con
+>    usar `<SunLight>`/`<SkyLight>` de escena a la vez — que es lo que hace este componente.
+>
+> Los siete nombres de componente sí existían; el error estaba en cómo los compuse.
 
 ```tsx
 // src/scene/Sky.tsx
-import { useRef } from 'react'
 import { Atmosphere, Sky as TakramSky, SunLight, SkyLight, AerialPerspective }
   from '@takram/three-atmosphere/r3f'
-import type { AtmosphereApi } from '@takram/three-atmosphere/r3f'
-import { useFrame } from '@react-three/fiber'
+import { EffectComposer } from '@react-three/postprocessing'
 import { ORIGIN } from '../data/constants'
 
+// <Atmosphere> no expone un prop de origen: su marco de referencia es ECEF fijo.
+// ORIGIN se reexporta aquí para que la Task 11 rebase terreno y cámara contra el
+// mismo punto que usa el cielo.
+export const SKY_ORIGIN = ORIGIN
+
 export function Sky ({ date }: { date: Date }) {
-  const api = useRef<AtmosphereApi>(null)
-  useFrame(() => { api.current?.updateByDate(date) })
   return (
-    <Atmosphere ref={api} referenceDate={date}
-      // el scattering necesita saber dónde estamos de verdad, aunque
-      // la escena esté rebaseada al origen local
-      correctAltitude
-    >
+    <Atmosphere date={date} correctAltitude>
       <TakramSky />
       <SunLight />
       <SkyLight />
-      <AerialPerspective sky sunLight skyLight />
+      <EffectComposer>
+        <AerialPerspective />
+      </EffectComposer>
     </Atmosphere>
   )
 }
-
-export const SKY_ORIGIN = ORIGIN
 ```
 
 - [ ] **Step 3: Crear el App shell**
@@ -1540,7 +1656,13 @@ varying float vElev;
 varying vec3 vNormalW;
 void main () {
   vElev = position.y;
-  vNormalW = normalize(normalMatrix * normal);
+  // Normal de objeto, SIN normalMatrix. La malla se construye ya en coordenadas de
+  // mundo (no tiene rotación ni escala), así que normal de objeto == normal de mundo.
+  // normalMatrix es la inversa-transpuesta de modelViewMatrix: multiplicar por ella
+  // daría la normal en espacio de CÁMARA, que rota en cada frame de OrbitControls.
+  // Contra un uSun fijo, eso hace que la luz gire pegada a la cámara y el sombreado
+  // cambie de lado al orbitar. Es el bug que traía la primera versión de este plan.
+  vNormalW = normalize(normal);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`
 
@@ -1645,7 +1767,11 @@ export default function App () {
         <Sky date={date} />
         <Terrain grid={data.terrainGrid} meta={data.terrain} />
         <OrbitControls maxDistance={400000} />
-        <EffectComposer />
+        {/* NO poner un <EffectComposer/> aquí: el composer real vive dentro de
+            <Sky>, envolviendo <AerialPerspective> y <ToneMapping>. Uno vacío
+            aquí es un segundo composer que compite por el render. La primera
+            versión de este plan lo tenía, reintroduciendo el bug que la Task 10
+            ya había corregido. */}
       </Suspense>
     </Canvas>
   )
@@ -1769,7 +1895,18 @@ git commit -m "feat: camara geodesica y encuadre de bbox"
 **Interfaces:**
 - Consumes: `types.ts` → `Registro`, `Way`, `Fuente`, `Tipo`
 - Produces:
-  - `class AttrStore` con: `constructor(ways: Way[])`, `get(i) → Registro`, `set(indices: number[], patch: Partial<Registro>) → void`, `seedFromSurface() → number`, `coverageByMunicipio() → Map<string, {total, evaluados}>`, `toJSON() → object`, `loadJSON(obj, ways) → string[]` (devuelve ids huérfanos), `onChange(cb)`
+  - `class AttrStore` con: `constructor(ways: Way[])`, `get(i) → Registro`, `set(indices: number[], patch: Partial<Registro>) → void`, `seedFromSurface() → number`, `coverageByMunicipio() → Map<string, {total, evaluados}>`, `toJSON() → object`, `loadJSON(obj, ways) → { orphans: string[], invalid: string[] }`, `onChange(cb)`
+
+> **Corregido durante la ejecución.** `loadJSON` validaba los ids pero no los valores. Como
+> `pci-tachira.json` se versiona en git para que el usuario lo edite a mano, por ahí entra
+> texto escrito por una persona: un `"pci": 150` lo recortaba a 100 la data texture aguas
+> abajo y **se mostraba como "Bueno"** — corrupción silenciosa en un número destinado a un
+> informe. Ahora normaliza y reporta, con el mismo criterio que ya se usaba con los
+> huérfanos: `fuente` fuera de dominio → `'sin'`, `tipo` → `'sin_definir'`, `pci` no finito
+> o fuera de 0-100 → `null`. **`pci: null` explícito no cuenta como corrupción**: es el
+> valor legítimo de "sin evaluar" y sin esa excepción las ~20.484 vías no evaluadas
+> saldrían marcadas en cada carga. Un registro corrupto nunca descarta el archivo ni toca
+> a los sanos.
 
 El store vive **fuera de React**: 26.712 registros no pasan por `useState`. Notifica cambios por
 callback para que la data texture se actualice.
@@ -1829,12 +1966,12 @@ test('la cobertura por municipio cuenta evaluados sobre total', () => {
 
 test('loadJSON restaura por osmId y reporta huerfanos sin borrarlos', () => {
   const s = new AttrStore(ways)
-  const huerfanos = s.loadJSON({ version: 1, registros: {
+  const orphans = s.loadJSON({ version: 1, registros: {
     '2': { pci: 30, fuente: 'medido', tipo: 'tierra', fecha: '2026-09-05', nota: '' },
     '999': { pci: 50, fuente: 'medido', tipo: 'asfalto', fecha: '2026-09-05', nota: '' },
   } }, ways)
   expect(s.get(1).pci).toBe(30)
-  expect(huerfanos).toEqual(['999'])
+  expect(orphans).toEqual(['999'])
 })
 
 test('toJSON solo serializa lo que tiene dato', () => {
@@ -1916,16 +2053,19 @@ export class AttrStore {
   }
 
   /** Devuelve los ids que ya no existen en la red. No los borra: los reporta. */
-  loadJSON (obj: { registros?: Record<string, Registro> }, ways: Way[]): string[] {
+  loadJSON (
+    obj: { version?: number; actualizado?: string; registros?: Record<string, Registro> },
+    ways: Way[],
+  ): { orphans: string[]; invalid: string[] } {
     const porId = new Map(ways.map((w, i) => [String(w.osmId), i]))
-    const huerfanos: string[] = []
+    const orphans: string[] = []
     for (const [id, reg] of Object.entries(obj.registros ?? {})) {
       const i = porId.get(id)
-      if (i == null) huerfanos.push(id)
+      if (i == null) orphans.push(id)
       else this.regs[i] = { ...vacio(), ...reg }
     }
     this.notify()
-    return huerfanos
+    return orphans
   }
 }
 ```
@@ -2078,12 +2218,52 @@ aparece, se lanza un error: una actualización de three debe fallar ruidosamente
 - [ ] **Step 1: Escribir el parche del material**
 
 ```ts
-// src/scene/roadsShader.ts
 import * as THREE from 'three'
+import { PCI_RANGES, SIN_EVALUAR, FUENTES } from '../data/constants'
 
 const ANCLA_VERT = 'void main() {'
-const ANCLA_FRAG = 'vec4 diffuseColor = vec4( diffuse, opacity );'
 
+// El brief de esta tarea asumía 'vec4 diffuseColor = vec4( diffuse, opacity );'
+// (la forma de versiones viejas de three). En three@0.185.1 ese main() abre
+// con `float alpha = opacity;` y arma diffuseColor con esa variable local, no
+// con el uniform directo -- confirmado leyendo
+// node_modules/three/examples/jsm/lines/LineMaterial.js. El string viejo no
+// aparece en esta versión; el ancla real es esta:
+const ANCLA_FRAG = 'vec4 diffuseColor = vec4( diffuse, alpha );'
+
+const vec3Lit = ([r, g, b]: readonly [number, number, number]) => `vec3(${r}, ${g}, ${b})`
+
+// La paleta ASTM D6433 tiene una sola fuente de verdad: PCI_RANGES en
+// constants.ts. Este bloque genera el GLSL de pciColor() a partir de esa
+// tabla en tiempo de módulo -- escribirla a mano una segunda vez dentro del
+// shader es justo el tipo de duplicado que este proyecto ya vio
+// desincronizarse en silencio dos veces.
+const PCI_COLOR_GLSL = `
+  vec3 pciColor (float pci) {
+    // 255 (vía encodeAttr) es el centinela de "sin evaluar" -- un PCI real
+    // va de 0 a 100, así que 0 (pavimento colapsado) nunca cae acá.
+    if (pci > 100.5) return ${vec3Lit(SIN_EVALUAR)};
+    ${PCI_RANGES.map((r, i) => (
+      i === PCI_RANGES.length - 1
+        ? `return ${vec3Lit(r.color)}; // ${r.label} (${r.min}-${r.max})`
+        : `if (pci >= ${r.min.toFixed(1)}) return ${vec3Lit(r.color)}; // ${r.label} (${r.min}-${r.max})`
+    )).join('\n    ')}
+  }
+`
+
+// FUENTES (constants.ts) también es fuente única: se resuelve el índice acá
+// en vez de repetir 2.0/3.0 sueltos y sin nombre dentro del shader.
+const F_ESTIMADO = FUENTES.indexOf('estimado').toFixed(1)
+const F_MEDIDO = FUENTES.indexOf('medido').toFixed(1)
+
+/**
+ * Inyecta en el shader de LineMaterial la lectura de la data texture de
+ * atributos (Task 14) y el color por PCI/procedencia. Se ancla al inicio de
+ * void main() (vertex) y a la línea donde LineMaterial arma diffuseColor
+ * (fragment) -- ambos strings se verifican antes de reemplazar: si three
+ * cambia ese shader en una versión futura, esto debe reventar ruidosamente
+ * en vez de dejar un render mudo sin error.
+ */
 export function patchLineMaterial (
   material: THREE.Material, attrTexture: THREE.DataTexture, attrSize: number,
 ) {
@@ -2094,34 +2274,23 @@ export function patchLineMaterial (
     if (!shader.vertexShader.includes(ANCLA_VERT)) {
       throw new Error('roadsShader: no se encontró el ancla del vertex shader de LineMaterial')
     }
-    shader.vertexShader = shader.vertexShader
-      .replace('void main() {', `
-        attribute float segId;
-        uniform sampler2D uAttr;
-        uniform float uAttrSize;
-        varying vec4 vAttr;
-        void main() {
-          vAttr = texture2D(uAttr, (vec2(
-            mod(segId, uAttrSize), floor(segId / uAttrSize)) + 0.5) / uAttrSize);
-      `)
+    shader.vertexShader = shader.vertexShader.replace(ANCLA_VERT, `
+      attribute float segId;
+      uniform sampler2D uAttr;
+      uniform float uAttrSize;
+      varying vec4 vAttr;
+      void main() {
+        vAttr = texture2D(uAttr, (vec2(
+          mod(segId, uAttrSize), floor(segId / uAttrSize)) + 0.5) / uAttrSize);
+    `)
 
     if (!shader.fragmentShader.includes(ANCLA_FRAG)) {
       throw new Error('roadsShader: no se encontró el ancla del fragment shader de LineMaterial')
     }
     shader.fragmentShader = shader.fragmentShader
-      .replace('void main() {', `
+      .replace(ANCLA_VERT, `
         varying vec4 vAttr;
-
-        vec3 pciColor (float pci) {
-          if (pci > 100.5)          return vec3(0.45, 0.45, 0.45);  // sin evaluar
-          if (pci >= 86.0)          return vec3(0.13, 0.62, 0.31);
-          if (pci >= 71.0)          return vec3(0.49, 0.75, 0.27);
-          if (pci >= 56.0)          return vec3(0.95, 0.83, 0.25);
-          if (pci >= 41.0)          return vec3(0.95, 0.60, 0.20);
-          if (pci >= 26.0)          return vec3(0.89, 0.36, 0.16);
-          if (pci >= 11.0)          return vec3(0.78, 0.16, 0.16);
-          return vec3(0.45, 0.08, 0.12);
-        }
+        ${PCI_COLOR_GLSL}
         void main() {
       `)
       .replace(ANCLA_FRAG, `
@@ -2130,10 +2299,15 @@ export function patchLineMaterial (
         float visible = mod(floor(vAttr.b * 255.0 + 0.5), 2.0);
         float selected = floor(mod(floor(vAttr.b * 255.0 + 0.5), 4.0) / 2.0);
         if (visible < 0.5) discard;
-        // la procedencia modula la opacidad: medido sólido, heredado tenue
-        float alpha = fuente >= 3.0 ? 1.0 : (fuente >= 2.0 ? 0.75 : 0.45);
+        // la procedencia modula la opacidad final: medido sólido, estimado
+        // semitransparente, heredado (y sin dato) tenue. Ojo: three@0.185.1
+        // saca el alpha de salida de la variable local alpha (ver
+        // gl_FragColor más abajo en este mismo shader), no de diffuseColor.a
+        // -- hay que reasignarla a ella, no solo construir diffuseColor con
+        // otro valor, o la modulación compila pero no se ve.
+        alpha *= fuente >= ${F_MEDIDO} ? 1.0 : (fuente >= ${F_ESTIMADO} ? 0.75 : 0.45);
         vec3 base = mix(pciColor(pci), vec3(1.0), selected * 0.6);
-        vec4 diffuseColor = vec4( base, opacity * alpha );
+        vec4 diffuseColor = vec4( base, alpha );
       `)
   }
   material.needsUpdate = true
@@ -2305,7 +2479,11 @@ function patchPickMaterial (material: THREE.Material) {
       void main() {
         vSegId = segId;
     `)
-    const ancla = 'vec4 diffuseColor = vec4( diffuse, opacity );'
+    // Mismo ancla que roadsShader.ts, y por la misma razón: en three@0.185.1
+    // el main() del fragment abre con `float alpha = opacity;` y arma
+    // diffuseColor con esa variable local. El string de versiones viejas
+    // (`vec4( diffuse, opacity )`) no aparece.
+    const ancla = 'vec4 diffuseColor = vec4( diffuse, alpha );'
     if (!shader.fragmentShader.includes(ancla)) {
       throw new Error('PickingPass: no se encontró el ancla del fragment shader de LineMaterial')
     }
@@ -2313,6 +2491,11 @@ function patchPickMaterial (material: THREE.Material) {
       .replace('void main() {', 'varying float vSegId;\nvoid main() {')
       .replace(ancla, `
         float id = vSegId + 1.0;   // 0 queda reservado para "nada"
+        // El id buffer tiene que ser OPACO: cualquier mezcla entre dos vías
+        // produce un color que decodifica como un tercer id inexistente.
+        // gl_FragColor saca su alpha de esta variable local, no de
+        // diffuseColor.a, así que hay que asignarla a ella.
+        alpha = 1.0;
         vec4 diffuseColor = vec4(
           floor(mod(id / 65536.0, 256.0)) / 255.0,
           floor(mod(id / 256.0, 256.0)) / 255.0,
@@ -3068,8 +3251,10 @@ export function useAutosave (
 - [ ] **Step 2: Conectar en App**
 
 Al arrancar, intentar `loadHandle()`; si devuelve un handle, leer el archivo y llamar
-`store.loadJSON(obj, ways)`. Si devuelve ids huérfanos, mostrarlos en consola con un aviso claro de
-que **no se borraron**.
+`store.loadJSON(obj, ways)`, que devuelve `{ orphans, invalid }`. Mostrar ambos en consola con un
+aviso claro: los huérfanos **no se borraron** (son ids que ya no existen en la red, el usuario
+decide), y los inválidos **se normalizaron** (valores fuera de dominio que se llevaron a su
+sentinel, para que un dato corrupto no se pinte como bueno).
 
 Añadir un botón "archivo de datos" que llame `pickFile()`. Si `isFsAccessSupported()` es falso,
 mostrar en su lugar un botón "descargar" que llame `downloadJSON(store.toJSON())`.
