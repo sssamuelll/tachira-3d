@@ -2,7 +2,7 @@ import { writeFile, mkdir } from 'node:fs/promises'
 import { makeEnuFrame, geodeticToEnu } from './lib/enu.mjs'
 import { lineLengthMeters, lineLength3dMeters, midpointIndex, pointInPolygon } from './lib/geo.mjs'
 import { overpass, waysToLines, relationsToPolygons, QUERY_VIAS, QUERY_MUNICIPIOS } from './lib/overpass.mjs'
-import { fetchDem, downsample, tileXf, tileYf, tileYToLat } from './lib/terrarium.mjs'
+import { fetchDem, downsample, tileXf, tileYf, tileYToLat, limpiarAnomalias } from './lib/terrarium.mjs'
 import { packRoads, writeBin } from './lib/pack.mjs'
 import { normalizeLanes, normalizeOneway, orientar } from './lib/road-meta.mjs'
 import { subdividir, apoyar } from './lib/subdividir.mjs'
@@ -58,6 +58,15 @@ async function main () {
   console.log('3/9  DEM')
   const dem = await fetchDem(BBOX, Z)
   console.log(`     grid ${dem.width} x ${dem.height}`)
+
+  // Antes de tallar ni de nada más: la fuente Terrarium trae, de vez en
+  // cuando, un post aislado con un valor que no tiene nada que ver con sus
+  // vecinos (una ladera real cambia junto con los ocho, nunca contra ellos).
+  // Triangulado, ese post sale como una aguja o un pozo de una sola celda.
+  // Se limpia acá, contra el dato crudo, para que tallado/drapeado/horneado
+  // trabajen todos sobre la misma rejilla ya sana.
+  const limpieza = limpiarAnomalias(dem)
+  console.log(`     ${limpieza.posts} posts aislados corregidos en el DEM crudo`)
 
   console.log('3b/9 tallado de las vías en el DEM')
   // Antes de apoyar nada: el DEM de ~38 m no sabe que las carreteras existen,

@@ -79,6 +79,40 @@ export async function fetchDem (bbox, z) {
   return { data, width, height, bounds, tile: { z, x0: r.x0, y0: r.y0, nx: r.nx, ny: r.ny } }
 }
 
+/**
+ * Limpia agujas y pozos aislados de una sola celda; modifica dem.data en sitio.
+ * La deteccion y la mediana usan siempre un snapshot del DEM original.
+ * Un grupo de dos o mas posts anomalos contiguos puede no dispararse: cada
+ * post puede incluir a su vecino anomalo en el maximo/minimo de sus 8 vecinos.
+ * Un terraplen o corte de varias celdas es asunto de tallar(), no de este filtro.
+ */
+export function limpiarAnomalias (dem, umbral = 80) {
+  const { data, width, height } = dem
+  const original = data.slice()
+  const vecinos = new Array(8)
+  let posts = 0
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x
+      vecinos[0] = original[i - width - 1]
+      vecinos[1] = original[i - width]
+      vecinos[2] = original[i - width + 1]
+      vecinos[3] = original[i - 1]
+      vecinos[4] = original[i + 1]
+      vecinos[5] = original[i + width - 1]
+      vecinos[6] = original[i + width]
+      vecinos[7] = original[i + width + 1]
+      const valor = original[i]
+      if (valor > Math.max(...vecinos) + umbral || valor < Math.min(...vecinos) - umbral) {
+        vecinos.sort((a, b) => a - b)
+        data[i] = (vecinos[3] + vecinos[4]) / 2
+        posts++
+      }
+    }
+  }
+  return { posts }
+}
+
 export function sampleBilinear (dem, lon, lat) {
   const { data, width, height, bounds } = dem
   const fx = (lon - bounds.w) / (bounds.e - bounds.w) * (width - 1)
