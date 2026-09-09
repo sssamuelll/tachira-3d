@@ -438,7 +438,15 @@ export default function App () {
           de sombra pasa a ser también emisor (así lo documenta three), y eso
           anularía el corte por distancia de TerrainLod -- el relieve entero
           volvería a los tres shadow maps y con él la caída a 20 fps. */}
-      <Canvas shadows="percentage" camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
+      {/* dpr topado a 1,5. Sin el prop, r3f sube hasta 2x el devicePixelRatio
+          (node_modules/@react-three/fiber/dist/events-156d8d12.esm.js:15715,
+          `dpr = [1, 2]`): en un monitor que reporta 2 son CUATRO veces los
+          pixeles, multiplicado por los tres pases de pantalla completa del
+          composer. MiniMapa.tsx:54 ya lo topaba a mano; el Canvas se habia
+          quedado con el default.
+          Calibrable, y es lo primero que hay que medir con el A/B de siempre:
+          si sobra GPU, subirlo antes que tocar cualquier otra cosa. */}
+      <Canvas shadows="percentage" dpr={[1, 1.5]} camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
         <Suspense fallback={null}>
           <Sky date={date} />
           <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen} date={date} />
