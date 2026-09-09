@@ -65,6 +65,27 @@ describe('independent bridge join audit', () => {
     expect(result.slopeBreakPp.count).toBe(1)
   })
 
+  it('audita como puente un way confirmado localmente aunque el OSM crudo omita la etiqueta', () => {
+    const id = 1223380942
+    const ways = [
+      road(id, [10, 11], [[0, 0, 100], [0.001, 0, 110]]),
+      road(2, [9, 10], [[-0.001, 0, 90], [0, 0, 100]]),
+      road(3, [11, 12], [[0.001, 0, 110], [0.002, 0, 120]]),
+    ]
+    const packed = packRoads(ways.map(w => ({
+      enu: w.points.map(([lon, lat, h]) => geodeticToEnu(frame, lat, lon, h)),
+    })))
+    const data = { ...packed, frame,
+      meta: { ways: ways.map(w => ({ osmId: w.id, ...w.tags,
+        ...(w.id === id ? { bridge: 'yes', layer: '1' } : {}) })) },
+      report: { chains: [{ id, wayIds: [id], endpoints: [[0, 0, 100], [0.001, 0, 110]],
+        ways: [{ osmId: id, minClearanceM: 0 }] }], penetratingWays: 0, clearanceToleranceM: 0.2 } }
+
+    const result = auditBridgeJoins(data, { elements: ways })
+    expect(result.measuredAbutments).toBe(2)
+    expect(result.endpoints.flatMap(endpoint => endpoint.candidates.map(c => c.osmId))).toEqual([2, 3])
+  })
+
   it('includes both interior-node branches and selects the worst', () => {
     const extra = road(4, [13, 10, 14], [[0, -0.001, 100], [0, 0, 100], [0, 0.001, 125]])
     const { data, raw } = fixture([extra])
@@ -89,5 +110,17 @@ describe('independent bridge join audit', () => {
     expect(result.maxBridgeVertexMovementM).toBeCloseTo(0.4, 4)
     expect(result.newlyPenetratingWays).toEqual([1])
     expect(result.clearanceRegressions).toEqual([{ osmId: 1, beforeM: 0, afterM: -0.4 }])
+  })
+
+  it('reports a penetrating way newly classified as a bridge', () => {
+    const before = fixture().data
+    const after = fixture().data
+    after.meta.ways.find(w => w.osmId === 2).bridge = 'yes'
+    after.report.chains[0].ways.push({ osmId: 2, minClearanceM: -0.3 })
+    after.report.penetratingWays = 1
+
+    const result = compareBridgeBakes(before, after)
+    expect(result.newlyPenetratingWays).toEqual([2])
+    expect(result.clearanceRegressions).toEqual([])
   })
 })

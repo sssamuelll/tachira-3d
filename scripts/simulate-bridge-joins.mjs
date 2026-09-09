@@ -57,9 +57,25 @@ const ground = sparse.alturaDe
 console.log('DEM baseline exacto: solo bloques consultados alrededor de puentes')
 const initial = elevarPuentes(topology, ground)
 const originalById = new Map(baseline.report.chains.map(c => [c.id, c]))
-const reconstruction = { endpointErrorsM: distribution(initial.report.chains.flatMap(c => c.endpoints.map((p, i) => Math.abs(p[2] - originalById.get(c.id).endpoints[i][2])))),
-  clearanceErrorsM: distribution(initial.report.chains.flatMap(c => c.ways.map(w => Math.abs(w.minClearanceM - originalById.get(c.id).ways.find(b => b.osmId === w.osmId).minClearanceM)))),
-  penetratingWays: initial.report.penetratingWays }
+const originalByWay = new Map(baseline.report.chains.flatMap(c => c.ways.map(w => [w.osmId, w])))
+const sameTopology = (a, b) => !!a && !!b &&
+  [...a.wayIds].sort((x, y) => x - y).join('/') === [...b.wayIds].sort((x, y) => x - y).join('/')
+const stableChains = initial.report.chains.filter(c => sameTopology(c, originalById.get(c.id)))
+const changedChains = initial.report.chains.filter(c => !sameTopology(c, originalById.get(c.id)))
+const stableIds = new Set(stableChains.map(c => c.id))
+const reconstruction = {
+  stableChains: stableChains.length,
+  topologyChanges: changedChains.map(c => ({ id: c.id, beforeWayIds: originalById.get(c.id)?.wayIds ?? [],
+    afterWayIds: c.wayIds })),
+  removedOrChangedChainIds: baseline.report.chains
+    .filter(c => !initial.report.chains.some(a => sameTopology(a, c))).map(c => c.id),
+  newlyClassifiedWayIds: initial.report.chains.flatMap(c => c.ways).filter(w => !originalByWay.has(w.osmId)).map(w => w.osmId),
+  endpointErrorsM: distribution(stableChains.flatMap(c => c.endpoints.map((p, i) =>
+    Math.abs(p[2] - originalById.get(c.id).endpoints[i][2])))),
+  clearanceErrorsM: distribution(stableChains.flatMap(c => c.ways.map(w =>
+    Math.abs(w.minClearanceM - originalByWay.get(w.osmId).minClearanceM)))),
+  penetratingWays: initial.report.penetratingWays,
+}
 if (reconstruction.endpointErrorsM.max > 1e-7 || reconstruction.clearanceErrorsM.max > 1e-7) {
   throw new Error(`El DEM reconstruido no coincide con el snapshot: ${JSON.stringify(reconstruction)}`)
 }
@@ -78,8 +94,9 @@ for (const [id, points] of overrides) {
 const simulated = { ...baseline, report: result.structures.report,
   pointsOf: id => overrides.get(id) ?? baselinePoints(id) }
 const finalAudit = auditBridgeJoins(simulated, raw)
-const measuredIds = audit => audit.endpoints.filter(e => e.breakPp !== null).map(e => `${e.chainId}/${e.side}`).sort()
-if (JSON.stringify(measuredIds(baselineAudit)) !== JSON.stringify(measuredIds(finalAudit))) throw new Error('La simulación cambió el conjunto de estribos medibles')
+const measuredIds = audit => audit.endpoints.filter(e => stableIds.has(e.chainId) && e.breakPp !== null)
+  .map(e => `${e.chainId}/${e.side}`).sort()
+if (JSON.stringify(measuredIds(baselineAudit)) !== JSON.stringify(measuredIds(finalAudit))) throw new Error('La simulación cambió los estribos medibles de cadenas sin cambios topológicos')
 
 const exactGradeViolations = [], packedGradeViolations = []
 const internalBreaks = [], exteriorBreaks = []
@@ -141,6 +158,7 @@ const originalChains = new Map(baseline.report.chains.map(c => [c.id, c]))
 const clearanceBounds = []
 for (const c of result.structures.report.chains) {
   const before = originalChains.get(c.id)
+  if (!sameTopology(c, before)) continue
   const delta = c.endpoints.map((p, i) => p[2] - before.endpoints[i][2])
   for (const w of before.ways) clearanceBounds.push({ osmId: w.osmId, beforeM: w.minClearanceM,
     guaranteedAfterMinM: w.minClearanceM + Math.min(...delta), minDeckRaiseM: Math.min(...delta), maxDeckRaiseM: Math.max(...delta) })
@@ -150,13 +168,16 @@ const summaries = audit => ({ chains: audit.chains, expectedAbutments: audit.exp
   slopeBreakPp: audit.slopeBreakPp, heightStepM: audit.heightStepM })
 const pieces = [
   { name: 'Viejo', lat: 7.76271285, lon: -72.23427815, wayIds: [1203013290, 1203013292] },
-  { name: 'Nuevo', lat: 7.76432975, lon: -72.2206145, wayIds: [74534876, 1211907172, 1223380938, 1223380940] },
+  { name: 'Nuevo', lat: 7.76432975, lon: -72.2206145,
+    wayIds: [74534876, 1211907172, 1223380938, 1223380940, 1223380942, 1223380941, 1223380939, 1223380943] },
 ]
 const movement = pieces.map(piece => ({ ...piece, chains: result.structures.report.chains
   .filter(c => c.wayIds.some(id => piece.wayIds.includes(id))).map(c => {
     const before = originalChains.get(c.id)
-    return { chainId: c.id, wayIds: c.wayIds, endChangesM: c.endpoints.map((p, i) => p[2] - before.endpoints[i][2]),
-      midpointChangeM: c.heightMidM - before.heightMidM }
+    return { chainId: c.id, wayIds: c.wayIds, topologyChanged: !sameTopology(c, before),
+      beforeWayIds: before?.wayIds ?? [], endpoints: c.endpoints, heightMidM: c.heightMidM,
+      endChangesM: sameTopology(c, before) ? c.endpoints.map((p, i) => p[2] - before.endpoints[i][2]) : null,
+      midpointChangeM: sameTopology(c, before) ? c.heightMidM - before.heightMidM : null }
   }) }))
 const report = {
   version: 1, mode: 'exact-sparse-baseline-dem; no bake; no writes to public/data',
@@ -193,16 +214,17 @@ const report = {
     afterSimulationPenetratingWays: finalClearance.penetratingWays,
     afterSimulationClearWays: finalClearance.clearWays,
     actualRegressions: finalClearance.chains.flatMap(c => c.ways.flatMap(w => {
-      const before = originalById.get(c.id).ways.find(b => b.osmId === w.osmId)
-      return w.minClearanceM < before.minClearanceM - 1e-7 ? [{ osmId: w.osmId, beforeM: before.minClearanceM, afterM: w.minClearanceM }] : []
+      const before = originalByWay.get(w.osmId)
+      return before && w.minClearanceM < before.minClearanceM - 1e-7
+        ? [{ osmId: w.osmId, beforeM: before.minClearanceM, afterM: w.minClearanceM }] : []
     })),
     newlyPenetratingWays: finalClearance.chains.flatMap(c => c.ways.flatMap(w => {
-      const before = originalById.get(c.id).ways.find(b => b.osmId === w.osmId)
-      return w.minClearanceM < -.2 && before.minClearanceM >= -.2 ? [w.osmId] : []
+      const before = originalByWay.get(w.osmId)
+      return w.minClearanceM < -.2 && (!before || before.minClearanceM >= -.2) ? [w.osmId] : []
     })),
     remainingPenetratingWays: finalClearance.chains.flatMap(c => c.ways.flatMap(w => {
-      const before = originalById.get(c.id).ways.find(b => b.osmId === w.osmId)
-      return w.minClearanceM < -.2 ? [{ osmId: w.osmId, beforeM: before.minClearanceM, afterM: w.minClearanceM }] : []
+      const before = originalByWay.get(w.osmId)
+      return w.minClearanceM < -.2 ? [{ osmId: w.osmId, beforeM: before?.minClearanceM ?? null, afterM: w.minClearanceM }] : []
     })).sort((a, b) => a.afterM - b.afterM),
     guaranteedNonRegressingWays: clearanceBounds.filter(w => w.minDeckRaiseM >= -1e-8).length,
     afterOriginalDemConservativeUpperBoundPenetratingWays: clearanceBounds.filter(w => w.guaranteedAfterMinM < -.2).length,

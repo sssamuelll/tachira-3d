@@ -6,6 +6,7 @@ import { alturaEnPosts } from './lib/drape.mjs'
 import { tileXf, tileYf, tileXToLon, tileYToLat, decodeTerrarium } from './lib/terrarium.mjs'
 import { makeEnuFrame, geodeticToEnu } from './lib/enu.mjs'
 import { lineLengthMeters } from './lib/geo.mjs'
+import { tagsViales } from './lib/road-tag-overrides.mjs'
 
 const json = path => JSON.parse(readFileSync(path, 'utf8'))
 const terrain = json('public/data/terrain.json')
@@ -35,6 +36,40 @@ function elevation (lon, lat) {
 const worldY = (lon, lat, h = elevation(lon, lat)) => geodeticToEnu(frame, lat, lon, h)[2]
 const range = values => ({ min: Math.min(...values), max: Math.max(...values) })
 const coords = way => way.geometry.map(p => [p.lon, p.lat])
+const distances = points => {
+  const result = [0]
+  for (let i = 1; i < points.length; i++) result.push(result.at(-1) + lineLengthMeters(points.slice(i - 1, i + 1)))
+  return result
+}
+const interpolate = (stations, values, targets) => targets.map(target => {
+  let i = 1
+  while (i < stations.length - 1 && stations[i] < target) i++
+  const span = stations[i] - stations[i - 1]
+  const t = span > 0 ? (target - stations[i - 1]) / span : 0
+  return values[i - 1] + t * (values[i] - values[i - 1])
+})
+
+function ribbonWays (piece) {
+  const result = []
+  for (const ribbon of piece.cintas) {
+    const ids = ribbon.wayIds ?? [ribbon.id]
+    let cursor = 0
+    for (const id of ids) {
+      const way = vias.find(w => w.id === id)
+      if (!way) throw new Error(`way/${id} falta en .cache/vias.json`)
+      const count = way.geometry.length
+      const localHeights = ribbon.alturas?.slice(cursor, cursor + count) ?? null
+      if (localHeights && localHeights.length !== count) throw new Error(`Perfil incompleto para way/${id}`)
+      if (localHeights && (ribbon.reversedWayIds ?? []).includes(id)) localHeights.reverse()
+      result.push({ id, localHeights })
+      cursor += count - 1
+    }
+    if (ribbon.alturas && cursor + 1 !== ribbon.pts.length) {
+      throw new Error(`La partición por way no consume la cinta ${ribbon.id}`)
+    }
+  }
+  return result
+}
 
 /** Rayo vertical contra los mismos triángulos y posiciones Float32 que
  * geometriaNodo usa a z15. step=8 reproduce la geometría gruesa de z12.
@@ -113,6 +148,7 @@ function bakedProfile (osmId) {
     midpointY: points[k - 1][1] + t * (points[k][1] - points[k - 1][1]),
     ...range(points.map(p => p[1])),
     minimumLift: { ...range(liftedYs), midpointY: liftedYs[k - 1] + t * (liftedYs[k] - liftedYs[k - 1]) },
+    samples: { points, distances, liftedYs },
   }
 }
 
@@ -128,42 +164,70 @@ for (const [name, piece] of Object.entries(pieces)) {
   const rootY = pieceAnchor(lon, lat)
   const levels = glbLevels(`public/data/piezas/viaducto-${old ? 'viejo' : 'nuevo'}.glb`)
   const givenDeckY = old ? 649.8 : 753.2
-  const deckY = rootY + levels.deck, pavementY = rootY + levels.pavement
-  const ways = piece.cintas.map(cinta => {
-    const way = vias.find(w => w.id === cinta.id), cs = coords(way)
+  const profiles = ribbonWays(piece)
+  const localDeckRange = profiles.some(p => p.localHeights)
+    ? range(profiles.flatMap(p => p.localHeights ?? []))
+    : { min: levels.deck, max: levels.deck }
+  const localPavementRange = { min: localDeckRange.min + .06, max: localDeckRange.max + .06 }
+  const deckYRange = { min: rootY + localDeckRange.min, max: rootY + localDeckRange.max }
+  const pavementYRange = { min: rootY + localPavementRange.min, max: rootY + localPavementRange.max }
+  const deckY = deckYRange.max, pavementY = pavementYRange.max
+  const ways = profiles.map(profile => {
+    const way = vias.find(w => w.id === profile.id), cs = coords(way)
     const endpoints = [cs[0], cs.at(-1)]
-    const baked = bakedProfile(way.id)
+    const bakedWithSamples = bakedProfile(way.id)
+    const { samples, ...baked } = bakedWithSamples
+    let expectedYs
+    if (profile.localHeights) {
+      let sourceCoords = cs, sourceHeights = profile.localHeights
+      const [e0, n0] = geodeticToEnu(frame, sourceCoords[0][1], sourceCoords[0][0], 0)
+      const [e1, n1] = geodeticToEnu(frame, sourceCoords.at(-1)[1], sourceCoords.at(-1)[0], 0)
+      const first = samples.points[0]
+      if (Math.hypot(first[0] - e1, first[2] + n1) < Math.hypot(first[0] - e0, first[2] + n0)) {
+        sourceCoords = [...sourceCoords].reverse()
+        sourceHeights = [...sourceHeights].reverse()
+      }
+      const sourceDistances = distances(sourceCoords), sourceLength = sourceDistances.at(-1)
+      const bakedLength = samples.distances.at(-1)
+      expectedYs = interpolate(sourceDistances, sourceHeights,
+        samples.distances.map(s => s / bakedLength * sourceLength)).map(h => rootY + h + .06)
+    } else expectedYs = samples.distances.map(() => pavementY)
+    const axisDelta = samples.points.map((p, i) => p[1] - expectedYs[i])
+    const liftDelta = samples.liftedYs.map((y, i) => y - expectedYs[i])
+    const halfIndex = samples.distances.findIndex(s => s >= samples.distances.at(-1) / 2)
     return {
       osmId: way.id, nodes: way.nodes, lengthMeters: lineLengthMeters(cs), endpoints,
       endpointDemH: endpoints.map(p => elevation(...p)),
       endpointTerrainY: endpoints.map(p => worldY(...p)), baked,
       midpointMinusGivenDeck: baked.midpointY - givenDeckY,
-      midpointMinusActualPavement: baked.midpointY - pavementY,
-      rangeMinusActualPavement: { min: baked.min - pavementY, max: baked.max - pavementY },
+      midpointMinusActualPavement: axisDelta[halfIndex],
+      rangeMinusActualPavement: range(axisDelta),
       minimumLiftMinusActualPavement: {
-        min: baked.minimumLift.min - pavementY, max: baked.minimumLift.max - pavementY,
-        midpoint: baked.minimumLift.midpointY - pavementY,
+        ...range(liftDelta), midpoint: liftDelta[halfIndex],
       },
     }
   })
-  const gaps = old ? [] : [1223380942, 1223380941, 1223380939, 1223380943].map(id => {
+  const localOverrides = old ? [] : [1223380942, 1223380941, 1223380939, 1223380943].map(id => {
     const way = vias.find(w => w.id === id), cs = coords(way)
-    return { osmId: id, tags: way.tags, lengthMeters: lineLengthMeters(cs),
+    return { osmId: id, osmTags: way.tags, effectiveTags: tagsViales(way), lengthMeters: lineLengthMeters(cs),
       endpoints: [cs[0], cs.at(-1)], terrainY: range(cs.map(p => worldY(...p))) }
   })
   report.viaducts.push({
-    name, center: piece.centro, givenDeckY, rootY, localLevels: levels, deckY, pavementY,
-    expectedChrome: 'La verificación visual sigue pendiente. Si minimumLiftMinusActualPavement es negativo, el eje con alza mínima queda por debajo de la rodadura del GLB; no se promete calzada por encima de la pieza ni se ajustan las cotas para conseguirlo.',
+    name, center: piece.centro, givenDeckY, rootY, localLevels: levels,
+    localDeckRange, localPavementRange, deckYRange, pavementYRange, deckY, pavementY,
+    expectedChrome: 'La verificación visual sigue pendiente. Las diferencias se calculan contra la rasante variable de cada cinta cuando `alturas` existe.',
     // Ayuda a identificar la antigua cota del Viejo (~649,8) sin adoptarla.
     coarseUncorrectedRayDeckY: rayHeight(lon, lat, 0, 8) + levels.deck,
     sampleTerrainY: Object.fromEntries(Object.entries(piece.muestras).map(([key, ps]) =>
       [key, range(ps.map(p => worldY(p.lon, p.lat)))])),
-    ways, gaps,
+    ways, localOverrides,
   })
 }
 writeFileSync('.cache/viaduct-comparison.json', JSON.stringify(report, null, 2) + '\n')
 for (const v of report.viaducts) {
-  console.log(`${v.name}: tablero dado ${v.givenDeckY.toFixed(2)}; GLB fino ${v.deckY.toFixed(2)}; rodadura ${v.pavementY.toFixed(2)}`)
+  console.log(`${v.name}: tablero dado ${v.givenDeckY.toFixed(2)}; ` +
+    `GLB fino ${v.deckYRange.min.toFixed(2)}–${v.deckYRange.max.toFixed(2)}; ` +
+    `rodadura ${v.pavementYRange.min.toFixed(2)}–${v.pavementYRange.max.toFixed(2)}`)
   console.table(v.ways.map(w => ({ way: w.osmId, segmentos: w.baked.segments,
     minimo: w.baked.min.toFixed(3), medio: w.baked.midpointY.toFixed(3), maximo: w.baked.max.toFixed(3),
     diferenciaReferencia: w.midpointMinusGivenDeck.toFixed(3), diferenciaRodadura: w.midpointMinusActualPavement.toFixed(3),

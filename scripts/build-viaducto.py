@@ -1,15 +1,21 @@
 # Viaductos de San Cristóbal: tablero barrido sobre la directriz real de OSM,
 # con pilas hasta el terreno y pretiles.
 #
-# blender --background --python build-viaducto.py -- <viaductos.json> <nombre> <alto_m> <salida.glb>
+# blender --background --python scripts/build-viaducto.py -- <viaductos.json> <nombre> <alto_m> <salida.glb>
+# El Nuevo se reproduce desde scripts/viaducto-nuevo.json; su `nota` hace que
+# este mismo comando selle asset.extras después de exportar.
 #
-# La directriz NO es inventada: son los ways con bridge=yes de OSM, en metros
-# locales respecto al centro del tablero. Lo estimado es la sección (ancho de
-# calzada, canto, forma de pila) y la altura, medida contra el DEM del visor.
+# La directriz NO es inventada: son los ways de OSM, en metros locales respecto
+# al centro del tablero. En el Viaducto Nuevo incluye cuatro ways sin bridge=yes
+# porque Samuel, dueño del proyecto y conocedor del sitio, confirmó que el
+# tablero es continuo sobre la Av. Fortunato Gómez. `alturas`, cuando existe,
+# da la cota local de cada punto; ALTO queda como respaldo para cintas planas.
+# Lo estimado es la sección (ancho, canto y forma de pila); la rasante viene del
+# mismo cálculo de puentes y accesos que usa la calzada real del visor.
 #
 # Blender modela en Z arriba; el exportador glTF entrega Y arriba, que es la
 # convención del visor (X este, Y arriba, Z -norte). Blender Y = norte.
-import bpy, bmesh, json, math, sys
+import bpy, bmesh, importlib.util, json, math, pathlib, sys
 from mathutils import Vector
 
 argv = sys.argv[sys.argv.index('--') + 1:]
@@ -39,12 +45,14 @@ def material(nombre, rgb, rough):
 HORMIGON = material('hormigon', (0.62, 0.61, 0.58), 0.80)
 ASFALTO  = material('asfalto',  (0.17, 0.17, 0.18), 0.92)
 
-def puntos_blender(pts):
-    """[x_este, z_menos_norte] -> (x, y=norte) de Blender, sin repetidos."""
+def puntos_blender(pts, alturas=None):
+    """[x_este, z_menos_norte] + cota -> Blender (x, y=norte, z=arriba)."""
+    if alturas is not None and len(alturas) != len(pts):
+        raise ValueError('alturas debe tener una cota por punto')
     salida = []
-    for x, z in pts:
-        p = Vector((x, -z, 0.0))
-        if not salida or (p - salida[-1]).length > 0.05:
+    for i, (x, z) in enumerate(pts):
+        p = Vector((x, -z, ALTO if alturas is None else float(alturas[i])))
+        if not salida or Vector((p.x - salida[-1].x, p.y - salida[-1].y, 0)).length > 0.05:
             salida.append(p)
     return salida
 
@@ -63,8 +71,8 @@ def cinta(bm, eje, semi, z0, z1):
         izq.append(p + n * semi); der.append(p - n * semi)
     aros = []
     for z in (z0, z1):
-        aros.append(([bm.verts.new((v.x, v.y, z)) for v in izq],
-                     [bm.verts.new((v.x, v.y, z)) for v in der]))
+        aros.append(([bm.verts.new((v.x, v.y, v.z + z)) for v in izq],
+                     [bm.verts.new((v.x, v.y, v.z + z)) for v in der]))
     (bi, bd), (ti, td) = aros
     n = len(eje)
     for i in range(n - 1):
@@ -82,15 +90,15 @@ def objeto(bm, nombre, mat):
     bpy.context.collection.objects.link(o)
 
 for k, c in enumerate(datos['cintas']):
-    eje = puntos_blender(c['pts'])
+    eje = puntos_blender(c['pts'], c.get('alturas'))
     if len(eje) < 2: continue
     semi = (c['canales'] * ANCHO_CARRIL) / 2 + HOMBRILLO
 
-    bm = bmesh.new(); cinta(bm, eje, semi, ALTO - CANTO, ALTO)
+    bm = bmesh.new(); cinta(bm, eje, semi, -CANTO, 0)
     objeto(bm, f'tablero-{k}', HORMIGON)
 
     # capa de rodadura, apenas por encima del tablero
-    bm = bmesh.new(); cinta(bm, eje, semi - PRETIL_ANCHO, ALTO, ALTO + 0.06)
+    bm = bmesh.new(); cinta(bm, eje, semi - PRETIL_ANCHO, 0, 0.06)
     objeto(bm, f'rodadura-{k}', ASFALTO)
 
     # pretiles a ambos lados
@@ -100,7 +108,7 @@ for k, c in enumerate(datos['cintas']):
             a = eje[max(i-1, 0)]; b = eje[min(i+1, len(eje)-1)]
             n = normal(a, b) if (b - a).length > 1e-6 else Vector((0, 1, 0))
             despl.append(p + n * signo * (semi - PRETIL_ANCHO / 2))
-        bm = bmesh.new(); cinta(bm, despl, PRETIL_ANCHO / 2, ALTO, ALTO + PRETIL_ALTO)
+        bm = bmesh.new(); cinta(bm, despl, PRETIL_ANCHO / 2, 0, PRETIL_ALTO)
         objeto(bm, f'pretil-{k}-{signo}', HORMIGON)
 
     # pilas a intervalos, saltando los extremos (ahí van los estribos)
@@ -114,7 +122,7 @@ for k, c in enumerate(datos['cintas']):
             if rec + paso >= s:
                 t = (s - rec) / paso
                 p = eje[i].lerp(eje[i+1], t)
-                bpy.ops.mesh.primitive_cube_add(size=1, location=(p.x, p.y, ALTO - CANTO - PILA_HONDO/2))
+                bpy.ops.mesh.primitive_cube_add(size=1, location=(p.x, p.y, p.z - CANTO - PILA_HONDO/2))
                 pila = bpy.context.object
                 pila.scale = (PILA_LADO, PILA_LADO, PILA_HONDO)
                 pila.name = f'pila-{k}-{j}'
@@ -126,4 +134,18 @@ for o in bpy.context.collection.objects:
     o.select_set(True)
 bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', export_yup=True,
                           use_selection=True, export_apply=True)
-print(f'[viaducto] {NOMBRE}: {len(datos["cintas"])} cintas, tablero a {ALTO} m -> {OUT}')
+if datos.get('nota'):
+    ruta_sellador = pathlib.Path(__file__).with_name('sellar-glb.py')
+    no_escribir_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec = importlib.util.spec_from_file_location('sellar_glb', ruta_sellador)
+        sellador = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sellador)
+    finally:
+        sys.dont_write_bytecode = no_escribir_bytecode
+    sellador.sellar_glb(OUT, datos['nota'])
+perfil = any('alturas' in c for c in datos['cintas'])
+print(f'[viaducto] {NOMBRE}: {len(datos["cintas"])} cintas, ' +
+      (f'perfil variable (ALTO {ALTO} m es respaldo)' if perfil else f'tablero a {ALTO} m') +
+      f' -> {OUT}')

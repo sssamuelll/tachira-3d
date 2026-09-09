@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { tagsViales } from './road-tag-overrides.mjs'
 
 const ENDPOINT = 'https://overpass-api.de/api/interpreter'
 const CACHE = '.cache'
@@ -46,7 +47,7 @@ export function waysToLines (json) {
     .filter(el => el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 2)
     .map(el => ({
       osmId: el.id,
-      tags: el.tags ?? {},
+      tags: tagsViales(el),
       // La topología de puentes se resuelve antes de orientar/subdividir:
       // compartir coordenadas no implica compartir un nodo a distinto nivel.
       nodes: Array.isArray(el.nodes) ? el.nodes : null,

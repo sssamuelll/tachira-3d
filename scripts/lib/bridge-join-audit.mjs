@@ -1,6 +1,7 @@
 import { enuToGeodetic } from './enu.mjs'
 import { lineLengthMeters } from './geo.mjs'
 import { esPuente, esTunel } from './structures.mjs'
+import { tagsViales } from './road-tag-overrides.mjs'
 
 // Las pendientes se miden en el primer segmento REAL del binario a cada
 // lado de la junta, en altura geodésica (no el eje Y regional de Three).
@@ -34,7 +35,9 @@ const planarGap = (a, b) => lineLengthMeters([a, b])
 const grade = (from, to) => (to[2] - from[2]) / planarGap(from, to) * 100
 
 export function auditBridgeJoins (data, raw) {
-  const rawWays = raw.elements.filter(w => w.type === 'way' && Array.isArray(w.nodes) && Array.isArray(w.geometry))
+  const rawWays = raw.elements
+    .filter(w => w.type === 'way' && Array.isArray(w.nodes) && Array.isArray(w.geometry))
+    .map(w => ({ ...w, tags: tagsViales(w) }))
   const rawById = new Map(rawWays.map(w => [w.id, w]))
   const bakedById = new Map(data.meta.ways.map((w, i) => [w.osmId, i]))
   const bridgeNodes = new Set(rawWays.filter(w => esPuente(w.tags ?? {})).flatMap(w => w.nodes))
@@ -126,6 +129,9 @@ export function compareBridgeBakes (before, after) {
     changedBridgeWays, maxBridgeVertexMovementM, clearanceRegressions,
     beforePenetratingWays: before.report.penetratingWays,
     afterPenetratingWays: after.report.penetratingWays,
-    newlyPenetratingWays: afterWays.filter(w => w.minClearanceM < -after.report.clearanceToleranceM &&
-      beforeClearance.get(w.osmId) >= -before.report.clearanceToleranceM).map(w => w.osmId) }
+    newlyPenetratingWays: afterWays.filter(w => {
+      const previous = beforeClearance.get(w.osmId)
+      return w.minClearanceM < -after.report.clearanceToleranceM &&
+        (previous === undefined || previous >= -before.report.clearanceToleranceM)
+    }).map(w => w.osmId) }
 }
