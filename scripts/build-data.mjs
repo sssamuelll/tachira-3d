@@ -10,9 +10,9 @@ import { alturaTriangulo, normalTriangulo } from './lib/drape.mjs'
 import { tallar } from './lib/carving.mjs'
 import { stateMask } from './lib/state-mask.mjs'
 import { escribirPiramide } from './lib/dem-tiles.mjs'
-import { encadenarPuentes, elevarPuentes, esTunel, normalesTablero, layerDe } from './lib/structures.mjs'
+import { encadenarPuentes, elevarPuentes, esTunel, normalesTablero, layerDe, regresionesGalibo } from './lib/structures.mjs'
 import { capturarAccesos, empalmarAccesos } from './lib/bridge-approaches.mjs'
-import { tallarAccesos } from './lib/approach-terrain.mjs'
+import { auditarContactosPuente, tallarAccesos, redrapearCrucesTerreno } from './lib/approach-terrain.mjs'
 
 const BBOX = { s: 7.3612911, w: -72.4878225, n: 8.6826552, e: -71.3153029 }
 const ORIGIN = { lat: 8.021973, lon: -71.901563, h: 0 }
@@ -94,14 +94,21 @@ async function main () {
   const approaches = empalmarAccesos(lines, accessTopology, topology, structures, alturaDe)
   structures = approaches.structures
   approaches.report.terrain = tallarAccesos(dem, approaches.corridors, topology)
+  approaches.report.terrain.crossingRoadRedrape = redrapearCrucesTerreno(
+    lines, approaches, (lon, lat) => alturaTriangulo(dem, lon, lat))
   const fixedEnds = new Map(structures.report.chains.map(c => [c.id, c.endpoints.map(p => p[2])]))
   structures = elevarPuentes(topology, (lon, lat) => alturaTriangulo(dem, lon, lat), fixedEnds)
-  const originalClearance = new Map(originalStructures.chains.flatMap(c => c.ways).map(w => [w.osmId, w.minClearanceM]))
-  const regressions = structures.report.chains.flatMap(c => c.ways)
-    .filter(w => w.minClearanceM < originalClearance.get(w.osmId) - 1e-7)
+  const contactWays = new Set(approaches.report.terrainCrossings.flatMap(c => c.bridgeWayIds))
+  const contactAudit = auditarContactosPuente(dem, topology, structures,
+    approaches.report.terrainCrossings)
+  if (contactAudit.violations.length) {
+    throw new Error(`El terreno penetró ${contactAudit.violations.length} tableros cerca de los cruces`)
+  }
+  const regressions = regresionesGalibo(originalStructures, structures.report, contactWays)
   if (regressions.length) throw new Error(`Los acuerdos empeoraron el gálibo de ${regressions.length} puentes`)
   approaches.report.clearance = { beforePenetratingWays: originalStructures.penetratingWays,
-    afterPenetratingWays: structures.report.penetratingWays, regressedWays: regressions.length }
+    afterPenetratingWays: structures.report.penetratingWays, regressedWays: regressions.length,
+    contactAudit }
   console.log(`     ${approaches.report.paths.length} acuerdos · ${approaches.byWay.size} vías · ` +
     `${approaches.report.deckChanges.length} tableros corregidos · ${approaches.report.skipped.length} casos declarados`)
   await writeFile(`${OUT}/roads-approaches.json`, JSON.stringify(approaches.report, null, 2))

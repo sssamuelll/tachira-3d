@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { encadenarPuentes, elevarPuentes, normalesTablero } from '../lib/structures.mjs'
+import { encadenarPuentes, elevarPuentes, normalesTablero, regresionesGalibo } from '../lib/structures.mjs'
 import { geodeticToEnu, makeEnuFrame } from '../lib/enu.mjs'
 import { subdividir } from '../lib/subdividir.mjs'
 import { orientar } from '../lib/road-meta.mjs'
@@ -133,4 +133,15 @@ it('cada tramo conserva el ancho horizontal incluso en una curva con pendiente',
     const up = [u1[0] - u0[0], u1[2] - u0[2], -(u1[1] - u0[1])]
     expect(side.reduce((sum, x, j) => sum + x * up[j], 0)).toBeCloseTo(0, 6)
   }
+})
+
+it('acepta contacto a nivel sin ocultar una penetración ni otra regresión de gálibo', () => {
+  const report = values => ({ chains: [{ ways: values.map(([osmId, minClearanceM]) => ({ osmId, minClearanceM })) }] })
+  const before = report([[1, 5], [2, 5], [3, 5]])
+  const after = report([[1, -.00002], [2, -.01], [3, 4]])
+
+  expect(regresionesGalibo(before, after, new Set([1, 2]))).toEqual([
+    { osmId: 2, beforeM: 5, afterM: -.01, reason: 'terrain-penetration' },
+    { osmId: 3, beforeM: 5, afterM: 4, reason: 'clearance-regression' },
+  ])
 })

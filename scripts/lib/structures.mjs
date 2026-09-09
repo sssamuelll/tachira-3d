@@ -10,6 +10,21 @@ export const layerDe = tags => /^-?\d+$/.test(String(tags.layer ?? '').trim())
 // prueba de gálibo reglamentario ni de los bordes de la calzada.
 export const CLEARANCE_TOLERANCE_M = 0.2
 export const AUDIT_STEP_M = 5
+export const CONTACT_TOLERANCE_M = 0.005
+
+/** El contacto deliberado terreno-tablero puede consumir el gálibo hasta
+ * cero. Los IDs exceptuados deben haber pasado antes la auditoría espacial
+ * fina de auditarContactosPuente; los demás ways no admiten regresiones. */
+export function regresionesGalibo (before, after, spatiallyVerifiedContactWayIds = new Set(), tolerance = CONTACT_TOLERANCE_M) {
+  const previous = new Map(before.chains.flatMap(c => c.ways.map(w => [w.osmId, w.minClearanceM])))
+  return after.chains.flatMap(c => c.ways.flatMap(w => {
+    const beforeM = previous.get(w.osmId)
+    if (spatiallyVerifiedContactWayIds.has(w.osmId)) return w.minClearanceM < -tolerance
+      ? [{ osmId: w.osmId, beforeM, afterM: w.minClearanceM, reason: 'terrain-penetration' }] : []
+    return beforeM !== undefined && w.minClearanceM < beforeM - 1e-7
+      ? [{ osmId: w.osmId, beforeM, afterM: w.minClearanceM, reason: 'clearance-regression' }] : []
+  }))
+}
 
 /** Captura topología ANTES de orientar/subdividir. Los IDs OSM identifican
  * conexiones; ni cercanía, nombre ni cruces en planta las inventan. Cada

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { tallarAccesos } from '../lib/approach-terrain.mjs'
+import { auditarContactosPuente, tallarAccesos, redrapearCrucesTerreno } from '../lib/approach-terrain.mjs'
 import { alturaTriangulo } from '../lib/drape.mjs'
 import { tileXToLon, tileYToLat, tileXf, tileYf } from '../lib/terrarium.mjs'
 
@@ -34,6 +34,61 @@ describe('tallarAccesos', () => {
     expect(stats.protectedBridgePosts).toBeGreaterThan(0)
   })
 
+  it('lleva el terreno a la rasante declarada en un cruce y conserva el puente fuera de la loma', () => {
+    const dem = fixture(), crossing = point(12.4, 20)
+    const fill = { ...corridor(120), terrainCrossings: [
+      { nodeId: 2, point: crossing, heightM: 120 },
+    ] }
+    const stats = tallarAccesos(dem, [fill], topology([point(12.4, 15), point(12.4, 25)]))
+
+    expect(alturaTriangulo(dem, ...crossing)).toBeCloseTo(120, 4)
+    expect(alturaTriangulo(dem, ...point(12.4, 15))).toBeLessThanOrEqual(100 + 1e-7)
+    expect(alturaTriangulo(dem, ...point(12.4, 25))).toBeLessThanOrEqual(100 + 1e-7)
+    expect(stats.terrainCrossings).toEqual([expect.objectContaining({
+      nodeId: 2, targetHeightM: 120, terrainHeightM: 120,
+    })])
+  })
+
+  it('respeta dos rasantes distintas dentro de la misma celda sin atravesar sus tableros', () => {
+    const dem = fixture()
+    const west = point(12.5, 20.7), east = point(12.8, 20.7)
+    const center = point(13.2, 19.2)
+    const centerBefore = alturaTriangulo(dem, ...center)
+    const deckSamples = (x, h) => [
+      { point: point(x, 19.7), heightM: h - .5 },
+      { point: point(x, 20.7), heightM: h },
+      { point: point(x, 21.7), heightM: h + .5 },
+    ]
+    const crossing = (nodeId, point, heightM, samples) =>
+      ({ nodeId, point, heightM, deckSamples: samples })
+    const westCrossing = crossing(2, west, 120, deckSamples(12.5, 120))
+    const eastCrossing = crossing(3, east, 121, deckSamples(12.8, 121))
+    const corridors = [
+      { ...corridor(120), terrainCrossings: [westCrossing] },
+      { ...corridor(121), terrainCrossings: [eastCrossing] },
+    ]
+    const bridges = { chains: [
+      [{ line: { coords: [point(12.5, 18), point(12.5, 23)] } }],
+      [{ line: { coords: [point(12.8, 18), point(12.8, 23)] } }],
+    ] }
+
+    const stats = tallarAccesos(dem, corridors, bridges, { fixedCenters: [
+      { id: 'piece', lon: center[0], lat: center[1] },
+    ] })
+
+    expect(alturaTriangulo(dem, ...west)).toBeCloseTo(120, 5)
+    expect(alturaTriangulo(dem, ...east)).toBeCloseTo(121, 5)
+    expect(alturaTriangulo(dem, ...center)).toBeCloseTo(centerBefore, 5)
+    expect(stats.centerGroundChanges[0].id).toBe('piece')
+    expect(Math.abs(stats.centerGroundChanges[0].changeM)).toBeLessThan(1e-5)
+    for (const [x, h] of [[12.5, 120], [12.8, 121]]) {
+      for (let y = 20; y <= 21; y += .05) {
+        const deck = h + .5 * (y - 20.7)
+        expect(alturaTriangulo(dem, ...point(x, y))).toBeLessThanOrEqual(deck + 1e-5)
+      }
+    }
+  })
+
   it('apaga el tallado longitudinalmente y no toca un corredor de peso cero', () => {
     const dem = fixture()
     tallarAccesos(dem, [corridor(120, [1, 0])], { chains: [] })
@@ -58,4 +113,67 @@ describe('tallarAccesos', () => {
     expect(alturaTriangulo(dem, lon, lat)).toBe(before)
     expect(stats.centerGroundChanges.find(c => c.id === 'viaducto-viejo').changeM).toBe(0)
   })
+})
+
+it('redrapea solo las calles del cruce sobre el DEM ya corregido', () => {
+  const m = 1 / 111319.490793
+  const lines = [
+    { osmId: 1, coords: [[0, 0], [10 * m, 0], [20 * m, 0]] },
+    { osmId: 2, coords: [[0, m], [10 * m, m]] },
+  ]
+  const approaches = { byWay: new Map([
+    [1, { heights: [90, 90, 90], ownSegments: [true, true] }],
+    [2, { heights: [80, 80], ownSegments: [true] }],
+  ]), report: { terrainCrossings: [{ roadWayIds: [1] }], ownRanges: [
+    { osmId: 1, ranges: [[0, 2]] },
+  ] } }
+
+  const ground = lon => {
+    const x = lon / m
+    return 100 + x / 10 + Math.sin(Math.PI * x / 10)
+  }
+  const stats = redrapearCrucesTerreno(lines, approaches, ground)
+
+  const profile = approaches.byWay.get(1)
+  expect(lines[0].coords.length).toBeGreaterThan(3)
+  expect(profile.heights).toHaveLength(lines[0].coords.length)
+  expect(profile.ownSegments).toHaveLength(lines[0].coords.length - 1)
+  expect(profile.ownSegments.every(Boolean)).toBe(true)
+  expect(profile.heights).toEqual(lines[0].coords.map(([lon, lat]) => ground(lon, lat)))
+  let maxDeviationM = 0
+  for (let i = 1; i < lines[0].coords.length; i++) for (let k = 0; k <= 20; k++) {
+    const t = k / 20, a = lines[0].coords[i - 1], b = lines[0].coords[i]
+    const lon = a[0] + (b[0] - a[0]) * t
+    const road = profile.heights[i - 1] + (profile.heights[i] - profile.heights[i - 1]) * t
+    maxDeviationM = Math.max(maxDeviationM, Math.abs(road - ground(lon, 0)))
+  }
+  expect(maxDeviationM).toBeLessThan(.025)
+  expect(approaches.byWay.get(2).heights).toEqual([80, 80])
+  expect(stats.ways).toBe(1)
+  expect(stats.vertices).toBe(lines[0].coords.length)
+  expect(stats.insertedVertices).toBe(lines[0].coords.length - 3)
+  expect(stats.maxHeightChangeM).toBeGreaterThanOrEqual(11)
+  expect(approaches.report.ownRanges[0].ranges).toEqual([[0, lines[0].coords.length - 1]])
+})
+
+it('limita el contacto del terreno a la celda exacta del cruce', () => {
+  const dem = fixture(), crossing = point(12.4, 20.4)
+  const line = { osmId: 7, coords: [point(12.4, 18.2), point(12.4, 22.2)] }
+  const topology = { chains: [[{ line }]] }
+  const structures = { byWay: new Map([[7, { heights: [100, 100] }]]) }
+  const crossings = [{ point: crossing, bridgeWayIds: [7] }]
+  const cellOf = ([lon, lat]) => {
+    const u = (tileXf(lon, 12) - 1223) * 256
+    const v = (tileYf(lat, 12) - 1948) * 256
+    return `${Math.floor(u)}/${Math.floor(v)}`
+  }
+  const audit = auditarContactosPuente(dem, topology, structures, crossings, {
+    stepM: 1,
+    ground: (lon, lat) => cellOf([lon, lat]) === '12/20' ? 100.001 : 101,
+  })
+
+  expect(audit.ways[0].minLocalClearanceM).toBeCloseTo(-.001, 8)
+  expect(audit.violations).toEqual([expect.objectContaining({
+    osmId: 7, reason: 'outside-crossing-penetration', clearanceM: -1,
+  })])
 })

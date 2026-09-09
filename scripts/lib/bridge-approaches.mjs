@@ -3,9 +3,27 @@ import { elevarPuentes, esPuente, esTunel } from './structures.mjs'
 import { lineLengthMeters } from './geo.mjs'
 import { subdividir, apoyar } from './subdividir.mjs'
 import { geodeticToEcef } from './enu.mjs'
+import { NODOS_TERRENO_A_RASANTE } from './road-tag-overrides.mjs'
 
 const PASO_M = 5
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
+const same = (a, b) => a[0] === b[0] && a[1] === b[1]
+
+function stationOf (chain, line, point) {
+  let offset = 0
+  for (const entry of chain) {
+    const coords = entry.line.coords
+    const lengthM = lineLengthMeters(coords)
+    if (entry.line === line) {
+      const i = coords.indexOf(point)
+      if (i < 0) return null
+      const toPointM = lineLengthMeters(coords.slice(0, i + 1))
+      return offset + (same(coords[0], entry.from) ? toPointM : lengthM - toPointM)
+    }
+    offset += lengthM
+  }
+  return null
+}
 
 /** Capturar ANTES de orientar/subdividir. También conserva cruces interiores;
  * coordenadas iguales sin nodo OSM compartido no crean una conexión. */
@@ -44,7 +62,7 @@ export function capturarAccesos (lines) {
 /** Acuerdos hasta el siguiente cruce, atravesando ways de grado dos. Cotas
  * exteriores fijas; tableros solo pueden subir. La rasante propia no se vuelve
  * a drapear. Reutiliza perfil, ventana y smoothstep del carving longitudinalmente. */
-export function empalmarAccesos (lines, access, topology, originalStructures, ground) {
+export function empalmarAccesos (lines, access, topology, originalStructures, ground, opts = {}) {
   const sampled = new Map(), indexOf = new Map()
   const prepare = line => {
     if (!sampled.has(line)) {
@@ -60,7 +78,7 @@ export function empalmarAccesos (lines, access, topology, originalStructures, gr
       i < c.length - 1 ? { line, i, dir: 1 } : null].filter(Boolean)
   })
   const roots = new Map(), report = { version: 1, supportM: VENTANA_M,
-    paths: [], skipped: [], deckChanges: [], changedWayIds: [], ownRanges: [] }
+    paths: [], skipped: [], deckChanges: [], terrainCrossings: [], changedWayIds: [], ownRanges: [] }
   const chainById = new Map(originalStructures.report.chains.map(c => [c.id, c]))
   const chainCaps = new Map(topology.chains.map(chain => [Math.min(...chain.map(e => e.line.osmId)),
     Math.min(...chain.map(e => PENDIENTE_MAX[nivelDe(e.line.tags.highway)] || Infinity))]))
@@ -69,12 +87,55 @@ export function empalmarAccesos (lines, access, topology, originalStructures, gr
     if (!info) continue
     for (const [end, p] of [[0, chain[0].from], [1, chain.at(-1).to]]) {
       const entry = chain[end ? chain.length - 1 : 0], node = access.nodeOf.get(p)
-      const root = { id, end, node, p, h: info.endpoints[end][2],
+      const root = { kind: 'bridge-end', id, end, node, p, h: info.endpoints[end][2],
         grade: (end ? 1 : -1) * (info.endpoints[1][2] - info.endpoints[0][2]) / info.lengthM,
         cap: PENDIENTE_MAX[nivelDe(entry.line.tags.highway)] || Infinity }
       if (!roots.has(node)) roots.set(node, [])
       roots.get(node).push(root)
     }
+  }
+  const crossingRoots = []
+  for (const node of opts.terrainCrossingNodes ?? NODOS_TERRENO_A_RASANTE) {
+    const entries = access.at.get(node) ?? []
+    const bridge = entries.flatMap(({ line, p }) => {
+      if (!esPuente(line.tags)) return []
+      const profile = originalStructures.byWay.get(line.osmId), i = line.coords.indexOf(p)
+      if (!profile || i < 0) return []
+      const chain = originalStructures.report.chains.find(c => c.wayIds.includes(line.osmId))
+      return chain ? [{ line, p, h: profile.heights[i], chain }] : []
+    })
+    const roads = entries.filter(({ line }) => !esPuente(line.tags) && !esTunel(line.tags))
+    if (!bridge.length || !roads.length) {
+      report.skipped.push({ nodeId: node, reason: !bridge.length ? 'crossing-without-deck' : 'crossing-without-road' })
+      continue
+    }
+    const h = bridge.reduce((sum, sample) => sum + sample.h, 0) / bridge.length
+    if (bridge.some(sample => Math.abs(sample.h - h) > 1e-7)) {
+      throw new Error(`Rasantes incompatibles en cruce a nivel ${node}`)
+    }
+    const chain = bridge[0].chain
+    const topologyChain = topology.chains.find(candidate =>
+      Math.min(...candidate.map(entry => entry.line.osmId)) === chain.id)
+    if (!topologyChain) throw new Error(`Cadena ${chain.id} ausente en cruce ${node}`)
+    const stations = bridge.map(sample => stationOf(topologyChain, sample.line, sample.p))
+      .filter(Number.isFinite)
+    if (!stations.length || stations.some(station => Math.abs(station - stations[0]) > 1e-4)) {
+      throw new Error(`Estación incompatible en cruce a nivel ${node}`)
+    }
+    const stationM = stations.reduce((sum, station) => sum + station, 0) / stations.length
+    const deckT = stationM / chain.lengthM
+    const root = { kind: 'terrain-crossing', id: chain.id, end: null, node,
+      p: bridge[0].p, h, deckT, stationM, chainLengthM: chain.lengthM,
+      grade: 0, cap: Infinity }
+    crossingRoots.push(root)
+    if (!roots.has(node)) roots.set(node, [])
+    roots.get(node).push(root)
+    report.terrainCrossings.push({ nodeId: node, point: root.p, heightM: h,
+      chainId: chain.id, ribbonWayId: chain.id, stationM, chainLengthM: chain.lengthM,
+      stationFromEndM: chain.lengthM - stationM, stationFraction: deckT,
+      chainStart: chain.endpoints[0].slice(0, 2), chainEnd: chain.endpoints[1].slice(0, 2),
+      bridgeWayIds: [...new Set(bridge.map(sample => sample.line.osmId))].sort((a, b) => a - b),
+      roadWayIds: [...new Set(roads.map(entry => entry.line.osmId))].sort((a, b) => a - b) })
   }
   const paths = [], used = new Set()
   for (const rr of roots.values()) for (const root of rr) {
@@ -97,8 +158,11 @@ export function empalmarAccesos (lines, access, topology, originalStructures, gr
         if (node !== undefined) {
           if (roots.has(node)) { terminal = roots.get(node)[0]; break }
           const all = ports(node)
-          if (all.length !== 2) break
-          const follow = all.find(p => !(p.line === port.line && p.i === next && p.dir === -port.dir))
+          const straight = root.kind === 'terrain-crossing'
+            ? all.find(p => p.line === port.line && p.i === next && p.dir === port.dir)
+            : null
+          if (all.length !== 2 && !straight) break
+          const follow = straight ?? all.find(p => !(p.line === port.line && p.i === next && p.dir === -port.dir))
           if (!follow || esPuente(follow.line.tags) || esTunel(follow.line.tags)) break
           port = follow
         } else port = { ...port, i: next }
@@ -126,7 +190,7 @@ export function empalmarAccesos (lines, access, topology, originalStructures, gr
   }
   const endpoints = new Map(), allRoots = [...roots.values()].flat()
   for (const c of originalStructures.report.chains) {
-    const h = c.endpoints.map(p => p[2]), ownRoots = allRoots.filter(r => r.id === c.id)
+    const h = c.endpoints.map(p => p[2]), ownRoots = allRoots.filter(r => r.kind === 'bridge-end' && r.id === c.id)
     const cap = Math.min(chainCaps.get(c.id), ...ownRoots.map(r => r.cap), ...paths.filter(p => p.root.id === c.id || p.terminal?.id === c.id).map(p => p.cap))
     const low = h[0] <= h[1] ? 0 : 1, high = 1 - low, wanted = h[high] - cap * c.lengthM
     if (wanted > h[low] + 1e-9) {
@@ -143,11 +207,19 @@ export function empalmarAccesos (lines, access, topology, originalStructures, gr
     }
     endpoints.set(c.id, h)
   }
+  for (const root of crossingRoots) {
+    const h = endpoints.get(root.id)
+    root.h = h[0] + (h[1] - h[0]) * root.deckT
+    const record = report.terrainCrossings.find(c => c.nodeId === root.node)
+    record.heightM = root.h
+  }
   // Una subida que deje cualquier acceso inviable crearía un escalón al
   // omitir ese acceso. Comprobar las propuestas juntas y retirar esas subidas
   // antes de materializar tableros. Cada extremo solo puede volver una vez a
   // su cota original: la cola es finita y no itera el suavizado del perfil.
-  const affected = new Map(), rootKey = r => `${r.id}/${r.end}`
+  const affected = new Map(), rootKey = r => r.kind === 'terrain-crossing'
+    ? `crossing/${r.node}` : `${r.id}/${r.end}`
+  const rootHeight = r => r.kind === 'terrain-crossing' ? r.h : endpoints.get(r.id)[r.end]
   for (const path of paths) for (const r of [path.root, path.terminal].filter(Boolean)) {
     const key = rootKey(r)
     if (!affected.has(key)) affected.set(key, [])
@@ -155,10 +227,10 @@ export function empalmarAccesos (lines, access, topology, originalStructures, gr
   }
   const pending = [...paths]
   while (pending.length) {
-    const path = pending.pop(), a = endpoints.get(path.root.id)[path.root.end]
-    const b = path.terminal ? endpoints.get(path.terminal.id)[path.terminal.end] : path.h.at(-1)
+    const path = pending.pop(), a = rootHeight(path.root)
+    const b = path.terminal ? rootHeight(path.terminal) : path.h.at(-1)
     if (Math.abs(b - a) <= path.cap * path.s.at(-1) + 1e-8) continue
-    for (const r of [path.root, path.terminal].filter(Boolean)) {
+    for (const r of [path.root, path.terminal].filter(r => r?.kind === 'bridge-end')) {
       const h = endpoints.get(r.id), original = chainById.get(r.id).endpoints[r.end][2]
       if (h[r.end] <= original) continue
       h[r.end] = original
@@ -174,7 +246,23 @@ export function empalmarAccesos (lines, access, topology, originalStructures, gr
     }
   }
   const structures = elevarPuentes(topology, ground, endpoints)
+  const deckSamplesByCrossing = new Map(crossingRoots.map(root => {
+    const samples = [], seen = new Set()
+    for (const { line, p } of access.at.get(root.node) ?? []) {
+      if (!esPuente(line.tags)) continue
+      const profile = structures.byWay.get(line.osmId), i = line.coords.indexOf(p)
+      if (!profile || i < 0) continue
+      for (const j of [i - 1, i, i + 1]) if (line.coords[j]) {
+        const point = line.coords[j], key = `${point[0]}/${point[1]}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        samples.push({ point, heightM: profile.heights[j] })
+      }
+    }
+    return [root.node, samples]
+  }))
   const rootValues = r => {
+    if (r.kind === 'terrain-crossing') return { h: r.h, g: 0 }
     const h = endpoints.get(r.id), c = chainById.get(r.id)
     return { h: h[r.end], g: (r.end ? 1 : -1) * (h[1] - h[0]) / c.lengthM }
   }
@@ -238,8 +326,13 @@ export function empalmarAccesos (lines, access, topology, originalStructures, gr
       if (next) edits.get(next.line).set(next.p, z[i-1])
     }
     const weights = s.map(d => terminal ? 1 : desvanecer(Math.max(0, (d / L - .75) / .25)))
-    corridors.push({ tags: points[0].line.tags, coords: points.map(p => p.p), carvingHeights: z, carvingWeights: weights })
+    const terrainCrossings = [root, terminal].filter(r => r?.kind === 'terrain-crossing')
+      .map(r => ({ nodeId: r.node, point: r.p, heightM: r.h,
+        deckSamples: deckSamplesByCrossing.get(r.node) }))
+    corridors.push({ tags: points[0].line.tags, coords: points.map(p => p.p), carvingHeights: z, carvingWeights: weights,
+      ...(terrainCrossings.length ? { terrainCrossings } : {}) })
     report.paths.push({ id: root.id, end: root.end, terminal: terminal ? { id: terminal.id, end: terminal.end } : null,
+      ...(root.kind === 'terrain-crossing' ? { crossingNodeId: root.node } : {}),
       start: points[0].p, finish: points.at(-1).p,
       wayIds: [...new Set(points.map(p => p.line.osmId))], lengthM: L, cap, maxGrade, maxInternalBreak,
       startBreak: Math.abs((z[1] - z[0]) / (s[1] - s[0]) - a.g),

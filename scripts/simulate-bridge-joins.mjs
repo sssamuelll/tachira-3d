@@ -1,7 +1,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve, relative } from 'node:path'
 import { waysToLines } from './lib/overpass.mjs'
-import { encadenarPuentes, esPuente, esTunel, elevarPuentes } from './lib/structures.mjs'
+import { encadenarPuentes, esPuente, esTunel, elevarPuentes, regresionesGalibo } from './lib/structures.mjs'
 import { capturarAccesos, empalmarAccesos } from './lib/bridge-approaches.mjs'
 import { subdividir } from './lib/subdividir.mjs'
 import { orientar } from './lib/road-meta.mjs'
@@ -9,7 +9,7 @@ import { lineLengthMeters } from './lib/geo.mjs'
 import { auditBridgeJoins, distribution } from './lib/bridge-join-audit.mjs'
 import { nivelDe, PENDIENTE_MAX } from './lib/carving.mjs'
 import { crearDemTalladoDisperso } from './lib/sparse-carved-dem.mjs'
-import { tallarAccesos } from './lib/approach-terrain.mjs'
+import { auditarContactosPuente, tallarAccesos, redrapearCrucesTerreno } from './lib/approach-terrain.mjs'
 import { readJson, loadBridgeBake,
   packedGeodeticPoints, wayPointReader, structuralNetworkGrade, corridorInfluencePosts } from './lib/bridge-audit-input.mjs'
 
@@ -153,7 +153,65 @@ const fixedEnds = new Map(result.structures.report.chains.map(c => [c.id, c.endp
 const posts = corridorInfluencePosts(sparse.dem, result.corridors)
 console.log(`Terreno de accesos: ${posts.size} posts candidatos; sin rejilla global`)
 const terrainAfter = tallarAccesos(sparse.dem, result.corridors, topology, { posts })
-const finalClearance = elevarPuentes(topology, sparse.alturaDe, fixedEnds).report
+terrainAfter.crossingRoadRedrape = redrapearCrucesTerreno(lines, result, sparse.alturaDe)
+for (const osmId of new Set(result.report.terrainCrossings.flatMap(c => c.roadWayIds))) {
+  const value = result.byWay.get(osmId)
+  overrides.set(osmId, packedGeodeticPoints(byId.get(osmId).coords, value.heights, baseline.frame))
+}
+const finalStructures = elevarPuentes(topology, sparse.alturaDe, fixedEnds)
+const finalClearance = finalStructures.report
+const contactWayIds = new Set(result.report.terrainCrossings.flatMap(c => c.bridgeWayIds))
+const contactAudit = auditarContactosPuente(sparse.dem, topology,
+  finalStructures, result.report.terrainCrossings)
+const bakeRegressions = regresionesGalibo(initial.report, finalClearance, contactWayIds)
+const crossingRoadIds = [...new Set(result.report.terrainCrossings.flatMap(c => c.roadWayIds))]
+const finalCrossingGradeViolations = []
+const crossingRoadDrape = crossingRoadIds.map(osmId => {
+  const line = byId.get(osmId), profile = result.byWay.get(osmId)
+  const differences = [], grades = []
+  if (profile) for (let i = 0; i < profile.ownSegments.length; i++) if (profile.ownSegments[i]) {
+    const a = line.coords[i], b = line.coords[i + 1]
+    const lengthM = lineLengthMeters([a, b])
+    const grade = Math.abs(profile.heights[i + 1] - profile.heights[i]) / lengthM
+    const cap = PENDIENTE_MAX[nivelDe(line.tags.highway)] || Infinity
+    grades.push(grade)
+    if (grade > cap + 1e-7) finalCrossingGradeViolations.push({ osmId, segment: i, grade, cap })
+    const count = Math.max(4, Math.ceil(lengthM / .25))
+    for (let k = 0; k <= count; k++) {
+      const t = k / count, lon = a[0] + (b[0] - a[0]) * t, lat = a[1] + (b[1] - a[1]) * t
+      const height = profile.heights[i] + (profile.heights[i + 1] - profile.heights[i]) * t
+      differences.push(height - sparse.alturaDe(lon, lat))
+    }
+  }
+  return { osmId, samples: differences.length, minDifferenceM: differences.length ? Math.min(...differences) : null,
+    maxDifferenceM: differences.length ? Math.max(...differences) : null,
+    maxAbsDifferenceM: differences.length ? Math.max(...differences.map(Math.abs)) : null,
+    maxGradePct: grades.length ? Math.max(...grades) * 100 : null }
+})
+const terrainCrossings = result.report.terrainCrossings.map(crossing => {
+  const terrainHeightM = sparse.alturaDe(...crossing.point)
+  return { ...crossing, deckSamples: undefined, terrainHeightM,
+    terrainDifferenceM: terrainHeightM - crossing.heightM,
+    roads: crossing.roadWayIds.map(osmId => {
+      const line = byId.get(osmId), entry = (accesses.at.get(crossing.nodeId) ?? []).find(e => e.line.osmId === osmId)
+      const i = entry ? line.coords.indexOf(entry.p) : -1
+      const roadHeightM = i >= 0 ? result.byWay.get(osmId)?.heights[i] : undefined
+      return { osmId, roadHeightM, roadMinusDeckM: roadHeightM === undefined ? null : roadHeightM - crossing.heightM }
+    }),
+    bridgeWays: crossing.bridgeWayIds.map(osmId => {
+      const way = finalClearance.chains.flatMap(c => c.ways).find(w => w.osmId === osmId)
+      return { osmId, minClearanceM: way?.minClearanceM ?? null }
+    }) }
+})
+if (terrainCrossings.some(c => Math.abs(c.terrainDifferenceM) > .001 ||
+  c.roads.some(r => r.roadHeightM === undefined || Math.abs(r.roadMinusDeckM) > .001))) {
+  throw new Error(`Cruce a nivel fuera de rasante: ${JSON.stringify(terrainCrossings)}`)
+}
+if (contactAudit.violations.length) throw new Error(`Penetración fuera del cruce: ${JSON.stringify(contactAudit.violations)}`)
+if (crossingRoadDrape.some(road => road.minDifferenceM < -.025 || road.maxDifferenceM > .025)) {
+  throw new Error(`Calle sin apoyar en el DEM final: ${JSON.stringify(crossingRoadDrape)}`)
+}
+if (bakeRegressions.length) throw new Error(`Regresiones de gálibo en simulación: ${JSON.stringify(bakeRegressions)}`)
 const originalChains = new Map(baseline.report.chains.map(c => [c.id, c]))
 const clearanceBounds = []
 for (const c of result.structures.report.chains) {
@@ -193,10 +251,12 @@ const report = {
   endpoints: finalAudit.endpoints,
   approaches: { preparedWays, preparedVertices, changedWayCount: result.byWay.size,
     actuallyChangedWayCount: overrides.size, unchangedWayCount: baseline.meta.ways.length - overrides.size, paths: result.report.paths,
-    skipped: result.report.skipped, deckChanges: result.report.deckChanges },
+    skipped: result.report.skipped, deckChanges: result.report.deckChanges,
+    terrainCrossings, crossingRoadDrape },
   terrainAfter,
-  gradeConstraints: { exactNewSegmentViolations: exactGradeViolations,
-    packedNewSegmentViolationsBeyondPoint1Pp: packedGradeViolations,
+  gradeConstraints: { profileBeforeTerrainExactNewSegmentViolations: exactGradeViolations,
+    finalCrossingGradeViolations,
+    profileBeforeTerrainPackedViolationsBeyondPoint1Pp: packedGradeViolations,
     internalSlopeBreakPp: distribution(result.report.paths.map(p => p.maxInternalBreak * 100)),
     actualInternalSlopeBreakPp: distribution(internalBreaks.map(p => p.breakPp)),
     actualExteriorSlopeBreakPp: distribution(exteriorBreaks.map(p => p.breakPp)),
@@ -213,6 +273,7 @@ const report = {
     currentOnDiskPenetratingWays: current.report.penetratingWays,
     afterSimulationPenetratingWays: finalClearance.penetratingWays,
     afterSimulationClearWays: finalClearance.clearWays,
+    bakeRegressions, contactAudit,
     actualRegressions: finalClearance.chains.flatMap(c => c.ways.flatMap(w => {
       const before = originalByWay.get(w.osmId)
       return before && w.minClearanceM < before.minClearanceM - 1e-7
@@ -239,8 +300,9 @@ if (output) { mkdirSync(dirname(output), { recursive: true }); writeFileSync(out
 console.log(JSON.stringify({ ...report, endpoints: undefined, missing: report.missing.map(e => ({ chainId: e.chainId, side: e.side, status: e.status })),
   approaches: { ...report.approaches, paths: report.approaches.paths.length, skipped: report.approaches.skipped.length, deckChanges: report.approaches.deckChanges.length },
   gradeConstraints: { ...report.gradeConstraints,
-    exactNewSegmentViolations: exactGradeViolations.length,
-    packedNewSegmentViolationsBeyondPoint1Pp: packedGradeViolations.length,
+    profileBeforeTerrainExactNewSegmentViolations: exactGradeViolations.length,
+    finalCrossingGradeViolations: finalCrossingGradeViolations.length,
+    profileBeforeTerrainPackedViolationsBeyondPoint1Pp: packedGradeViolations.length,
     bridgeSlopeLimitResiduals: report.gradeConstraints.bridgeSlopeLimitResiduals.length,
     worstInternalBreaks: undefined, worstExteriorBreaks: undefined },
   clearance: { ...report.clearance, bounds: undefined, remainingPenetratingWays: report.clearance.remainingPenetratingWays.length,
