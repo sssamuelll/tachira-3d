@@ -31,6 +31,16 @@ PILA_CADA    = 32.0    # separación entre ejes de pila, metros
 PILA_LADO    = 2.2     # sección cuadrada de la pila
 PILA_HONDO   = 60.0    # baja lo suficiente para enterrarse donde el terreno sube
 
+# Estaciones medidas sobre las cintas OSM completas. La abertura libre es de
+# 8 m y cada extremo del pretil baja durante los 2 m inmediatamente anteriores.
+CRUCES = {
+    74534876:   (118.85134, 360.04064),  # Calle 4
+    1211907172: (121.70237, 364.19890),  # Av. Fortunato Gómez
+}
+ABERTURA = 8.0
+RAMPA_PRETIL = 2.0
+TRANSICION_RODADURA = 2.0
+
 datos = json.load(open(DATOS, encoding='utf-8'))[NOMBRE]
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -68,7 +78,8 @@ def cinta(bm, eje, semi, z0, z1):
     for i, p in enumerate(eje):
         a = eje[max(i - 1, 0)]; b = eje[min(i + 1, len(eje) - 1)]
         n = normal(a, b) if (b - a).length > 1e-6 else Vector((0, 1, 0))
-        izq.append(p + n * semi); der.append(p - n * semi)
+        ancho = semi[i] if isinstance(semi, (list, tuple)) else semi
+        izq.append(p + n * ancho); der.append(p - n * ancho)
     aros = []
     for z in (z0, z1):
         aros.append(([bm.verts.new((v.x, v.y, v.z + z)) for v in izq],
@@ -83,6 +94,63 @@ def cinta(bm, eje, semi, z0, z1):
     bm.faces.new((bi[0], ti[0], td[0], bd[0]))              # testeros
     bm.faces.new((bd[-1], td[-1], ti[-1], bi[-1]))
 
+def largo_planta(eje):
+    return sum(Vector((eje[i+1].x - eje[i].x, eje[i+1].y - eje[i].y, 0)).length
+               for i in range(len(eje) - 1))
+
+def punto_en_estacion(eje, estacion):
+    rec = 0.0
+    for i in range(len(eje) - 1):
+        paso = Vector((eje[i+1].x - eje[i].x, eje[i+1].y - eje[i].y, 0)).length
+        if rec + paso >= estacion - 1e-8:
+            return eje[i].lerp(eje[i+1], max(0.0, min(1.0, (estacion - rec) / paso)))
+        rec += paso
+    return eje[-1].copy()
+
+def remuestrear(eje, estaciones):
+    """Inserta estaciones sin perder ningún vértice original del eje."""
+    acumuladas = [0.0]
+    for i in range(len(eje) - 1):
+        acumuladas.append(acumuladas[-1] + Vector((eje[i+1].x - eje[i].x,
+                                                  eje[i+1].y - eje[i].y, 0)).length)
+    muestras = sorted(set(round(s, 8) for s in acumuladas + list(estaciones)
+                          if -1e-8 <= s <= acumuladas[-1] + 1e-8))
+    return [punto_en_estacion(eje, s) for s in muestras], muestras
+
+def pretil_variable(bm, eje, semi, alturas):
+    """Barre un pretil de altura variable; las puntas a cero son cuñas válidas."""
+    secciones = []
+    for i, (p, alto) in enumerate(zip(eje, alturas)):
+        a = eje[max(i - 1, 0)]; b = eje[min(i + 1, len(eje) - 1)]
+        n = normal(a, b) if (b - a).length > 1e-6 else Vector((0, 1, 0))
+        bl = bm.verts.new(p - n * semi)
+        br = bm.verts.new(p + n * semi)
+        tl = bm.verts.new(p - n * semi + Vector((0, 0, alto))) if alto > 1e-8 else None
+        tr = bm.verts.new(p + n * semi + Vector((0, 0, alto))) if alto > 1e-8 else None
+        secciones.append((bl, br, tl, tr))
+
+    for i in range(len(secciones) - 1):
+        bl0, br0, tl0, tr0 = secciones[i]
+        bl1, br1, tl1, tr1 = secciones[i+1]
+        bm.faces.new((br0, br1, bl1, bl0))
+        if tl0 and tl1:
+            bm.faces.new((bl0, bl1, tl1, tl0))
+            bm.faces.new((tr0, tr1, br1, br0))
+            bm.faces.new((tl0, tl1, tr1, tr0))
+        elif tl0:
+            bm.faces.new((bl0, bl1, tl0))
+            bm.faces.new((tr0, br1, br0))
+            bm.faces.new((tl0, bl1, br1, tr0))
+        elif tl1:
+            bm.faces.new((bl0, bl1, tl1))
+            bm.faces.new((tr1, br1, br0))
+            bm.faces.new((bl0, tl1, tr1, br0))
+
+    bl, br, tl, tr = secciones[0]
+    if tl: bm.faces.new((bl, tl, tr, br))
+    bl, br, tl, tr = secciones[-1]
+    if tl: bm.faces.new((br, tr, tl, bl))
+
 def objeto(bm, nombre, mat):
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     m = bpy.data.meshes.new(nombre); bm.to_mesh(m); bm.free()
@@ -93,23 +161,73 @@ for k, c in enumerate(datos['cintas']):
     eje = puntos_blender(c['pts'], c.get('alturas'))
     if len(eje) < 2: continue
     semi = (c['canales'] * ANCHO_CARRIL) / 2 + HOMBRILLO
+    cruce = CRUCES.get(c.get('id')) if NOMBRE == 'Avenida Viaducto Nuevo' else None
+    estacion_cruce = None
+    if cruce:
+        estacion_cruce = largo_planta(eje) * cruce[0] / cruce[1]
 
     bm = bmesh.new(); cinta(bm, eje, semi, -CANTO, 0)
     objeto(bm, f'tablero-{k}', HORMIGON)
 
     # capa de rodadura, apenas por encima del tablero
-    bm = bmesh.new(); cinta(bm, eje, semi - PRETIL_ANCHO, 0, 0.06)
+    eje_rodadura = eje
+    semis_rodadura = semi - PRETIL_ANCHO
+    if estacion_cruce is not None:
+        media = ABERTURA / 2
+        estaciones = [estacion_cruce - media,
+                      estacion_cruce - media + TRANSICION_RODADURA,
+                      estacion_cruce + media - TRANSICION_RODADURA,
+                      estacion_cruce + media]
+        eje_rodadura, muestras = remuestrear(eje, estaciones)
+        semis_rodadura = []
+        for s in muestras:
+            distancia = abs(s - estacion_cruce)
+            if distancia <= media - TRANSICION_RODADURA:
+                semis_rodadura.append(semi)
+            elif distancia < media:
+                t = (media - distancia) / TRANSICION_RODADURA
+                semis_rodadura.append((semi - PRETIL_ANCHO) + PRETIL_ANCHO * t)
+            else:
+                semis_rodadura.append(semi - PRETIL_ANCHO)
+    bm = bmesh.new(); cinta(bm, eje_rodadura, semis_rodadura, 0, 0.06)
     objeto(bm, f'rodadura-{k}', ASFALTO)
 
     # pretiles a ambos lados
     for signo in (1, -1):
+        media = ABERTURA / 2
+        estaciones = [] if estacion_cruce is None else [
+            estacion_cruce - media - RAMPA_PRETIL,
+            estacion_cruce - media,
+            estacion_cruce + media,
+            estacion_cruce + media + RAMPA_PRETIL,
+        ]
+        eje_pretil, muestras = remuestrear(eje, estaciones)
         despl = []
-        for i, p in enumerate(eje):
-            a = eje[max(i-1, 0)]; b = eje[min(i+1, len(eje)-1)]
+        for i, p in enumerate(eje_pretil):
+            a = eje_pretil[max(i-1, 0)]; b = eje_pretil[min(i+1, len(eje_pretil)-1)]
             n = normal(a, b) if (b - a).length > 1e-6 else Vector((0, 1, 0))
             despl.append(p + n * signo * (semi - PRETIL_ANCHO / 2))
-        bm = bmesh.new(); cinta(bm, despl, PRETIL_ANCHO / 2, 0, PRETIL_ALTO)
-        objeto(bm, f'pretil-{k}-{signo}', HORMIGON)
+        if estacion_cruce is None:
+            bm = bmesh.new(); cinta(bm, despl, PRETIL_ANCHO / 2, 0, PRETIL_ALTO)
+            objeto(bm, f'pretil-{k}-{signo}', HORMIGON)
+        else:
+            inicio_hueco = estacion_cruce - media
+            fin_hueco = estacion_cruce + media
+            alturas = []
+            for s in muestras:
+                if s < inicio_hueco:
+                    alturas.append(PRETIL_ALTO * min(1.0, (inicio_hueco - s) / RAMPA_PRETIL))
+                elif s > fin_hueco:
+                    alturas.append(PRETIL_ALTO * min(1.0, (s - fin_hueco) / RAMPA_PRETIL))
+                else:
+                    alturas.append(0.0)
+            antes = [i for i, s in enumerate(muestras) if s <= inicio_hueco + 1e-8]
+            despues = [i for i, s in enumerate(muestras) if s >= fin_hueco - 1e-8]
+            for sufijo, indices in (('antes', antes), ('despues', despues)):
+                bm = bmesh.new()
+                pretil_variable(bm, [despl[i] for i in indices], PRETIL_ANCHO / 2,
+                                 [alturas[i] for i in indices])
+                objeto(bm, f'pretil-{k}-{signo}-{sufijo}', HORMIGON)
 
     # pilas a intervalos, saltando los extremos (ahí van los estribos)
     largo = sum((eje[i+1] - eje[i]).length for i in range(len(eje)-1))
