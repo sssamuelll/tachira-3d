@@ -31,7 +31,7 @@ const rampa = (n, a, b) => suave((n - a) / (b - a))
 const redondear = (n, decimales = 6) => Number(n.toFixed(decimales))
 const celda = (x, z) => `${x},${z}`
 
-function semilla(texto) {
+export function semilla(texto) {
   let hash = 2166136261
   for (let i = 0; i < texto.length; i++) {
     hash ^= texto.charCodeAt(i)
@@ -47,7 +47,7 @@ function semilla(texto) {
 }
 
 /** Ruido de valor continuo, compartido por un vecindario de 220 m. */
-function campoEspacial(x, z) {
+export function campoEspacial(x, z) {
   const px = x / PASO_CAMPO, pz = z / PASO_CAMPO
   const ix = Math.floor(px), iz = Math.floor(pz)
   const u = suave(px - ix), v = suave(pz - iz)

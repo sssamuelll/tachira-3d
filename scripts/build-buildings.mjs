@@ -72,6 +72,7 @@ export async function hornear ({ input = existsSync('.cache/edificios/osm') ? '.
   // Imports remain lazy so isolated ingestion/DEM tests do not depend on geometry.
   const { analizarHuella, hornearEdificio, empaquetarGeometrias } = await import('./lib/building-geometry.mjs')
   const { crearContexto, estimarAltura, MODEL_VERSION } = await import('./lib/building-morphology.mjs')
+  const { formaTecho, MODELO_TECHO } = await import('./lib/building-roof-shape.mjs')
   await mkdir(osmCache, { recursive: true })
   const names = (await readdir(input)).filter(n => n.endsWith('.json')).sort()
   for (const name of names) {
@@ -119,16 +120,16 @@ export async function hornear ({ input = existsSync('.cache/edificios/osm') ? '.
   const groups = new Map()
   for (const b of buildings) { const key = chunkKey(b); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(b) }
   await mkdir(output, { recursive: true })
-  const stats = { ...inputStats, buildings: 0, vertices: 0, triangles: 0, bytesGeometry: 0, bytesMetadata: 0, alturaSources: {}, roofSources: {}, estimatedHeightMin: Infinity, estimatedHeightMax: -Infinity, heightSum: 0, rejectedGeometry: [] }
+  const stats = { ...inputStats, buildings: 0, vertices: 0, triangles: 0, bytesGeometry: 0, bytesMetadata: 0, alturaSources: {}, roofSources: {}, techoFormas: {}, techoFuentes: {}, estimatedHeightMin: Infinity, estimatedHeightMax: -Infinity, heightSum: 0, rejectedGeometry: [] }
   const chunks = []
   const assetsHash = createHash('sha256')
   console.log(`3/4 horneado: ${groups.size} grupos z15`)
   for (const [key, group] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
     const geoms = [], demNodes = new Set(), bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]
     for (const b of group) {
-      const altura = estimarAltura(b, context.get(b.id)), techo = roof(b)
+      const altura = estimarAltura(b, context.get(b.id)), techo = roof(b), forma = formaTecho(b, b)
       let g
-      try { g = hornearEdificio(b, altura, techo, sample, frame) } catch (e) {
+      try { g = hornearEdificio(b, altura, techo, sample, frame, forma) } catch (e) {
         stats.rejectedGeometry.push({ id: b.id, reason: e.message }); continue
       }
       if (!g?.indices.length) { stats.rejectedGeometry.push({ id: b.id, reason: 'sin triangulación' }); continue }
@@ -140,6 +141,9 @@ export async function hornear ({ input = existsSync('.cache/edificios/osm') ? '.
       stats.buildings++
       stats.alturaSources[altura.fuente] = (stats.alturaSources[altura.fuente] ?? 0) + 1
       stats.roofSources[techo.fuente] = (stats.roofSources[techo.fuente] ?? 0) + 1
+      const techoForma = g.record.techoForma
+      stats.techoFormas[techoForma.forma] = (stats.techoFormas[techoForma.forma] ?? 0) + 1
+      stats.techoFuentes[techoForma.fuente] = (stats.techoFuentes[techoForma.fuente] ?? 0) + 1
       stats.heightSum += altura.metros
       if (altura.fuente === 'estimada') { stats.estimatedHeightMin = Math.min(stats.estimatedHeightMin, altura.metros); stats.estimatedHeightMax = Math.max(stats.estimatedHeightMax, altura.metros) }
     }
@@ -157,7 +161,7 @@ export async function hornear ({ input = existsSync('.cache/edificios/osm') ? '.
   stats.meanHeight = +(stats.heightSum / stats.buildings).toFixed(2)
   delete stats.heightSum
   stats.geometryAndMetadataSHA256 = assetsHash.digest('hex')
-  const manifest = { version: 1, origin: meta.origin, modelVersion: MODEL_VERSION ?? 'morfologia-v1', sources: { osmFiles: names.length, osmSHA256: inputHash.digest('hex'), dem: 'public/data/dem/12; tallado; Terrarium 257x257', roof: 'Esri z18 offline; respaldo estimado con contexto Esri z12' }, stats, chunks }
+  const manifest = { version: 1, origin: meta.origin, modelVersion: MODEL_VERSION ?? 'morfologia-v1', modeloTecho: MODELO_TECHO, sources: { osmFiles: names.length, osmSHA256: inputHash.digest('hex'), dem: 'public/data/dem/12; tallado; Terrarium 257x257', roof: 'Esri z18 offline; respaldo estimado con contexto Esri z12', roofShape: 'generador-calibrado-2026-09' }, stats, chunks }
   await atomicWrite(`${output}/index.json`, JSON.stringify(manifest))
   console.log('4/4 listo')
   console.log(JSON.stringify({ ...stats, chunks: chunks.length, durationSeconds: +((Date.now() - start) / 1000).toFixed(1) }, null, 2))
