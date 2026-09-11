@@ -10,8 +10,10 @@ import { makeEnuFrame } from './lib/enu.mjs'
 import { decodeTerrarium, tileXf, tileYf } from './lib/terrarium.mjs'
 import { alturaTriangulo } from './lib/drape.mjs'
 
-const DEFAULT_INPUT = 'C:/Users/simon/AppData/Local/Temp/claude/D--Desktop-projects-vialidad-tachira/d8f6c1dd-dceb-4bcf-a185-9aa374c14000/scratchpad/osm-edificios'
-const DEFAULT_SAT = 'D:/Desktop/projects/isometric_sc/data/sat-cache'
+// Entradas del horneado, relativas al repo. Antes apuntaban a carpetas de la
+// máquina de quien lo escribió, así que nadie más podía correr esto.
+const DEFAULT_INPUT = '.cache/edificios/osm'
+const DEFAULT_SAT = '.cache/edificios/satelite'
 
 /** Read the final carved z12 PNGs, never original Terrarium or minimap terrain.bin. */
 export function crearMuestreadorDem (dir = 'public/data/dem', max = 64) {
@@ -67,7 +69,10 @@ async function atomicWrite (path, data) {
 }
 
 /** Only writes the dedicated building asset directory; all existing data is read-only. */
-export async function hornear ({ input = existsSync('.cache/edificios/osm') ? '.cache/edificios/osm' : DEFAULT_INPUT, satCache = DEFAULT_SAT, dataDir = 'public/data', output = 'public/data/edificios', osmCache = '.cache/edificios/osm', satelliteCache = '.cache/edificios/satelite' } = {}) {
+export async function hornear ({ input = DEFAULT_INPUT, satCache = DEFAULT_SAT, dataDir = 'public/data', output = 'public/data/edificios', osmCache = '.cache/edificios/osm', satelliteCache = '.cache/edificios/satelite' } = {}) {
+  if (!existsSync(input)) {
+    throw new Error(`falta ${input}: el horneado necesita las huellas de OSM ya bajadas. Corre primero \`npm run data\`, que las deja en esa carpeta.`)
+  }
   const start = Date.now()
   // Imports remain lazy so isolated ingestion/DEM tests do not depend on geometry.
   const { analizarHuella, hornearEdificio, empaquetarGeometrias } = await import('./lib/building-geometry.mjs')
@@ -105,6 +110,9 @@ export async function hornear ({ input = existsSync('.cache/edificios/osm') ? '.
   // Snapshot only useful existing z18 tiles. Rebakes no longer depend on the
   // sibling's directory, and neither network access nor sibling writes occur.
   await mkdir(satelliteCache, { recursive: true })
+  if (!existsSync(satCache)) {
+    console.warn(`AVISO: falta ${satCache}. Los techos saldrán de un color plano, sin muestrear imagen.`)
+  }
   const neededTiles = new Set()
   for (const b of buildings) for (const p of b.polygons) {
     const xs = p.outer.map(([lon]) => tileXf(lon, 18)), ys = p.outer.map(([, lat]) => tileYf(lat, 18))
@@ -161,7 +169,11 @@ export async function hornear ({ input = existsSync('.cache/edificios/osm') ? '.
   stats.meanHeight = +(stats.heightSum / stats.buildings).toFixed(2)
   delete stats.heightSum
   stats.geometryAndMetadataSHA256 = assetsHash.digest('hex')
-  const manifest = { version: 1, origin: meta.origin, modelVersion: MODEL_VERSION ?? 'morfologia-v1', modeloTecho: MODELO_TECHO, sources: { osmFiles: names.length, osmSHA256: inputHash.digest('hex'), dem: 'public/data/dem/12; tallado; Terrarium 257x257', roof: 'Esri z18 offline; respaldo estimado con contexto Esri z12', roofShape: 'generador-calibrado-2026-09' }, stats, chunks }
+  const manifest = { version: 1, origin: meta.origin, modelVersion: MODEL_VERSION ?? 'morfologia-v1', modeloTecho: MODELO_TECHO, sources: { osmFiles: names.length, osmSHA256: inputHash.digest('hex'), dem: 'public/data/dem/12; tallado; Terrarium 257x257',
+    // Derivado de lo que de verdad pasó, no una constante: sin la caché de
+    // teselas el horneado sigue adelante y declararía una procedencia falsa.
+    roof: Object.entries(stats.roofSources).map(([k, n]) => `${k}:${n}`).sort().join(' '),
+    roofShape: 'generador-calibrado-2026-09' }, stats, chunks }
   await atomicWrite(`${output}/index.json`, JSON.stringify(manifest))
   console.log('4/4 listo')
   console.log(JSON.stringify({ ...stats, chunks: chunks.length, durationSeconds: +((Date.now() - start) / 1000).toFixed(1) }, null, 2))

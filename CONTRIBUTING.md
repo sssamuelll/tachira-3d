@@ -14,8 +14,9 @@ npx tsc --noEmit    # los tipos
 npm run build       # el build
 ```
 
-Los tres tienen que quedar verdes. La Action los corre en cada pull request y
-uno rojo no se puede fundir.
+Los tres tienen que quedar verdes. La Action los corre en cada pull request.
+Si alguno sale rojo, arréglalo antes de pedir que se funda: quien mantiene el
+repo no funde nada en rojo.
 
 El build avisa de que un trozo del bundle pasa de 500 kB. Ese aviso ya estaba
 antes y no es tu culpa. No subas el umbral para taparlo.

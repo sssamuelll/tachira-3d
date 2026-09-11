@@ -20,7 +20,10 @@ describe('Atribucion', () => {
   })
 
   it('con la imagen apagada no atribuye a Esri, porque no se está usando', () => {
-    expect(renderToStaticMarkup(<Atribucion imagen={false} />)).not.toContain('Esri')
+    const html = renderToStaticMarkup(<Atribucion imagen={false} />)
+
+    expect(html).toContain('OpenStreetMap')
+    expect(html).not.toContain('Esri')
   })
 
   it('con la imagen prendida, añade a Esri sin quitar lo demás', () => {

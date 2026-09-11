@@ -32,18 +32,26 @@ y qué parte es estimada.
 
 Licencia: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
+Van en CC BY y no en ODbL porque un modelo 3D generado a partir de una huella
+es una *Produced Work* en el vocabulario de ODbL, no una base de datos
+derivada: la licencia le exige atribución, no herencia. Es la misma figura por
+la que una imagen renderizada de un mapa de OpenStreetMap no obliga a poner
+esa imagen en ODbL. La atribución a OpenStreetMap sigue siendo obligatoria y
+está arriba.
+
 ## Imagen satelital — Esri World Imagery
 
 La imagen de fondo se pide en vivo al servidor de Esri cuando el mapa la
 muestra. **Este repositorio no contiene ni distribuye ninguna tesela de
 imagen**: no hay ninguna en git ni en el paquete de datos.
 
-**Lo que sí deriva de esa imagen, y hay que decirlo:** el color de techo de
-parte de las edificaciones. El horneado muestrea la mediana de los píxeles que
-caen dentro de cada huella sobre teselas z18 y guarda un solo valor RGB por
-edificio. En el horneado actual son 7.760 edificios de 45.593; los otros
-37.833 llevan un color estimado sin mirar ninguna imagen. El manifiesto lo
-declara en su campo `sources.roof`.
+**Lo que sí deriva de esa imagen, y hay que decirlo:** el color de techo de las
+edificaciones. El horneado muestrea píxeles de Esri para los 45.593 edificios:
+en 7.760 toma la mediana de los que caen dentro de la huella a z18, y en los
+otros 37.833, donde esa muestra no existe, toma un solo píxel de contexto a
+z12, que no resuelve el techo y solo tiñe. En los dos casos se guarda un valor
+RGB por edificio. El manifiesto lo declara en `sources.roof` y el detalle de
+cada edificio dice cuál de los dos caminos siguió.
 
 Ese muestreo se retira en la siguiente tanda de trabajo, que sustituye el
 color por una paleta sembrada a partir de la clase del edificio, sin tocar

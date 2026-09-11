@@ -17,6 +17,10 @@ import { resolve } from 'node:path'
  * Después, crear a mano un Release con la etiqueta datos-AAAA-MM-DD y subir
  * datos-base.tar.gz como asset. Eso es lo que baja scripts/datos-bajar.mjs.
  *
+ * ponytail: un asset de Release admite hasta 2 GB, así que repartir el
+ * paquete entero como un solo archivo tiene techo de sobra para los 56 MB de
+ * hoy. Si algún día se acercara, toca partirlo o cambiar de sitio.
+ *
  * ponytail: tar del sistema, no una librería. Viene con Windows 10+, macOS y
  * Linux. Si algún día hace falta empaquetar desde un entorno sin tar, entra
  * una dependencia; hoy sería una dependencia por nada.

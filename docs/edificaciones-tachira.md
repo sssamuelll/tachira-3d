@@ -20,7 +20,7 @@ Los metadatos están separados de la geometría: el visor descarga el manifest y
 
 Entradas: copia intacta de los 25 JSON en `.cache/edificios/osm`; copia de 917 JPG z18 útiles en `.cache/edificios/satelite`. Salida nueva: `public/data/edificios/index.json` y 564 pares `.bin`/`.json`. No se regeneraron ni modificaron los assets previos. Como el resto de los datos de este repo, estas carpetas permanecen ignoradas por Git.
 
-Reproducir localmente: `npm run edificios`. También admite `-- --input <directorio> --sat-cache <directorio>`. No requiere volver a ejecutar `npm run data` ni `npm run img`.
+Reproducir localmente: `npm run edificios`. También admite `-- --input <directorio> --sat-cache <directorio>`. No requiere volver a ejecutar `npm run data`. La imagen satelital ya no se hornea: el mapa la pide en vivo al servidor de Esri.
 
 ## LA ESTIMACIÓN
 

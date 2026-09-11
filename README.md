@@ -10,11 +10,14 @@ porque de Venezuela hay poco levantado y lo que hay está repartido.
 
 ## Correrlo
 
+Hace falta **Node 24 o más**. Con versiones anteriores el build falla con
+errores que no dicen que la versión es el problema.
+
 ```bash
 git clone https://github.com/sssamuelll/tachira-3d
 cd tachira-3d
 npm ci
-npm run datos:bajar     # ~59 MB de datos base, del último Release
+npm run datos:bajar     # ~56 MB de datos base, del último Release
 npm run dev
 ```
 

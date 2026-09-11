@@ -10,6 +10,10 @@ import { ASSET } from './datos-empaquetar.mjs'
  * Es el segundo de los tres comandos que abren el README:
  *   npm ci  ·  npm run datos:bajar  ·  npm run dev
  *
+ * ponytail: los datos van por Release y no dentro del sitio porque GitHub
+ * Pages sirve sitios de hasta 1 GB y unos 100 GB de tráfico al mes, y el
+ * paquete de datos se comería los dos presupuestos.
+ *
  * Con TACHIRA_DATOS_TAG se fija una etiqueta concreta, que es lo que hay que
  * hacer para reproducir un estado viejo del mapa.
  *
@@ -62,6 +66,9 @@ async function main () {
   const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`, {
     headers: { Accept: 'application/vnd.github+json', ...autorizacion() },
   })
+  if (res.status === 404) {
+    throw new Error('la API de GitHub contestó HTTP 404. Si el repo todavía es privado, necesitas exportar GITHUB_TOKEN con un token que lo pueda leer.')
+  }
   if (!res.ok) throw new Error(`la API de GitHub contestó HTTP ${res.status}`)
 
   const release = elegirRelease(await res.json(), process.env.TACHIRA_DATOS_TAG)
@@ -80,6 +87,9 @@ async function main () {
       headers: { Accept: 'application/octet-stream', ...autorizacion() },
     })
     if (!paquete.ok) throw new Error(`el asset contestó HTTP ${paquete.status}`)
+    // ponytail: el paquete entero en memoria de una vez. Techo conocido: un
+    // asset de Release admite 2 GB y hoy son 56 MB. Si se acerca, streaming a
+    // disco en vez de arrayBuffer().
     const bytes = Buffer.from(await paquete.arrayBuffer())
     if (bytes.length !== asset.size) {
       throw new Error(`descarga incompleta: ${bytes.length} bytes de ${asset.size}. Vuelve a correr el comando.`)

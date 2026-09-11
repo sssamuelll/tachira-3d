@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { CONTENIDO, versionDe } from '../datos-empaquetar.mjs'
 
 describe('CONTENIDO', () => {
@@ -18,6 +22,29 @@ describe('CONTENIDO', () => {
 
   it('no repite ninguna entrada', () => {
     expect(new Set(CONTENIDO).size).toBe(CONTENIDO.length)
+  })
+
+  it('el tar se arma con la lista, no con la carpeta entera', () => {
+    // Si alguien empaqueta 'data' en vez de ...CONTENIDO, el paquete se lleva
+    // piezas/, que ya viaja en git. Esta prueba es lo que lo impide.
+    const raiz = mkdtempSync(join(tmpdir(), 'empaquetar-'))
+    try {
+      mkdirSync(join(raiz, 'data/piezas'), { recursive: true })
+      writeFileSync(join(raiz, 'data/terrain.json'), '{}')
+      writeFileSync(join(raiz, 'data/VERSION'), '{}')
+      writeFileSync(join(raiz, 'data/piezas/x.glb'), 'x')
+      // El nombre del archivo va relativo y con cwd: el tar de Git Bash lee
+      // un 'C:\...' como host remoto y falla. -C sí admite ruta absoluta.
+      const opciones = { cwd: raiz, encoding: 'utf8' }
+
+      execFileSync('tar', ['-czf', 'prueba.tar.gz', '-C', raiz, 'data/VERSION', 'data/terrain.json'], opciones)
+      const dentro = execFileSync('tar', ['-tzf', 'prueba.tar.gz'], opciones)
+
+      expect(dentro).toContain('data/terrain.json')
+      expect(dentro).not.toContain('piezas')
+    } finally {
+      rmSync(raiz, { recursive: true, force: true })
+    }
   })
 })
 
