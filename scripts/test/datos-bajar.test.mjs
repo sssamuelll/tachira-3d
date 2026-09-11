@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { elegirRelease, assetDe, sirveLoCacheado } from '../datos-bajar.mjs'
+import { elegirRelease, assetDe, sirveLoCacheado, autorizacion } from '../datos-bajar.mjs'
 
 const rel = (tag, assets = ['datos-base.tar.gz']) => ({
   tag_name: tag,
@@ -57,5 +57,19 @@ describe('sirveLoCacheado', () => {
 
   it('sin archivo, se baja', () => {
     expect(sirveLoCacheado(false, 0, 56258655)).toBe(false)
+  })
+})
+
+describe('autorizacion', () => {
+  it('sin token no manda cabecera: en local no hace falta', () => {
+    expect(autorizacion({})).toEqual({})
+  })
+
+  it('con GITHUB_TOKEN manda Bearer: es lo que evita el 404 del repo privado y el tope de 60/hora', () => {
+    expect(autorizacion({ GITHUB_TOKEN: 'abc' })).toEqual({ Authorization: 'Bearer abc' })
+  })
+
+  it('GH_TOKEN sirve igual, que es el que pone la CLI de GitHub', () => {
+    expect(autorizacion({ GH_TOKEN: 'xyz' })).toEqual({ Authorization: 'Bearer xyz' })
   })
 })

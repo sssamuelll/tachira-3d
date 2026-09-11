@@ -13,9 +13,9 @@ import { ASSET } from './datos-empaquetar.mjs'
  * Con TACHIRA_DATOS_TAG se fija una etiqueta concreta, que es lo que hay que
  * hacer para reproducir un estado viejo del mapa.
  *
- * ponytail: la API pública sin token admite 60 peticiones por hora por IP.
- * Acá se gasta una. Si CI llegara a toparse, se le pasa el GITHUB_TOKEN que
- * la Action ya tiene.
+ * La Action le pasa su GITHUB_TOKEN: sin él son 60 peticiones por hora
+ * compartidas entre todos los corredores de GitHub, y sobre un repo privado
+ * la API contesta 404. En local no hace falta mientras el repo sea público.
  */
 
 const REPO = 'sssamuelll/tachira-3d'
@@ -42,6 +42,15 @@ export function assetDe (release) {
   return asset
 }
 
+/** La cabecera de autenticación, si hay token. Sin él la API pública da 60
+ *  peticiones por hora COMPARTIDAS entre todos los corredores de GitHub, y
+ *  sobre un repo privado contesta 404 en vez de pedir credenciales. Con token
+ *  son 5.000 por hora y ve el repo. En local no suele haber, y está bien. */
+export function autorizacion (entorno = process.env) {
+  const token = entorno.GITHUB_TOKEN ?? entorno.GH_TOKEN
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 /** Si el paquete que ya está en la caché sirve. Un archivo del tamaño
  *  equivocado es una descarga a medias, no un paquete: se vuelve a bajar en
  *  vez de dar por bueno que el archivo exista. */
@@ -51,7 +60,7 @@ export function sirveLoCacheado (existe, tamañoLocal, tamañoEsperado) {
 
 async function main () {
   const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`, {
-    headers: { Accept: 'application/vnd.github+json' },
+    headers: { Accept: 'application/vnd.github+json', ...autorizacion() },
   })
   if (!res.ok) throw new Error(`la API de GitHub contestó HTTP ${res.status}`)
 
@@ -64,7 +73,12 @@ async function main () {
   } else {
     console.log(`bajando ${release.tag_name}  (${(asset.size / 1e6).toFixed(1)} MB)`)
     await mkdir(CACHE, { recursive: true })
-    const paquete = await fetch(asset.browser_download_url)
+    // Por la URL de la API y no por browser_download_url: es el único camino
+    // que sirve para los dos casos. En un repo público funciona sin
+    // autenticar (comprobado), y en uno privado es el que acepta el token.
+    const paquete = await fetch(asset.url, {
+      headers: { Accept: 'application/octet-stream', ...autorizacion() },
+    })
     if (!paquete.ok) throw new Error(`el asset contestó HTTP ${paquete.status}`)
     const bytes = Buffer.from(await paquete.arrayBuffer())
     if (bytes.length !== asset.size) {

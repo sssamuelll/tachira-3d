@@ -33,9 +33,11 @@ jobs:
       - run: npm ci
       - name: Bajar los datos base
         run: npm run datos:bajar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Pruebas
         run: npx vitest run
-      - name: Tipos
+      - name: Tipos de la app
         run: npx tsc --noEmit
       - name: Build
         run: npm run build
