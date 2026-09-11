@@ -529,7 +529,7 @@ export default function App () {
 
       <BarraEscala escala={escala} />
 
-      <Atribucion visible={imagen} />
+      <Atribucion imagen={imagen} />
 
       <BarraArchivo
         nombre={handle?.name ?? null}

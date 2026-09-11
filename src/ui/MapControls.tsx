@@ -79,27 +79,23 @@ export function MapControls ({ lazo, onLazo, imagen, onImagen, lluvia, onLluvia,
   )
 }
 
-/**
- * El crédito de la imagen satelital. Esri lo exige mientras se muestre su
- * capa, así que aparece y desaparece con ella y no se puede cerrar.
+/** Los créditos de las fuentes de datos, abajo y al centro.
  *
- * Abajo al centro, entre la barra de archivo (izquierda) y la de escala
- * (derecha), en 11 px sobre una pastilla translúcida: sin fondo, un gris sobre
- * una foto de ciudad no se lee, y con la pastilla blanca del resto de la
- * interfaz pesaría como si fuera un control. Es un crédito, no un dato de
- * trabajo -- lo contrario que la barra de escala.
- */
-export function Atribucion ({ visible }: { visible: boolean }) {
-  if (!visible) return null
+ * La línea de OSM es PERMANENTE: ODbL exige atribuir siempre que se muestren
+ * sus datos, y las vías, los edificios y los municipios se ven con la imagen
+ * apagada. La de Esri solo aparece cuando su imagen está en pantalla, que es
+ * cuando aplica. */
+export function Atribucion ({ imagen }: { imagen: boolean }) {
   return (
     <div style={{
       position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 12, zIndex: 20,
       fontFamily: T.fuente, fontSize: 11, lineHeight: 1.3, color: T.texto2,
       background: 'rgba(255,255,255,.72)', borderRadius: 4, padding: '3px 8px',
       pointerEvents: 'none', userSelect: 'none', whiteSpace: 'nowrap',
-      maxWidth: '40vw', overflow: 'hidden', textOverflow: 'ellipsis',
+      maxWidth: '60vw', overflow: 'hidden', textOverflow: 'ellipsis',
     }}>
-      Imagen: Esri, Maxar, Earthstar Geographics y la comunidad de usuarios de GIS
+      © colaboradores de OpenStreetMap (ODbL) · Terreno: Terrarium / AWS Open Data
+      {imagen && ' · Imagen: Esri, Maxar, Earthstar Geographics y la comunidad de usuarios de GIS'}
     </div>
   )
 }
