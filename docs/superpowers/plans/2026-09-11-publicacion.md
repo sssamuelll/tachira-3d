@@ -1496,6 +1496,12 @@ orden y después de que las ocho tareas estén verdes.
 
 - [ ] **4. Activar Pages.** Settings, Pages, Source: **GitHub Actions**.
 
+- [ ] **4b. Exigir las comprobaciones antes de fundir.** Settings, Branches,
+  regla para `master`: *Require status checks to pass before merging*, y marcar
+  `verificar`. **Sin esto GitHub no impide fundir un pull request en rojo**, por
+  mucho que la Action lo marque. Lo levantó la revisión final: `CONTRIBUTING.md`
+  prometía ese bloqueo y hubo que corregir el texto hasta que exista la regla.
+
 - [ ] **5. Crear el primer Release de datos.**
 
   ```bash
