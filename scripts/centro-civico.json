@@ -1,0 +1,295 @@
+{
+ "origen": {
+  "lat": 7.7674716,
+  "lon": -72.2326948,
+  "nota": "centro del bbox de relation/3499128; metros locales X este, Y norte"
+ },
+ "osm": {
+  "relacion": 3499128,
+  "outer_way": 247780176,
+  "inner_way": 260659205,
+  "medido": true,
+  "nota": "Descargado de api.openstreetmap.org/api/0.6/relation/3499128/full.json. Unico dato MEDIDO del archivo."
+ },
+ "envolvente": {
+  "outer": [
+   [
+    -1.588,
+    -36.713
+   ],
+   [
+    -14.758,
+    -6.434
+   ],
+   [
+    -13.148,
+    22.965
+   ],
+   [
+    -11.747,
+    24.268
+   ],
+   [
+    -3.066,
+    34.064
+   ],
+   [
+    8.383,
+    32.494
+   ],
+   [
+    9.673,
+    33.997
+   ],
+   [
+    12.133,
+    36.902
+   ],
+   [
+    16.379,
+    41.789
+   ],
+   [
+    20.306,
+    41.244
+   ],
+   [
+    43.976,
+    37.938
+   ],
+   [
+    46.358,
+    31.192
+   ],
+   [
+    61.557,
+    -13.781
+   ],
+   [
+    39.222,
+    -42.201
+   ]
+  ],
+  "inner": [
+   [
+    17.184,
+    6.067
+   ],
+   [
+    33.873,
+    4.842
+   ],
+   [
+    37.92,
+    -4.308
+   ],
+   [
+    27.784,
+    -17.41
+   ],
+   [
+    22.6,
+    -13.147
+   ],
+   [
+    14.438,
+    -12.612
+   ],
+   [
+    12.155,
+    -6.29
+   ],
+   [
+    14.978,
+    -2.171
+   ],
+   [
+    13.831,
+    2.171
+   ]
+  ]
+ },
+ "nivel_m": 3.2,
+ "cuerpos": [
+  {
+   "id": "zocalo",
+   "nombre": "Plataforma comercial",
+   "niveles": 2,
+   "usa_envolvente": true,
+   "material": "concreto",
+   "estimado": [
+    "niveles",
+    "altura de nivel"
+   ]
+  },
+  {
+   "id": "torre-sede",
+   "nombre": "Torre sede (la alta)",
+   "niveles": 14,
+   "remate_m": 3.0,
+   "material": "terracota",
+   "arcadas": true,
+   "planta": [
+    [
+     20,
+     -12
+    ],
+    [
+     40,
+     -6
+    ],
+    [
+     55,
+     -14
+    ],
+    [
+     48,
+     -30
+    ],
+    [
+     38,
+     -40
+    ],
+    [
+     22,
+     -36
+    ],
+    [
+     14,
+     -24
+    ]
+   ],
+   "estimado": [
+    "planta",
+    "niveles",
+    "posicion sur del conjunto"
+   ]
+  },
+  {
+   "id": "torre-rental",
+   "nombre": "Torre rental",
+   "niveles": 8,
+   "remate_m": 1.2,
+   "material": "terracota",
+   "arcadas": true,
+   "planta": [
+    [
+     14,
+     8
+    ],
+    [
+     16,
+     30
+    ],
+    [
+     24,
+     38
+    ],
+    [
+     40,
+     35
+    ],
+    [
+     45,
+     26
+    ],
+    [
+     42,
+     8
+    ],
+    [
+     30,
+     2
+    ]
+   ],
+   "estimado": [
+    "planta",
+    "niveles",
+    "posicion norte del conjunto"
+   ]
+  },
+  {
+   "id": "cuerpo-norte",
+   "nombre": "Cuerpo octogonal bajo",
+   "niveles": 3,
+   "remate_m": 0.8,
+   "material": "terracota",
+   "arcadas": true,
+   "planta": [
+    [
+     -2,
+     24
+    ],
+    [
+     6,
+     32
+    ],
+    [
+     14,
+     30
+    ],
+    [
+     12,
+     18
+    ],
+    [
+     2,
+     14
+    ]
+   ],
+   "estimado": [
+    "planta",
+    "niveles"
+   ]
+  },
+  {
+   "id": "domo",
+   "nombre": "Domo de teja",
+   "niveles": 3,
+   "techo": "piramidal",
+   "techo_alto_m": 5.0,
+   "material": "teja",
+   "arcadas": false,
+   "planta": [
+    [
+     21.239,
+     -24.556
+    ],
+    [
+     15.827,
+     -19.685
+    ],
+    [
+     8.173,
+     -19.685
+    ],
+    [
+     2.761,
+     -24.556
+    ],
+    [
+     2.761,
+     -31.444
+    ],
+    [
+     8.173,
+     -36.315
+    ],
+    [
+     15.827,
+     -36.315
+    ],
+    [
+     21.239,
+     -31.444
+    ]
+   ],
+   "estimado": [
+    "planta",
+    "posicion",
+    "niveles",
+    "es el elemento menos seguro del modelo"
+   ]
+  }
+ ]
+}

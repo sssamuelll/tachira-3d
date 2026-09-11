@@ -1,3 +1,6 @@
+/** Caja ENU, X este / Z sur, en metros del mapa. */
+export interface CajaSustituida { minX: number; maxX: number; minZ: number; maxZ: number }
+
 export interface Pieza {
   id: string
   nombre: string
@@ -7,6 +10,12 @@ export interface Pieza {
   /** Grados horarios desde el norte (-Z); omitido equivale a 0°.
    * Es la rotación del marco canónico del GLB, no una orientación medida. */
   rumbo?: number
+  /** Dónde la pieza REEMPLAZA al bloque genérico de OSM. Sin esto, el prisma
+   * estimado del horneado se vería dentro de la pieza. Se declara como caja y
+   * no como lista de ids porque el cliente dibuja un binario fusionado por
+   * tesela y no carga la metadata que traduce id → rango de índices. Lo que
+   * cae dentro lo fija una prueba contra los datos reales, no la confianza. */
+  sustituye?: CajaSustituida
   representación: 'generada'
 }
 
@@ -59,4 +68,71 @@ export const PIEZAS: readonly Pieza[] = [
     glb: '/data/piezas/viaducto-nuevo.glb',
     representación: 'generada',
   },
+  {
+    // Sin rumbo, por lo mismo que los viaductos: la planta sale del
+    // multipolígono real de OSM y ya está orientada. El punto es el centro de
+    // su caja, que es el origen con el que se exportó el GLB.
+    id: 'relation/3499128',
+    nombre: 'Centro Cívico de San Cristóbal',
+    lat: 7.7674716,
+    lon: -72.2326948,
+    glb: '/data/piezas/centro-civico.glb',
+    // La caja de la huella de OSM, redondeada 1 cm hacia fuera. Dentro caen el
+    // multipolígono y tres `building=roof` que son las cubiertas del propio
+    // zócalo, ya modeladas en el GLB.
+    sustituye: { minX: -36544.72, maxX: -36468.39, minZ: 28093.95, maxZ: 28177.45 },
+    representación: 'generada',
+  },
+  {
+    // La manzana pegada al norte del Centro Cívico. Sin rumbo por lo mismo, y
+    // SIN `sustituye`: dentro del perímetro no hay ninguna huella de OSM que
+    // pisar. El punto es el centroide de los vértices de la plaza, que es el
+    // origen con el que se exportó el GLB.
+    id: 'way/1326164631',
+    nombre: 'Plaza Bolívar',
+    lat: 7.7679729,
+    lon: -72.232404,
+    glb: '/data/piezas/plaza-bolivar.glb',
+    representación: 'generada',
+  },
 ]
+
+/** Las cajas de sustitución que tocan la caja de un chunk de edificios,
+ * `[minX, minY, minZ, maxX, maxY, maxZ]`. Casi siempre ninguna. */
+export function cajasSustituidas (bounds: readonly number[]): CajaSustituida[] {
+  const dentro: CajaSustituida[] = []
+  for (const pieza of PIEZAS) {
+    const caja = pieza.sustituye
+    if (!caja) continue
+    if (caja.maxX < bounds[0] || caja.minX > bounds[3]) continue
+    if (caja.maxZ < bounds[2] || caja.minZ > bounds[5]) continue
+    dentro.push(caja)
+  }
+  return dentro
+}
+
+/** Quita del índice los triángulos que la pieza sustituye. Decide por
+ * centroide: vaciar por vértice suelto abriría agujeros en el edificio vecino
+ * que comparte pared con el borde de la caja. */
+export function vaciarSustituidos (
+  positions: Float32Array, indices: Uint32Array, cajas: readonly CajaSustituida[],
+): Uint32Array {
+  if (cajas.length === 0) return indices
+  const quedan = new Uint32Array(indices.length)
+  let n = 0
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = indices[i] * 3, b = indices[i + 1] * 3, c = indices[i + 2] * 3
+    const x = (positions[a] + positions[b] + positions[c]) / 3
+    const z = (positions[a + 2] + positions[b + 2] + positions[c + 2]) / 3
+    let fuera = true
+    for (const caja of cajas) {
+      if (x >= caja.minX && x <= caja.maxX && z >= caja.minZ && z <= caja.maxZ) { fuera = false; break }
+    }
+    if (fuera) {
+      quedan[n++] = indices[i]
+      quedan[n++] = indices[i + 1]
+      quedan[n++] = indices[i + 2]
+    }
+  }
+  return n === indices.length ? indices : quedan.subarray(0, n)
+}
