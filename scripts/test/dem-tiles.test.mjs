@@ -26,8 +26,30 @@ describe('alturaVertice', () => {
     expect(alturaVertice(dem, 12, 101, 200, 0, 0)).toBe(256)
   })
 
-  it('en z11 decima: el píxel (1,1) es el post (2,2)', () => {
-    expect(alturaVertice(dem, 11, 50, 100, 1, 1)).toBe(4)
+  it('en un plano inclinado el nivel grueso no mueve el terreno', () => {
+    // La ventana va centrada en el post que le toca, así que sobre un plano
+    // devuelve exactamente ese post: el relieve recto no se desplaza.
+    expect(alturaVertice(dem, 11, 50, 100, 1, 1)).toBeCloseTo(4, 6)
+    expect(alturaVertice(dem, 10, 25, 50, 3, 2)).toBeCloseTo(4 * 3 + 4 * 2, 6)
+    expect(alturaVertice(dem, 8, 6, 12, 70, 130)).toBeCloseTo(96 + 32, 6)
+  })
+
+  it('un post aislado no se lleva el vértice grueso entero', () => {
+    // Es lo que convierte una cumbre en aguja y una quebrada en cráter: el
+    // vértice grueso se llevaba el extremo del bloque que representa.
+    const punta = new Float32Array(W * H)
+    punta[4 * W + 4] = 400
+    const conPunta = { ...dem, data: punta }
+    // z11, bloque 2x2: pesos trapezoidales que suman 4, el post central pesa 1.
+    expect(alturaVertice(conPunta, 11, 50, 100, 2, 2)).toBeCloseTo(100, 6)
+    // z10, bloque 4x4: los pesos trapezoidales suman 16.
+    expect(alturaVertice(conPunta, 10, 25, 50, 1, 1)).toBeCloseTo(25, 6)
+  })
+
+  it('un pozo aislado tampoco', () => {
+    const pozo = new Float32Array(W * H)
+    pozo[4 * W + 4] = -400
+    expect(alturaVertice({ ...dem, data: pozo }, 11, 50, 100, 2, 2)).toBeCloseTo(-100, 6)
   })
 
   it('fuera de la rejilla extiende el borde, y no está dentro', () => {

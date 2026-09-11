@@ -60,6 +60,56 @@ export function alturaEnTesela (alturas: Float32Array, u: number, v: number): nu
 }
 
 /**
+ * Altura del vértice de un nodo del quadtree.
+ *
+ * Un nodo siempre son 33×33 vértices, sea del nivel que sea, así que a paso ≥ 2
+ * cada vértice tiene que representar un bloque de paso×paso posts. Tomar el
+ * post suelto que cae en el centro —que es lo que se hacía— le entrega al
+ * vértice el valor extremo del bloque cuando el bloque contiene una cumbre o
+ * una quebrada: la cumbre sale como una aguja de 33×33 y la quebrada como un
+ * cráter. No es ruido del DEM, es el muestreo; y crece con el paso, que es por
+ * lo que se ve en los niveles lejanos y no en los cercanos.
+ *
+ * Se promedia el bloque, con la ventana CENTRADA en el vértice. Sobre un plano
+ * —horizontal o inclinado— la media de una ventana centrada es exactamente el
+ * valor del centro, así que esto no desplaza el terreno llano ni las laderas
+ * rectas: solo recorta lo que sobresale de su entorno, que es justo lo que el
+ * vértice no puede representar. Lo comprueba nodoTerreno.test.ts.
+ *
+ * A paso ≤ 1 (z15 y más cerca) devuelve la triangulación exacta: esa superficie
+ * es la misma sobre la que el pipeline apoyó las vías (drape.mjs) y no puede
+ * moverse ni un milímetro.
+ *
+ * ponytail: errores.json se hornea midiendo la malla SIN este filtro
+ * (errorNodo, dem-tiles.mjs), así que declara más error del que la malla
+ * dibujada tiene ahora. El LOD refina un poco antes de lo necesario, que es el
+ * lado seguro -- las vías van levantadas ERROR_PX y nunca las tapa el relieve.
+ * Si algún día molesta el gasto, el arreglo es que errorNodo aplique el mismo
+ * bloque.
+ *
+ * ponytail: en el borde de la tesela la ventana se recorta contra el borde, así
+ * que dos nodos vecinos pueden diferir unos centímetros en el vértice que
+ * comparten. Lo tapa el faldón, que existe para eso. Si algún día se ve una
+ * costura, la salida es hornear las teselas con dos píxeles de solape.
+ */
+export function alturaDeVertice (
+  alturas: Float32Array, u: number, v: number, paso: number,
+): number {
+  if (paso <= 1) return alturaEnTesela(alturas, u, v)
+  const borde = LADO - 1
+  const sujetar = (t: number) => Math.min(borde, Math.max(0, t))
+  const r = paso / 2
+  let suma = 0, n = 0
+  for (let dv = -r + 0.5; dv < r; dv++) {
+    for (let du = -r + 0.5; du < r; du++) {
+      suma += alturaEnTesela(alturas, sujetar(u + du), sujetar(v + dv))
+      n++
+    }
+  }
+  return suma / n
+}
+
+/**
  * Dónde cae cada vértice dentro de la tesela de imagen del nodo: (i/32, j/32),
  * fila 0 = norte, la convención de una tesela Web Mercator y la misma de
  * uvMascara.
@@ -144,7 +194,7 @@ export function geometriaNodo (n: Nodo, tesela: Tesela, dem: Dem, frame: EnuFram
     const lat = latDeTesela(n.y + j / CELDAS, n.z)
     for (let i = 0; i < LADO_NODO; i++) {
       const lon = lonDeTesela(n.x + i / CELDAS, n.z)
-      const h = alturaEnTesela(tesela.alturas, offI + i * paso, offJ + j * paso)
+      const h = alturaDeVertice(tesela.alturas, offI + i * paso, offJ + j * paso, paso)
       const [e, no, u] = geodeticToEnu(frame, lat, lon, h)
       const k = j * LADO_NODO + i
       pos[k * 3] = e; pos[k * 3 + 1] = u; pos[k * 3 + 2] = -no

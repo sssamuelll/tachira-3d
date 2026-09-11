@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { geometriaNodo, ventana, raices, alturaEnTesela, uvImagen, VERTICES, LADO_NODO } from './nodoTerreno'
+import { geometriaNodo, ventana, raices, alturaEnTesela, alturaDeVertice, uvImagen, VERTICES, LADO_NODO } from './nodoTerreno'
 import { LADO, type Tesela } from './demTiles'
 import { alturaEnPosts } from '../../scripts/lib/drape.mjs'
 import { makeEnuFrame } from '../data/enu'
@@ -62,6 +62,43 @@ describe('alturaEnTesela', () => {
       const u = Math.random() * (LADO - 1), v = Math.random() * (LADO - 1)
       expect(alturaEnTesela(d, u, v)).toBeCloseTo(alturaEnPosts(pipeline, u, v), 6)
     }
+  })
+})
+
+describe('alturaDeVertice', () => {
+  const rampa = new Float32Array(LADO * LADO)
+  for (let j = 0; j < LADO; j++) for (let i = 0; i < LADO; i++) rampa[j * LADO + i] = 100 + i * 3 + j * 7
+
+  it('a paso 1 y menos devuelve la triangulación exacta, que es donde se apoyan las vías', () => {
+    for (const paso of [1, 0.5, 0.25]) {
+      for (const [u, v] of [[40, 40], [40.5, 41.25], [7.3, 19.9]] as const) {
+        expect(alturaDeVertice(rampa, u, v, paso)).toBeCloseTo(alturaEnTesela(rampa, u, v), 6)
+      }
+    }
+  })
+
+  it('sobre un plano inclinado no mueve el terreno: la media del bloque es su centro', () => {
+    // Es la objeción que traía el comentario viejo —que promediar desplazaría
+    // un plano— y no se sostiene si la ventana está centrada. Si alguien la
+    // descentra, este número se va.
+    for (const paso of [2, 4, 8]) {
+      expect(alturaDeVertice(rampa, 128, 128, paso)).toBeCloseTo(alturaEnTesela(rampa, 128, 128), 6)
+    }
+  })
+
+  it('a paso 8 una aguja de un solo post no se lleva el vértice entero', () => {
+    const llano = new Float32Array(LADO * LADO)   // todo a 0
+    llano[128 * LADO + 128] = 640                 // una aguja de 640 m
+    // El vértice representa un bloque de 8x8 = 64 posts: la aguja aporta
+    // 640/64 = 10 m, no 640. Muestrear el post suelto da 640 y eso es
+    // exactamente el pino que sale en pantalla.
+    expect(alturaDeVertice(llano, 128, 128, 8)).toBeCloseTo(10, 6)
+  })
+
+  it('a paso 8 un pozo de un solo post tampoco abre un cráter', () => {
+    const llano = new Float32Array(LADO * LADO)
+    llano[128 * LADO + 128] = -640
+    expect(alturaDeVertice(llano, 128, 128, 8)).toBeCloseTo(-10, 6)
   })
 })
 
