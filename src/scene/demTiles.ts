@@ -1,6 +1,8 @@
 // Teselas del DEM (public/data/dem/{z}/{x}/{y}.png, scripts/lib/dem-tiles.mjs):
 // 257×257 píxeles, RGB Terrarium, alpha 255 = dentro del estado.
 
+import { urlGenerado } from '../data/rutas'
+
 export const LADO = 257
 
 export interface Tesela { alturas: Float32Array; dentro: Uint8Array; min: number; max: number }
@@ -30,7 +32,7 @@ export class CacheTeselas {
   private readonly teselas = new Map<string, Tesela>()
   private readonly enVuelo = new Set<string>()
 
-  constructor (private readonly base = '/data/dem', private readonly max = 400) {}
+  constructor (private readonly base = urlGenerado('dem'), private readonly max = 400) {}
 
   get (z: number, x: number, y: number): Tesela | undefined {
     const k = `${z}/${x}/${y}`

@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { CSM } from 'three/examples/jsm/csm/CSM.js'
 import { PIEZAS, type Pieza } from '../data/piezas'
+import { urlVersionado } from '../data/rutas'
 import { xTesela, yTesela } from '../data/mercator'
 import { enuOf } from './Camera'
 import { alturaTerreno, distanciaVista } from './distanciaVista'
@@ -104,11 +105,15 @@ export function Piezas ({ piezas = PIEZAS }: { piezas?: readonly Pieza[] } = {})
         modelo: null, originales: new Map(), materiales: new Map(), csm: null, cota: null, proximoApoyo: 0,
       }
       runtime.piezas.push(pieza)
-      void fetch(def.glb, { signal: controller.signal }).then(async response => {
-        if (!response.ok) throw new Error(`${def.glb}: HTTP ${response.status}`)
+      // La pieza declara su GLB relativo al raíz de datos; acá se resuelve.
+      // El segundo argumento de parseAsync es la carpeta desde la que el GLB
+      // resolvería recursos externos, así que se deriva de la URL ya resuelta.
+      const url = urlVersionado(def.glb)
+      void fetch(url, { signal: controller.signal }).then(async response => {
+        if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`)
         const buffer = await response.arrayBuffer()
         if (controller.signal.aborted) return
-        const gltf = await loader.parseAsync(buffer, def.glb.slice(0, def.glb.lastIndexOf('/') + 1))
+        const gltf = await loader.parseAsync(buffer, url.slice(0, url.lastIndexOf('/') + 1))
         if (controller.signal.aborted) { liberarModelo(gltf.scene); return }
         pieza.modelo = gltf.scene
         gltf.scene.traverse(objeto => {

@@ -101,7 +101,7 @@ test('dentro de la caja solo hay obra del propio conjunto', () => {
 test('la Plaza Bolívar declara su GLB y no lleva rumbo', () => {
   const pieza = PIEZAS.find(p => p.id === 'way/1326164631')!
 
-  expect(pieza.glb).toBe('/data/piezas/plaza-bolivar.glb')
+  expect(pieza.glb).toBe('piezas/plaza-bolivar.glb')
   expect(pieza.rumbo).toBeUndefined()
   expect(pieza.representación).toBe('generada')
 })
@@ -147,7 +147,16 @@ test('el Centro Cívico declara su GLB y no lleva rumbo', () => {
   // orientada. Girarla la sacaría de la manzana.
   const pieza = PIEZAS.find(p => p.id === 'relation/3499128')!
 
-  expect(pieza.glb).toBe('/data/piezas/centro-civico.glb')
+  expect(pieza.glb).toBe('piezas/centro-civico.glb')
   expect(pieza.rumbo).toBeUndefined()
   expect(pieza.representación).toBe('generada')
+})
+
+test('todas las piezas declaran su GLB relativo al raíz de datos', () => {
+  // Con barra inicial el GLB se iría a la raíz del dominio y daría 404 bajo
+  // el subdirectorio de GitHub Pages.
+  for (const pieza of PIEZAS) {
+    expect(pieza.glb.startsWith('piezas/')).toBe(true)
+    expect(pieza.glb.endsWith('.glb')).toBe(true)
+  }
 })

@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { CSM } from 'three/examples/jsm/csm/CSM.js'
 import { useFrame, useThree } from '@react-three/fiber'
 import { makeEnuFrame } from '../data/enu'
+import { urlGenerado } from '../data/rutas'
 import { metrosPorPixel } from './roadStyle'
 import { materialRelieve, type UniformsRelieve } from './terrainShader'
 import { direccionSol, CASCADA_CERCA } from './sol'
@@ -178,7 +179,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
   useEffect(() => () => imgs.dispose(), [imgs])
   const errores = useRef<Record<string, number> | null>(null)
   useEffect(() => {
-    fetch('/data/dem/errores.json').then(r => r.json()).then(e => { errores.current = e })
+    fetch(urlGenerado('dem/errores.json')).then(r => r.json()).then(e => { errores.current = e })
       .catch(e => console.error('dem/errores.json', e))
   }, [])
 

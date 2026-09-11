@@ -6,6 +6,8 @@ export interface Pieza {
   nombre: string
   lat: number
   lon: number
+  /** Ruta del GLB RELATIVA al raíz de datos, sin barra inicial. Quien la
+   *  consuma la resuelve con urlVersionado (src/data/rutas.ts). */
   glb: string
   /** Grados horarios desde el norte (-Z); omitido equivale a 0°.
    * Es la rotación del marco canónico del GLB, no una orientación medida. */
@@ -31,7 +33,7 @@ export const PIEZAS: readonly Pieza[] = [
     // isla COMPARTEN centro: son la misma obra y tienen que ir concéntricos.
     lat: 7.76865841602524,
     lon: -72.21417741143414,
-    glb: '/data/piezas/obelisco-italianos.glb',
+    glb: 'piezas/obelisco-italianos.glb',
     // Samuel, que conoce el sitio: el fuste va unos 10° girado a la izquierda,
     // ortogonal a las direcciones de la avenida. Horario desde el norte, así que
     // a la izquierda es negativo. Sigue sin ser un rumbo levantado en campo.
@@ -44,7 +46,7 @@ export const PIEZAS: readonly Pieza[] = [
     // Mismo centro que el monumento: lo rodea.
     lat: 7.76865841602524,
     lon: -72.21417741143414,
-    glb: '/data/piezas/obelisco-ovalo.glb',
+    glb: 'piezas/obelisco-ovalo.glb',
     // Samuel: el óvalo va 90° girado respecto al fuste. El monumento conserva su
     // dirección; la isla cruza. De ahí -10 + 90.
     rumbo: 80,
@@ -57,7 +59,7 @@ export const PIEZAS: readonly Pieza[] = [
     nombre: 'Viaducto Viejo',
     lat: 7.76271285,
     lon: -72.23427815,
-    glb: '/data/piezas/viaducto-viejo.glb',
+    glb: 'piezas/viaducto-viejo.glb',
     representación: 'generada',
   },
   {
@@ -65,7 +67,7 @@ export const PIEZAS: readonly Pieza[] = [
     nombre: 'Viaducto Nuevo',
     lat: 7.76432975,
     lon: -72.2206145,
-    glb: '/data/piezas/viaducto-nuevo.glb',
+    glb: 'piezas/viaducto-nuevo.glb',
     representación: 'generada',
   },
   {
@@ -76,7 +78,7 @@ export const PIEZAS: readonly Pieza[] = [
     nombre: 'Centro Cívico de San Cristóbal',
     lat: 7.7674716,
     lon: -72.2326948,
-    glb: '/data/piezas/centro-civico.glb',
+    glb: 'piezas/centro-civico.glb',
     // La caja de la huella de OSM, redondeada 1 cm hacia fuera. Dentro caen el
     // multipolígono y tres `building=roof` que son las cubiertas del propio
     // zócalo, ya modeladas en el GLB.
@@ -92,7 +94,7 @@ export const PIEZAS: readonly Pieza[] = [
     nombre: 'Plaza Bolívar',
     lat: 7.7679729,
     lon: -72.232404,
-    glb: '/data/piezas/plaza-bolivar.glb',
+    glb: 'piezas/plaza-bolivar.glb',
     representación: 'generada',
   },
 ]

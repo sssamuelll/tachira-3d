@@ -144,9 +144,9 @@ describe('assets del manifiesto de piezas', () => {
   it('resuelve cada ruta dentro del repo y conserva la procedencia del GLB', () => {
     expect(new Set(PIEZAS.map(p => p.id)).size).toBe(PIEZAS.length)
     for (const pieza of PIEZAS) {
-      expect(pieza.glb.startsWith('/data/piezas/')).toBe(true)
+      expect(pieza.glb.startsWith('piezas/')).toBe(true)
       expect(pieza.glb).not.toContain('..')
-      const file = readFileSync(new URL(`../../public${pieza.glb}`, import.meta.url))
+      const file = readFileSync(new URL(`../../public/data/${pieza.glb}`, import.meta.url))
       expect(file.toString('ascii', 0, 4)).toBe('glTF')
       const gltf = JSON.parse(file.toString('utf8', 20, 20 + file.readUInt32LE(12)))
       expect(gltf.asset.extras['representación']).toBe(pieza.representación)
