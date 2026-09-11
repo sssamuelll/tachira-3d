@@ -67,12 +67,13 @@ export class CacheImagenes {
   private readonly texturas = new Map<string, THREE.Texture>()
   private readonly enVuelo = new Set<string>()
   // Cuántas veces falló cada tesela. A los INTENTOS fallos se deja de pedir en
-  // toda la sesión: sin red, el ancestro horneado ya la cubre, y reintentar en
-  // cada cuadro serían cientos de peticiones por segundo contra Esri. Dos
-  // intentos y no uno porque el primer fallo suele ser el propio atasco de la
-  // ráfaga inicial, no que la tesela no exista. ponytail: sin reintento
-  // diferido; si molesta que una caída de un segundo deje un nodo borroso toda
-  // la sesión, guardar el instante del fallo y reintentar pasado un minuto.
+  // toda la sesión: sin red se cae a la tesela viva más gruesa, o a la
+  // hipsometría, y reintentar en cada cuadro serían cientos de peticiones por
+  // segundo contra Esri. Dos intentos y no uno porque el primer fallo suele
+  // ser el propio atasco de la ráfaga inicial, no que la tesela no exista.
+  // ponytail: sin reintento diferido; si molesta que una caída de un segundo
+  // deje un nodo borroso toda la sesión, guardar el instante del fallo y
+  // reintentar pasado un minuto.
   private readonly fallos = new Map<string, number>()
 
   constructor (

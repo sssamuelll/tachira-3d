@@ -51,16 +51,23 @@ describe('ancestroCargado', () => {
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('sin red', () => {
-  it('una tesela que no llega no entra en la caché, y el nodo se queda sin imagen', async () => {
+  it('una tesela que no llega no se guarda, y tras los reintentos deja de pedirse', async () => {
     // Es el camino que sustituye al horneado: antes, sin red, el nodo caía a
-    // la tesela guardada en el repo. Ahora cae a la hipsometría, y eso tiene
-    // que ser un camino normal, no una excepción sin atrapar.
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 503 }))
+    // la tesela guardada en el repo; ahora cae a la hipsometría, y eso tiene
+    // que ser un camino normal y no una excepción sin atrapar.
+    const espia = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 503 }))
+    // Un turno de macrotarea drena las microtareas pendientes: sin esto las
+    // aserciones leerían el estado ANTES de que corran el .catch y el
+    // .finally de pedir, que es justo lo que hay que interrogar.
+    const asentar = () => new Promise(r => setTimeout(r, 0))
     const cache = new CacheImagenes()
 
-    cache.pedir(12, 1229, 1954)
-    await vi.waitFor(() => { expect(globalThis.fetch).toHaveBeenCalled() })
+    for (let i = 0; i < 3; i++) { cache.pedir(12, 1229, 1954); await asentar() }
 
+    // Dos peticiones, no una ni tres. Que haya una segunda prueba que la
+    // clave se soltó de enVuelo; que no haya tercera prueba que el fallo se
+    // contó. Borra el .finally y sale una; borra el .catch y salen tres.
+    expect(espia).toHaveBeenCalledTimes(2)
     expect(cache.tiene(12, 1229, 1954)).toBe(false)
     expect(cache.mejor({ z: 12, x: 1229, y: 1954 })).toBeNull()
   })
