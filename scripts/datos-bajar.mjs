@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
+import { mkdir, writeFile, rename } from 'node:fs/promises'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
@@ -42,8 +42,15 @@ export function assetDe (release) {
   return asset
 }
 
+/** Si el paquete que ya está en la caché sirve. Un archivo del tamaño
+ *  equivocado es una descarga a medias, no un paquete: se vuelve a bajar en
+ *  vez de dar por bueno que el archivo exista. */
+export function sirveLoCacheado (existe, tamañoLocal, tamañoEsperado) {
+  return existe && tamañoLocal === tamañoEsperado
+}
+
 async function main () {
-  const res = await fetch(`https://api.github.com/repos/${REPO}/releases`, {
+  const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`, {
     headers: { Accept: 'application/vnd.github+json' },
   })
   if (!res.ok) throw new Error(`la API de GitHub contestó HTTP ${res.status}`)
@@ -52,18 +59,30 @@ async function main () {
   const asset = assetDe(release)
   const local = `${CACHE}/${release.tag_name}.tar.gz`
 
-  if (existsSync(local)) {
+  if (sirveLoCacheado(existsSync(local), existsSync(local) ? statSync(local).size : 0, asset.size)) {
     console.log(`${release.tag_name} ya estaba en ${CACHE}`)
   } else {
     console.log(`bajando ${release.tag_name}  (${(asset.size / 1e6).toFixed(1)} MB)`)
     await mkdir(CACHE, { recursive: true })
     const paquete = await fetch(asset.browser_download_url)
     if (!paquete.ok) throw new Error(`el asset contestó HTTP ${paquete.status}`)
-    await writeFile(local, Buffer.from(await paquete.arrayBuffer()))
+    const bytes = Buffer.from(await paquete.arrayBuffer())
+    if (bytes.length !== asset.size) {
+      throw new Error(`descarga incompleta: ${bytes.length} bytes de ${asset.size}. Vuelve a correr el comando.`)
+    }
+    // A un temporal y después rename: una interrupción a media escritura deja
+    // el .parcial, no un paquete truncado que la próxima corrida daría por
+    // bueno solo porque el archivo existe.
+    await writeFile(`${local}.parcial`, bytes)
+    await rename(`${local}.parcial`, local)
   }
 
   await mkdir('public', { recursive: true })
-  execFileSync('tar', ['-xzf', local, '-C', 'public'], { stdio: 'inherit' })
+  try {
+    execFileSync('tar', ['-xzf', local, '-C', 'public'], { stdio: 'inherit' })
+  } catch (e) {
+    throw new Error(`no se pudo desempacar ${local}.\nSi el paquete quedó a medias, bórralo y vuelve a correr el comando:\n  rm -rf ${CACHE}\n${e.message}`)
+  }
   console.log(`\ndesempacado. public/data/VERSION:`)
   console.log(readFileSync('public/data/VERSION', 'utf8'))
 }

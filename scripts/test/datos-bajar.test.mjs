@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { elegirRelease, assetDe } from '../datos-bajar.mjs'
+import { elegirRelease, assetDe, sirveLoCacheado } from '../datos-bajar.mjs'
 
 const rel = (tag, assets = ['datos-base.tar.gz']) => ({
   tag_name: tag,
@@ -41,5 +41,21 @@ describe('assetDe', () => {
   it('un Release sin el paquete se denuncia nombrando la etiqueta', () => {
     expect(() => assetDe(rel('datos-2026-09-11', ['otra-cosa.zip'])))
       .toThrow(/datos-2026-09-11/)
+  })
+})
+
+describe('sirveLoCacheado', () => {
+  it('un paquete del tamaño anunciado se reusa', () => {
+    expect(sirveLoCacheado(true, 56258655, 56258655)).toBe(true)
+  })
+
+  it('un paquete truncado NO se reusa: es una descarga a medias', () => {
+    // Es el caso que rompía el repo de forma permanente: el archivo existía,
+    // se daba por bueno, y tar fallaba en cada corrida futura.
+    expect(sirveLoCacheado(true, 12345, 56258655)).toBe(false)
+  })
+
+  it('sin archivo, se baja', () => {
+    expect(sirveLoCacheado(false, 0, 56258655)).toBe(false)
   })
 })
