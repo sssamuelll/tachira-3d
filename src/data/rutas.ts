@@ -12,8 +12,8 @@
  *
  * Las dos parten de `BASE_URL`, que Vite rellena desde `base` en
  * vite.config.ts y SIEMPRE termina en barra. Eso es lo que hace que el sitio
- * funcione bajo `/tachira-3d/`: una ruta absoluta que empiece por barra y
- * luego data se iría a la raíz del dominio y daría 404.
+ * funcione bajo `/tachira-3d/`: una ruta escrita con barra inicial se iría a
+ * la raíz del dominio y daría 404.
  *
  * Las dos leen el entorno EN CADA LLAMADA, no al importar el módulo: así una
  * prueba puede cambiarlo con vi.stubEnv.

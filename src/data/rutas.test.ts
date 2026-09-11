@@ -62,7 +62,7 @@ it('ningún archivo de src/ escribe una ruta absoluta a los datos', () => {
       // '/data/' que quedan, en el módulo y en su prueba. Hasta entonces esta
       // excepción es lo que deja el barrido verde sin mentir sobre lo que
       // falta. La Task 3 la quita.
-      if (/imagenTeselas\.(test\.)?ts$/.test(entrada.name)) continue
+      if (/^imagenTeselas\.(test\.)?ts$/.test(entrada.name)) continue
       readFileSync(ruta, 'utf8').split('\n').forEach((linea: string, i: number) => {
         if (/['"`]\/data\//.test(linea)) ofensores.push(`${ruta}:${i + 1}`)
       })
