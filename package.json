@@ -12,7 +12,8 @@
     "build": "vite build",
     "data": "node scripts/build-data.mjs",
     "edificios": "node scripts/build-buildings.mjs",
-    "verify": "node scripts/verify-data.mjs"
+    "verify": "node scripts/verify-data.mjs",
+    "datos:empaquetar": "node scripts/datos-empaquetar.mjs"
   },
   "keywords": [],
   "author": "",
