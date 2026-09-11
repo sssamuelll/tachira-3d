@@ -12,7 +12,6 @@
     "build": "vite build",
     "data": "node scripts/build-data.mjs",
     "edificios": "node scripts/build-buildings.mjs",
-    "img": "node scripts/bake-img.mjs",
     "verify": "node scripts/verify-data.mjs"
   },
   "keywords": [],

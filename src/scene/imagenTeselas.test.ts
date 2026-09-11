@@ -1,14 +1,18 @@
-import { describe, expect, it } from 'vitest'
-import { urlImagen, ancestroCargado, Z_HORNEADO } from './imagenTeselas'
+import { describe, expect, it, vi, afterEach } from 'vitest'
+import { urlImagen, ancestroCargado, CacheImagenes } from './imagenTeselas'
 
 describe('urlImagen', () => {
-  it('z8..z12 salen del horneado propio, con la ruta {z}/{x}/{y}', () => {
-    expect(urlImagen(8, 76, 121)).toBe('/data/img/8/76/121.jpg')
-    expect(urlImagen(Z_HORNEADO, 1229, 1954)).toBe('/data/img/12/1229/1954.jpg')
+  it('todos los niveles se piden en vivo a Esri, que pone la fila antes que la columna', () => {
+    // No se reparte ninguna tesela: Esri permite usar el servicio, no copiarlo.
+    expect(urlImagen(8, 76, 121)).toMatch(/World_Imagery\/MapServer\/tile\/8\/121\/76$/)
+    expect(urlImagen(12, 1229, 1954)).toMatch(/World_Imagery\/MapServer\/tile\/12\/1954\/1229$/)
+    expect(urlImagen(15, 9832, 15633)).toMatch(/World_Imagery\/MapServer\/tile\/15\/15633\/9832$/)
   })
 
-  it('de z13 en adelante van a Esri, que pone la fila antes que la columna', () => {
-    expect(urlImagen(15, 9832, 15633)).toMatch(/World_Imagery\/MapServer\/tile\/15\/15633\/9832$/)
+  it('ninguna URL sale del propio sitio', () => {
+    for (const z of [8, 10, 12, 15, 17]) {
+      expect(urlImagen(z, 100, 200).startsWith('https://')).toBe(true)
+    }
   })
 })
 
@@ -41,5 +45,23 @@ describe('ancestroCargado', () => {
     const vistos: number[] = []
     ancestroCargado({ z: 11, x: 614, y: 977 }, z => { vistos.push(z); return false })
     expect(vistos).toEqual([11, 10, 9, 8])
+  })
+})
+
+afterEach(() => { vi.restoreAllMocks() })
+
+describe('sin red', () => {
+  it('una tesela que no llega no entra en la caché, y el nodo se queda sin imagen', async () => {
+    // Es el camino que sustituye al horneado: antes, sin red, el nodo caía a
+    // la tesela guardada en el repo. Ahora cae a la hipsometría, y eso tiene
+    // que ser un camino normal, no una excepción sin atrapar.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 503 }))
+    const cache = new CacheImagenes()
+
+    cache.pedir(12, 1229, 1954)
+    await vi.waitFor(() => { expect(globalThis.fetch).toHaveBeenCalled() })
+
+    expect(cache.tiene(12, 1229, 1954)).toBe(false)
+    expect(cache.mejor({ z: 12, x: 1229, y: 1954 })).toBeNull()
   })
 })

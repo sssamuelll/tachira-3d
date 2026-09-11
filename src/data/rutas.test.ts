@@ -58,11 +58,6 @@ it('ningún archivo de src/ escribe una ruta absoluta a los datos', () => {
       if (entrada.isDirectory()) { recorrer(ruta); continue }
       if (!/\.tsx?$/.test(entrada.name)) continue
       if (ruta.endsWith('rutas.test.ts')) continue          // este mismo archivo
-      // La Task 3 borra el horneado de imagen y con él las únicas rutas
-      // '/data/' que quedan, en el módulo y en su prueba. Hasta entonces esta
-      // excepción es lo que deja el barrido verde sin mentir sobre lo que
-      // falta. La Task 3 la quita.
-      if (/^imagenTeselas\.(test\.)?ts$/.test(entrada.name)) continue
       readFileSync(ruta, 'utf8').split('\n').forEach((linea: string, i: number) => {
         if (/['"`]\/data\//.test(linea)) ofensores.push(`${ruta}:${i + 1}`)
       })
