@@ -29,4 +29,13 @@ describe('Atribucion', () => {
     expect(html).toContain('Esri')
     expect(html).toContain('OpenStreetMap')
   })
+
+  it('no recorta: un crédito obligatorio cortado no cumple', () => {
+    // Con nowrap más ellipsis, en un teléfono angosto se perdía el final de
+    // "(ODbL)". Se prefiere que la línea se parta en dos.
+    const html = renderToStaticMarkup(<Atribucion imagen />)
+
+    expect(html).not.toContain('nowrap')
+    expect(html).not.toContain('ellipsis')
+  })
 })

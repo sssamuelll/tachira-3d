@@ -32,9 +32,19 @@ y qué parte es estimada.
 
 Licencia: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
-## Imagen satelital — ni se guarda ni se reparte
+## Imagen satelital — Esri World Imagery
 
-La imagen de fondo es Esri World Imagery y se pide en vivo al servidor de
-Esri cuando el mapa la muestra. Este repositorio **no contiene ni distribuye
-ninguna tesela de imagen**, y no hay ningún dato derivado de ella por medios
-automáticos.
+La imagen de fondo se pide en vivo al servidor de Esri cuando el mapa la
+muestra. **Este repositorio no contiene ni distribuye ninguna tesela de
+imagen**: no hay ninguna en git ni en el paquete de datos.
+
+**Lo que sí deriva de esa imagen, y hay que decirlo:** el color de techo de
+parte de las edificaciones. El horneado muestrea la mediana de los píxeles que
+caen dentro de cada huella sobre teselas z18 y guarda un solo valor RGB por
+edificio. En el horneado actual son 7.760 edificios de 45.593; los otros
+37.833 llevan un color estimado sin mirar ninguna imagen. El manifiesto lo
+declara en su campo `sources.roof`.
+
+Ese muestreo se retira en la siguiente tanda de trabajo, que sustituye el
+color por una paleta sembrada a partir de la clase del edificio, sin tocar
+ninguna imagen.

@@ -91,8 +91,10 @@ export function Atribucion ({ imagen }: { imagen: boolean }) {
       position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 12, zIndex: 20,
       fontFamily: T.fuente, fontSize: 11, lineHeight: 1.3, color: T.texto2,
       background: 'rgba(255,255,255,.72)', borderRadius: 4, padding: '3px 8px',
-      pointerEvents: 'none', userSelect: 'none', whiteSpace: 'nowrap',
-      maxWidth: '60vw', overflow: 'hidden', textOverflow: 'ellipsis',
+      pointerEvents: 'none', userSelect: 'none', textAlign: 'center',
+      // Sin recorte: ODbL exige el crédito y uno cortado no cumple. En una
+      // pantalla angosta la línea se parte en dos, que es feo pero legal.
+      maxWidth: '90vw',
     }}>
       © colaboradores de OpenStreetMap (ODbL) · Terreno: Terrarium / AWS Open Data
       {imagen && ' · Imagen: Esri, Maxar, Earthstar Geographics y la comunidad de usuarios de GIS'}
