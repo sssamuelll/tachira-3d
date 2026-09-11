@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { CONTENIDO, versionDe } from '../datos-empaquetar.mjs'
+import { CONTENIDO, versionDe, argumentosTar } from '../datos-empaquetar.mjs'
 
 describe('CONTENIDO', () => {
   it('nombra lo que entra, en vez de excluir lo que no', () => {
@@ -27,6 +27,14 @@ describe('CONTENIDO', () => {
   it('el tar se arma con la lista, no con la carpeta entera', () => {
     // Si alguien empaqueta 'data' en vez de ...CONTENIDO, el paquete se lleva
     // piezas/, que ya viaja en git. Esta prueba es lo que lo impide.
+
+    // La invocación real nombra cada entrada de la lista, y nunca la carpeta
+    // suelta. Sin esto, la prueba de abajo solo demostraría cómo se comporta
+    // tar, no que nosotros lo llamemos bien.
+    const args = argumentosTar()
+    for (const entrada of CONTENIDO) expect(args).toContain(entrada)
+    expect(args).not.toContain('data')
+
     const raiz = mkdtempSync(join(tmpdir(), 'empaquetar-'))
     try {
       mkdirSync(join(raiz, 'data/piezas'), { recursive: true })

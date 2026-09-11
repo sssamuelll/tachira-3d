@@ -54,6 +54,14 @@ export function versionDe (terrain, sha, fecha) {
   return { fecha, scripts: sha, origen: terrain.origin, bbox: terrain.bbox }
 }
 
+/** Los argumentos con los que se invoca tar. Extraído para que la prueba
+ *  interrogue la invocación REAL: antes comprobaba una lista escrita dentro
+ *  de la propia prueba, así que empaquetar la carpeta entera por descuido
+ *  habría pasado desapercibido. */
+export function argumentosTar (destino = ASSET, raiz = 'public', contenido = CONTENIDO) {
+  return ['-czf', destino, '-C', raiz, ...contenido]
+}
+
 async function main () {
   for (const rel of CONTENIDO) {
     if (rel === 'data/VERSION') continue          // lo escribe este script
@@ -73,7 +81,7 @@ async function main () {
   // construyó nada), y uno que sobrevive a un fallo miente sobre un paquete
   // que no existe. El paquete bueno se lleva su copia dentro.
   try {
-    execFileSync('tar', ['-czf', ASSET, '-C', 'public', ...CONTENIDO], { stdio: 'inherit' })
+    execFileSync('tar', argumentosTar(), { stdio: 'inherit' })
   } catch (e) {
     rmSync('public/data/VERSION', { force: true })
     throw e
