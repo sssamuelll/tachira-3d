@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
@@ -7,7 +7,7 @@ import { resolve } from 'node:path'
 
 /**
  * Empaqueta los datos que hornea el pipeline en un solo tar.gz, para
- * publicarlo como asset de un Release. Son 59 MB comprimidos: no caben en git
+ * publicarlo como asset de un Release. Son unos 56 MB comprimidos: no caben en git
  * y el repo tiene que poder clonarse sin ellos.
  *
  * Lo que NO entra: public/data/piezas y public/data/capas viajan en git con
@@ -64,7 +64,16 @@ async function main () {
   const version = versionDe(terrain, sha, fecha)
   await writeFile('public/data/VERSION', JSON.stringify(version, null, 2) + '\n')
 
-  execFileSync('tar', ['-czf', ASSET, '-C', 'public', ...CONTENIDO], { stdio: 'inherit' })
+  // VERSION va DENTRO del paquete, así que hay que escribirlo antes. Si el
+  // empaquetado falla, se borra: un sello ausente dice la verdad (no se
+  // construyó nada), y uno que sobrevive a un fallo miente sobre un paquete
+  // que no existe. El paquete bueno se lleva su copia dentro.
+  try {
+    execFileSync('tar', ['-czf', ASSET, '-C', 'public', ...CONTENIDO], { stdio: 'inherit' })
+  } catch (e) {
+    rmSync('public/data/VERSION', { force: true })
+    throw e
+  }
 
   const bytes = readFileSync(ASSET)
   const sha256 = createHash('sha256').update(bytes).digest('hex')
