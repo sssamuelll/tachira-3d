@@ -13,7 +13,8 @@
     "data": "node scripts/build-data.mjs",
     "edificios": "node scripts/build-buildings.mjs",
     "verify": "node scripts/verify-data.mjs",
-    "datos:empaquetar": "node scripts/datos-empaquetar.mjs"
+    "datos:empaquetar": "node scripts/datos-empaquetar.mjs",
+    "datos:bajar": "node scripts/datos-bajar.mjs"
   },
   "keywords": [],
   "author": "",
