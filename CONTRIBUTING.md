@@ -1,0 +1,89 @@
+# Contribuir
+
+Este mapa se llena entre varios. Cualquier aporte sirve: un hospital que falta,
+una vía mal trazada, un edificio que no existe, una corrección de un dato que
+está mal.
+
+## Antes de mandar nada
+
+```bash
+npm ci
+npm run datos:bajar
+npx vitest run      # las pruebas
+npx tsc --noEmit    # los tipos
+npm run build       # el build
+```
+
+Los tres tienen que quedar verdes. La Action los corre en cada pull request y
+uno rojo no se puede fundir.
+
+El build avisa de que un trozo del bundle pasa de 500 kB. Ese aviso ya estaba
+antes y no es tu culpa. No subas el umbral para taparlo.
+
+**Si desarrollas en Windows con Git Bash**, exporta esto antes de pasarle a un
+comando cualquier valor que empiece por barra, `BASE_PATH=/tachira-3d/` entre
+ellos:
+
+```bash
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+```
+
+Sin eso, Git Bash lo convierte en una ruta de Windows y el build sale con una
+base equivocada sin que nada falle. Se detecta mirando `dist/index.html`: la
+primera etiqueta `script` tiene que apuntar a `/tachira-3d/assets/…`.
+
+## La regla que no se negocia
+
+**Lo medido y lo estimado van separados, y se dice cuál es cuál.**
+
+Este mapa mezcla datos reales con geometría inventada, porque de otra forma no
+habría mapa. Lo que no se vale es que no se note la diferencia. Si añades algo
+estimado, escribe de dónde salió y qué parte te inventaste. Todos los
+documentos de `docs/` están hechos así; míralos antes de escribir el tuyo.
+
+## Añadir una pieza 3D
+
+Un monumento, una plaza, un edificio que merezca estar modelado a mano.
+El camino completo está en [docs/piezas-3d.md](docs/piezas-3d.md), y el
+Centro Cívico es el ejemplo más reciente:
+[docs/centro-civico.md](docs/centro-civico.md).
+
+En resumen: un script de Blender que genera el GLB a partir de un JSON de
+medidas, el GLB sellado con su procedencia, una entrada en `src/data/piezas.ts`
+y un documento que separa lo medido de lo estimado.
+
+## Regenerar los datos base
+
+Solo hace falta si cambias el pipeline.
+
+```bash
+npm run data          # vías, terreno, municipios (baja de Overpass, tarda)
+npm run edificios     # hornea las edificaciones en teselas
+npm run verify        # comprueba lo generado
+npm run datos:empaquetar
+```
+
+`datos:empaquetar` deja un `datos-base.tar.gz` y te imprime el comando para
+crear el Release. Publicarlo lo hace quien mantiene el repo.
+
+## Mandar el cambio
+
+- **Un pull request por cosa.** Una capa nueva y un arreglo de un bug son dos.
+- **Di de dónde sacaste el dato.** Si es de OpenStreetMap, el id. Si lo sabes
+  porque vives ahí, dilo también: eso vale, y vale más si está escrito.
+- **Si rompes una prueba, arréglala de verdad.** Cambiar lo que la prueba
+  espera para que pase es peor que dejarla roja.
+- Los comentarios y los mensajes de commit van en español, como el resto.
+
+## Reportar sin escribir código
+
+Abre un [issue](https://github.com/sssamuelll/tachira-3d/issues) diciendo qué
+está mal y dónde, con coordenadas o con un enlace al mapa si puedes. Eso ya es
+una contribución.
+
+## Trato
+
+Este proyecto lo mantiene gente en su tiempo libre, y lo usa gente que no
+programa. Se responde con paciencia y se pregunta sin pena. No se le falta el
+respeto a nadie por lo que no sabe, ni por de dónde es, ni por cómo piensa. A
+quien venga a joder se le saca y ya.

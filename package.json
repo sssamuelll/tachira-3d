@@ -1,8 +1,10 @@
 {
-  "name": "vialidad-tachira",
+  "name": "tachira-3d",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Visor 3D del estado Táchira sobre el terreno real: vialidad, edificaciones y piezas generadas, hecho para que la comunidad lo mantenga.",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/sssamuelll/tachira-3d.git" },
+  "engines": { "node": ">=24" },
   "directories": {
     "doc": "docs"
   },
@@ -18,7 +20,6 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
   "type": "module",
   "private": "true",
   "devDependencies": {
