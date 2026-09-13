@@ -9,4 +9,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
   plugins: [react()],
+  test: {
+    // e2e/ es de Playwright, no de vitest: llamar a su test() fuera del corredor
+    // de Playwright revienta. Va aparte, con `npm run e2e`, porque necesita un
+    // navegador y tarda veinte minutos.
+    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**'],
+  },
 })

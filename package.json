@@ -3,8 +3,13 @@
   "version": "1.0.0",
   "description": "Visor 3D del estado Táchira sobre el terreno real: vialidad, edificaciones y piezas generadas, hecho para que la comunidad lo mantenga.",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/sssamuelll/tachira-3d.git" },
-  "engines": { "node": ">=24" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sssamuelll/tachira-3d.git"
+  },
+  "engines": {
+    "node": ">=24"
+  },
   "directories": {
     "doc": "docs"
   },
@@ -16,13 +21,15 @@
     "edificios": "node scripts/build-buildings.mjs",
     "verify": "node scripts/verify-data.mjs",
     "datos:empaquetar": "node scripts/datos-empaquetar.mjs",
-    "datos:bajar": "node scripts/datos-bajar.mjs"
+    "datos:bajar": "node scripts/datos-bajar.mjs",
+    "e2e": "playwright test"
   },
   "keywords": [],
   "author": "",
   "type": "module",
   "private": "true",
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
