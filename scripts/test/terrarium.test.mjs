@@ -63,13 +63,55 @@ test('downsample reduce a 1024x1024 conservando el rango', () => {
   expect(Math.max(...out.slice(0, 5000))).toBeGreaterThan(0)
 })
 
-// Un post cuyo valor supera a TODOS sus 8 vecinos (una ladera real cambia
-// junto con sus vecinos, no contra los ocho a la vez) es ruido de la fuente
-// Terrarium, no relieve: sale como una aguja o un pozo de una sola celda al
-// triangular. limpiarAnomalias lo sustituye por la mediana de esos 8 vecinos.
-// Umbral por defecto 80 m, medido contra el DEM real del Tachira (saver,
-// 2026-09-09): separa los picos/crateres reportados del ruido normal de la
-// rejilla sin tocar relieve real.
+// Un post que se despega de su entorno es ruido de la fuente Terrarium, no
+// relieve: sale como una aguja o un pozo al triangular. limpiarAnomalias lo
+// sustituye por la mediana de su ANILLO Chebyshev r=2 -- los 16 posts del borde
+// del 5x5.
+//
+// El anillo, y no los 8 vecinos inmediatos: el ruido de Terrarium viene casi
+// siempre en GRUMOS de 2x2 o 3x3, y contra los 8 vecinos cada miembro del grumo
+// tiene a sus complices pegados, asi que su desvio da ~10 m y no se dispara
+// nunca. Medido sobre el DEM real (2026-09-12): de 266 anomalias de mas de
+// 100 m, 205 estaban en grumo -- o sea la forma dominante era justo la que el
+// criterio viejo no podia ver. El anillo r=2 queda fuera de cualquier grumo de
+// hasta 3x3, asi que no se deja tapar.
+//
+// Se repite hasta que una pasada no corrija nada: un grumo grande se erosiona
+// de afuera hacia adentro y su centro solo queda a la vista cuando ya se limpio
+// lo que lo rodeaba. Sobre el DEM real una sola pasada dejaba 199 posts todavia
+// anomalos; iterando quedan 0, tocando el 0,0102 % de los posts.
+//
+// Umbral por defecto 80 m, medido contra el DEM real del Tachira: separa los
+// picos/crateres reportados del ruido normal de la rejilla sin tocar relieve
+// real (una ladera recta no se mueve ni un milimetro -- ver la prueba).
+
+/** El peor desvio interior contra la mediana del anillo r=2: lo que
+ *  limpiarAnomalias tiene que dejar por debajo del umbral. */
+function peorDesvio (dem) {
+  const { data, width, height } = dem
+  let peor = 0
+  for (let y = 2; y < height - 2; y++) {
+    for (let x = 2; x < width - 2; x++) {
+      const anillo = []
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) === 2) anillo.push(data[(y + dy) * width + x + dx])
+        }
+      }
+      anillo.sort((a, b) => a - b)
+      const d = Math.abs(data[y * width + x] - (anillo[7] + anillo[8]) / 2)
+      if (d > peor) peor = d
+    }
+  }
+  return peor
+}
+
+/** Pinta un bloque cuadrado de lado `lado` con la esquina en (x0,y0). */
+function grumo (dem, x0, y0, lado, valor) {
+  for (let y = y0; y < y0 + lado; y++) {
+    for (let x = x0; x < x0 + lado; x++) dem.data[y * dem.width + x] = valor
+  }
+}
 
 test('limpiarAnomalias: aguja aislada -> se sustituye por la mediana de sus vecinos', () => {
   const dem = rejilla(5, 5, 1000)
@@ -109,22 +151,56 @@ test('limpiarAnomalias: el umbral es estricto -- justo debajo no toca, justo enc
   expect(sobreUmbral.data[2 * 5 + 2]).toBe(1000)
 })
 
-test('limpiarAnomalias: un post de borde no tiene 8 vecinos y se deja intacto', () => {
-  const dem = rejilla(5, 5, 1000)
-  dem.data[0] = 5000 // esquina (x=0,y=0)
+test('limpiarAnomalias: un post a menos de 2 del borde no tiene anillo y se deja intacto', () => {
+  const dem = rejilla(7, 7, 1000)
+  dem.data[0] = 5000            // esquina (x=0,y=0)
+  dem.data[1 * 7 + 1] = 4000    // (x=1,y=1): tiene los 8 vecinos, pero no el anillo r=2
   const r = limpiarAnomalias(dem)
   expect(r).toEqual({ posts: 0 })
   expect(dem.data[0]).toBe(5000)
+  expect(dem.data[1 * 7 + 1]).toBe(4000)
 })
 
-test('limpiarAnomalias: dos anomalias aisladas y separadas se corrigen las dos, cada una contra sus propios vecinos', () => {
-  const dem = rejilla(7, 7, 1000)
-  dem.data[1 * 7 + 1] = 1300 // pico, esquina superior izquierda
-  dem.data[5 * 7 + 5] = 700  // pozo, esquina inferior derecha, sin vecinos en comun
+test('limpiarAnomalias: dos anomalias aisladas y separadas se corrigen las dos, cada una contra su propio anillo', () => {
+  const dem = rejilla(11, 11, 1000)
+  dem.data[2 * 11 + 2] = 1300 // pico, esquina superior izquierda
+  dem.data[8 * 11 + 8] = 700  // pozo, esquina inferior derecha, sin anillo en comun
   const r = limpiarAnomalias(dem)
   expect(r).toEqual({ posts: 2 })
-  expect(dem.data[1 * 7 + 1]).toBe(1000)
-  expect(dem.data[5 * 7 + 5]).toBe(1000)
+  expect(dem.data[2 * 11 + 2]).toBe(1000)
+  expect(dem.data[8 * 11 + 8]).toBe(1000)
+})
+
+// Las tres que siguen son el fallo reportado: los picos que se veian en el mapa
+// eran grumos, y el criterio de los 8 vecinos no podia tocarlos.
+
+test('limpiarAnomalias: un grumo de 2x2 -- que se tapa a si mismo ante los 8 vecinos -- se corrige entero', () => {
+  const dem = rejilla(9, 9, 1000)
+  grumo(dem, 3, 3, 2, 1300)
+  const r = limpiarAnomalias(dem)
+  expect(r).toEqual({ posts: 4 })
+  for (const [x, y] of [[3, 3], [4, 3], [3, 4], [4, 4]]) {
+    expect(dem.data[y * 9 + x]).toBe(1000)
+  }
+})
+
+test('limpiarAnomalias: un grumo de 3x3 se corrige entero, centro incluido', () => {
+  const dem = rejilla(9, 9, 1000)
+  grumo(dem, 3, 3, 3, 700)
+  const r = limpiarAnomalias(dem)
+  expect(r).toEqual({ posts: 9 })
+  expect(dem.data[4 * 9 + 4]).toBe(1000) // el centro, que no ve nada sano a su lado
+})
+
+test('limpiarAnomalias: tras limpiar, ningun post interior se desvia mas del umbral', () => {
+  // Un grumo de 5x5 esconde su centro hasta del anillo r=2: hace falta volver a
+  // pasar cuando la orilla ya esta limpia. Esta es la postcondicion de verdad.
+  const dem = rejilla(15, 15, 1000)
+  grumo(dem, 5, 5, 5, 1300)
+  expect(peorDesvio(dem)).toBeGreaterThan(80) // el grumo se nota antes de limpiar
+  limpiarAnomalias(dem, 80)
+  expect(peorDesvio(dem)).toBeLessThanOrEqual(80)
+  expect(dem.data[7 * 15 + 7]).toBe(1000)    // el centro del grumo
 })
 
 test('limpiarAnomalias: el umbral es configurable', () => {
