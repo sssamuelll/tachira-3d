@@ -3,10 +3,12 @@ import { T } from './theme'
 import { Encuadre, Lazo, Archivo, Foto, Lluvia, Mas, Menos } from './icons'
 import { Camara } from '../foto/Foto'
 import type { Escala } from './escala'
+import { PanelCapas, type Fila } from './PanelCapas'
 
 const botonera: CSSProperties = {
   position: 'fixed', right: 12, bottom: 12, zIndex: 20,
-  display: 'flex', flexDirection: 'column', gap: 8, fontFamily: T.fuente,
+  display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end',
+  fontFamily: T.fuente,
 }
 
 function Boton ({ activo, titulo, onClick, estilo, children }: {
@@ -37,7 +39,13 @@ const par: CSSProperties = {
   background: T.fondo, borderRadius: T.radioChico, boxShadow: T.sombraChica, overflow: 'hidden',
 }
 
-export function MapControls ({ lazo, onLazo, imagen, onImagen, lluvia, onLluvia, onEncuadrar, onAcercar, onAlejar, onFoto }: {
+export function MapControls ({
+  capas, visibles, onCapa,
+  lazo, onLazo, imagen, onImagen, lluvia, onLluvia, onEncuadrar, onAcercar, onAlejar, onFoto,
+}: {
+  capas: readonly Fila[]
+  visibles: Set<string>
+  onCapa: (id: string) => void
   lazo: boolean
   onLazo: () => void
   imagen: boolean
@@ -51,6 +59,10 @@ export function MapControls ({ lazo, onLazo, imagen, onImagen, lluvia, onLluvia,
 }) {
   return (
     <div style={botonera}>
+      {/* Las capas arriba del todo: dicen QUÉ se está mirando, y eso se
+          decide antes que cómo se navega. Alineadas a la derecha con el resto
+          de la columna, que ya es donde la mano busca los controles. */}
+      <PanelCapas disponibles={capas} visibles={visibles} onAlternar={onCapa} />
       {/* Arriba del todo y separado del resto: no es una herramienta de
           navegar, es la que produce algo que sale de la aplicación. */}
       <Boton titulo="Foto trazada" onClick={onFoto}><Camara /></Boton>

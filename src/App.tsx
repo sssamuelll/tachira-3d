@@ -15,12 +15,14 @@ import { SearchPanel } from './ui/SearchPanel'
 import { Ficha } from './ui/Ficha'
 import { MapControls, BarraArchivo, BarraEscala, Atribucion } from './ui/MapControls'
 import { MiniMapa } from './ui/MiniMapa'
+import { capasDesdeUrl, capasAUrl } from './ui/capasUrl'
 import { Foto, PanelFoto, type ApiFoto, type EstadoFoto } from './foto/Foto'
 import { indexar, buscar, type Resultado } from './ui/search'
 import { T, nf } from './ui/theme'
 import type { Escala } from './ui/escala'
 import type { Mirilla } from './ui/disco'
 import { loadAll } from './data/load'
+import { CAPAS_FIJAS } from './data/capas'
 import { BBOX } from './data/constants'
 import { AttrStore } from './data/store'
 import { AttrTexture } from './data/attrTexture'
@@ -192,8 +194,29 @@ export default function App () {
   // puede pisar con ?hora= para mirar el mapa a otra altura de sol (sol.ts,
   // fechaDeEscena).
   const [date] = useState(() => fechaDeEscena(location.search))
-  // Comparación visual/performance con el mismo sol, sin nueva interfaz.
-  const [edificios] = useState(() => new URLSearchParams(location.search).get('edificios') !== '0')
+  // Qué capas se dibujan. Nace de la URL para que un enlace reproduzca la
+  // vista, y vuelve a la URL en cada cambio por la misma razón. El viejo
+  // ?edificios=0 sigue funcionando: lo absorbe capasDesdeUrl como alias.
+  const [visibles, setVisibles] = useState(() => capasDesdeUrl(location.search, CAPAS_FIJAS))
+  const alternarCapa = useCallback((id: string) => {
+    setVisibles(v => {
+      const s = new Set(v)
+      if (!s.delete(id)) s.add(id)
+      return s
+    })
+  }, [])
+  // replaceState y no pushState: prender una capa no es navegar, y llenar el
+  // historial de pasos obligaría a dar doce veces "atrás" para salir del mapa.
+  useEffect(() => {
+    const q = capasAUrl(visibles, CAPAS_FIJAS)
+    // Se conservan los demás parámetros (?hora=, los que vengan): esto es
+    // dueño de `capas` y `edificios`, de nada más.
+    const p = new URLSearchParams(location.search)
+    p.delete('capas'); p.delete('edificios')
+    if (q) p.set('capas', new URLSearchParams(q).get('capas')!)
+    const texto = p.toString()
+    history.replaceState(null, '', texto ? `?${texto}` : location.pathname)
+  }, [visibles])
   const [objetivo, setObjetivo] = useState<Encuadre | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [lassoOn, setLassoOn] = useState(false)
@@ -476,9 +499,9 @@ export default function App () {
         <Suspense fallback={null}>
           <Sky date={date} />
           <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen} date={date} />
-          {edificios && <Buildings />}
-          {edificios && <Piezas />}
-          {edificios && <SombrasEdificios date={date} />}
+          {visibles.has('edificios') && <Buildings />}
+          {visibles.has('edificios') && <Piezas />}
+          {visibles.has('edificios') && <SombrasEdificios date={date} />}
           {attr && (
             <Roads
               positions={data.positions} segIds={data.segIds} index={data.index}
@@ -525,6 +548,9 @@ export default function App () {
       />
 
       <MapControls
+        capas={CAPAS_FIJAS.map(c => ({ id: c.id, nombre: c.nombre }))}
+        visibles={visibles}
+        onCapa={alternarCapa}
         lazo={lassoOn}
         onLazo={() => setLassoOn(o => !o)}
         imagen={imagen}
