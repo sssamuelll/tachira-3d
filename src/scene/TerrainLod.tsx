@@ -283,7 +283,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true, limites = f
   }, [camera, scene, sol, mallas])
 
   // Un material por nodo (ver el comentario de arriba). El programa de GPU se
-  // compila una sola vez; lo propio de cada uno son los siete uniforms que
+  // compila una sola vez; lo propio de cada uno son los diez uniforms que
   // materialRelieve cuelga de userData.uniforms. Las cascadas se instalan
   // dentro, porque CSM.setupMaterial pisa onBeforeCompile y el orden importa.
   // Solo se llama desde el cuadro, que no corre sin cascadas.

@@ -210,7 +210,7 @@ export interface OpcionesRelieve {
  * material (three no vuelve a subir los uniforms cuando el material es el
  * mismo del objeto anterior). Es una copia barata: el programa de GPU se
  * compila una sola vez (three cachea por código de shader) y lo único propio
- * son los siete uniforms de arriba.
+ * son los diez uniforms de arriba.
  */
 export function materialRelieve (o: OpcionesRelieve): THREE.MeshStandardMaterial {
   // roughness 1 / metalness 0: tierra y vegetación, nada especular. Es también
