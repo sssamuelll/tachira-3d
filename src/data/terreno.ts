@@ -11,6 +11,13 @@ import type { TerrainMeta } from './types'
  *
  * Acota en vez de devolver null fuera del bbox: un rasgo justo en el borde es
  * un caso normal, y un marcador en el borde es mejor que un marcador ausente.
+ *
+ * La equivalencia con el muestreo directo pixel→índice que relieve() tenía antes
+ * es empírica, no algebraica: el ida y vuelta por lon añade operaciones redondeadas
+ * cuyo error es ~1e-12, lejos del 0.5 que moveería Math.round, pero no cero.
+ * disco.test.ts la mantiene honesta: compara píxeles reales del minimapa, y si
+ * un cambio del bbox o la rejilla lleva una muestra al otro lado de un redondeo,
+ * la prueba se pone roja en vez de que el minimapa se desplace silenciosamente.
  */
 export function alturaGruesa (grid: Int16Array, meta: TerrainMeta, lat: number, lon: number): number {
   const { width: W, height: H, bbox } = meta
