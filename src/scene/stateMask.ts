@@ -88,3 +88,77 @@ export function stateMask (municipios: Municipio[], bbox: Bbox, W: number, H: nu
 
   return mask
 }
+
+/**
+ * El mismo barrido de stateMask, pero escribiendo QUIÉN en vez de SI: 0 fuera
+ * del estado, i+1 para el municipio i. Es lo que el fragment del relieve lee
+ * para saber dónde cambia de municipio y pintar ahí la línea de límite.
+ *
+ * Sin el tapado de pinchazos del final de stateMask: acá un vértice apagado
+ * entre dos municipios distintos no es un agujero que tape el cielo, es
+ * exactamente la costura sobre la que se quiere dibujar la línea. Taparlo con
+ * uno de los dos índices movería la frontera medio vértice a capricho.
+ *
+ * En un solape gana el último que se rasteriza. Da igual cuál: dos municipios
+ * de OSM solapan a lo sumo en un vértice de borde mal compartido, y ahí la
+ * línea sale de todos modos porque los vecinos difieren.
+ */
+export function indiceMunicipios (municipios: Municipio[], bbox: Bbox, W: number, H: number): Uint8Array {
+  const idx = new Uint8Array(W * H)
+  const latSpan = bbox.n - bbox.s
+  const lonSpan = bbox.e - bbox.w
+  const rowOf = (lat: number) => (bbox.n - lat) * (H - 1) / latSpan
+  const colOf = (lon: number) => (lon - bbox.w) * (W - 1) / lonSpan
+  const cruces: number[][] = Array.from({ length: H }, () => [])
+
+  for (let m = 0; m < municipios.length; m++) {
+    for (const poly of municipios[m].polygons) {
+      for (const ring of poly) {
+        for (let i = 0; i < ring.length; i++) {
+          const [lon0, lat0] = ring[i]
+          const [lon1, lat1] = ring[(i + 1) % ring.length]
+          const r0 = rowOf(lat0), r1 = rowOf(lat1)
+          const yIni = Math.max(0, Math.ceil(Math.min(r0, r1)))
+          const yFin = Math.min(H - 1, Math.ceil(Math.max(r0, r1)) - 1)
+          for (let y = yIni; y <= yFin; y++) {
+            const lat = bbox.n - latSpan * y / (H - 1)
+            cruces[y].push(colOf(lon0 + (lon1 - lon0) * (lat - lat0) / (lat1 - lat0)))
+          }
+        }
+      }
+    }
+    for (let y = 0; y < H; y++) {
+      const xs = cruces[y]
+      if (xs.length > 1) {
+        xs.sort((a, b) => a - b)
+        for (let i = 0; i + 1 < xs.length; i += 2) {
+          const x0 = Math.max(0, Math.ceil(xs[i]))
+          const x1 = Math.min(W - 1, Math.ceil(xs[i + 1]) - 1)
+          idx.fill(m + 1, y * W + x0, y * W + x1 + 1)
+        }
+      }
+      xs.length = 0
+    }
+  }
+
+  // Igual que en stateMask, tapar pinchazos de un vértice. En el índice, se toma
+  // el índice del municipio de cualquier vecino encendido. Los pinchazos son
+  // interiores a un municipio o sobre el borde compartido, y en el borde la línea
+  // se dibuja igual con cualquiera de los dos índices.
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x
+      if (!idx[i]) {
+        const left = idx[i - 1]
+        const right = idx[i + 1]
+        const up = idx[i - W]
+        const down = idx[i + W]
+        if (left && right && up && down) {
+          idx[i] = left || right || up || down
+        }
+      }
+    }
+  }
+
+  return idx
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stateMask } from './stateMask'
+import { stateMask, indiceMunicipios } from './stateMask'
 import { pointInPolygon } from '../../scripts/lib/geo.mjs'
 import municipiosJson from '../../public/data/municipios.json'
 import terrainJson from '../../public/data/terrain.json'
@@ -80,5 +80,44 @@ describe('stateMask', () => {
       expect(frac).toBeGreaterThan(0.44)
       expect(frac).toBeLessThan(0.56)
     })
+  })
+})
+
+describe('indiceMunicipios', () => {
+  it('numera cada municipio desde 1 y deja 0 fuera', () => {
+    const idx = indiceMunicipios(
+      [muni(cuadrado(-0.5, 0, -0.5, 0.5)), muni(cuadrado(0, 0.5, -0.5, 0.5))],
+      { w: -1, e: 1, s: -1, n: 1 }, 21, 21)
+
+    expect(idx[10 * 21 + 5]).toBe(1)    // dentro del primero
+    expect(idx[10 * 21 + 15]).toBe(2)   // dentro del segundo
+    expect(idx[0]).toBe(0)              // esquina NO, fuera de los dos
+  })
+
+  it('en un solape gana el último, que es el que se rasteriza después', () => {
+    const idx = indiceMunicipios(
+      [muni(cuadrado(-0.5, 0.5, -0.5, 0.5)), muni(cuadrado(-0.5, 0.5, -0.5, 0.5))],
+      { w: -1, e: 1, s: -1, n: 1 }, 21, 21)
+
+    expect(idx[10 * 21 + 10]).toBe(2)
+  })
+
+  // El invariante que importa en el mapa: la línea de límite no puede
+  // aparecer donde el relieve está recortado, ni faltar donde sí se dibuja.
+  it('marca exactamente los mismos vértices que stateMask sobre los municipios reales', () => {
+    const W = 256, H = 256
+    const idx = indiceMunicipios(municipios, bbox, W, H)
+    const mask = stateMask(municipios, bbox, W, H)
+
+    let distintos = 0
+    for (let i = 0; i < W * H; i++) if ((idx[i] > 0) !== (mask[i] > 0)) distintos++
+    expect(distintos).toBe(0)
+  })
+
+  it('los 29 municipios salen todos, ninguno tapado del todo por un vecino', () => {
+    const idx = indiceMunicipios(municipios, bbox, 1024, 1024)
+    const vistos = new Set(idx)
+    vistos.delete(0)
+    expect(vistos.size).toBe(municipios.length)
   })
 })
