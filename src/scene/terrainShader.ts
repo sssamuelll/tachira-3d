@@ -75,6 +75,15 @@ uniform vec3 uImgUv;
 // dibuja el color de siempre.
 uniform float uImagen;
 uniform float uGanancia;
+// --- límites municipales -----------------------------------------------
+// El índice de municipio por texel (stateMask.ts, indiceMunicipios): 0 fuera
+// del estado, 1..29 dentro. Se muestrea con NEAREST desde TerrainLod: con
+// filtro lineal un texel entre dos municipios devolvería un índice promedio,
+// que no es ningún municipio, y la línea saldría donde no hay frontera.
+uniform sampler2D uIndices;
+// 1 / lado de esa textura: a cuánto está el vecino.
+uniform vec2 uTexelIdx;
+uniform float uLimites;
 // -----------------------------------------------------------------------
 varying float vElev;
 varying vec2 vUvM;
@@ -85,6 +94,19 @@ vec3 hypso (float t) {
   if (t < 0.50) return mix(vec3(0.36,0.44,0.24), vec3(0.60,0.53,0.33), (t - 0.25) / 0.25);
   if (t < 0.75) return mix(vec3(0.60,0.53,0.33), vec3(0.62,0.47,0.40), (t - 0.50) / 0.25);
   return mix(vec3(0.62,0.47,0.40), vec3(0.90,0.90,0.92), (t - 0.75) / 0.25);
+}
+
+// Amarillo pálido, el color de frontera administrativa de cualquier atlas. No
+// puede ser un gris oscuro: eso ya es el contorno de las vías (CASING en
+// constants.ts) y un límite que se lee como carretera es peor que no dibujarlo.
+// Calibrable: si sobre la foto satelital pierde contraste, súbele el valor
+// antes de tocar el grosor.
+const vec3 LIMITE = vec3(0.96, 0.93, 0.55);
+
+// Comparación exacta de bytes: con NEAREST el muestreo devuelve k/255 clavado,
+// así que medio byte de holgura separa dos índices contiguos sin riesgo.
+bool difiere (vec2 uv, float c) {
+  return abs(texture2D(uIndices, uv).r - c) > 0.5 / 255.0;
 }
 
 // EL ALBEDO, y nada más que el albedo: color de la superficie sin una sola
@@ -103,6 +125,18 @@ vec3 albedoRelieve () {
   if (uImagen > 0.0) {
     vec3 foto = texture2D(uImg, vUvImg * uImgUv.z + uImgUv.xy).rgb * uGanancia;
     color = mix(color, foto, uImagen);
+  }
+  if (uLimites > 0.0) {
+    float c = texture2D(uIndices, vUvM).r;
+    // Fuera del estado no se dibuja: ese píxel ya lo descartó la máscara, y
+    // sin esta guarda el contorno exterior saldría el doble de grueso.
+    if (c > 0.5 / 255.0 && (
+      difiere(vUvM + vec2(uTexelIdx.x, 0.0), c) ||
+      difiere(vUvM - vec2(uTexelIdx.x, 0.0), c) ||
+      difiere(vUvM + vec2(0.0, uTexelIdx.y), c) ||
+      difiere(vUvM - vec2(0.0, uTexelIdx.y), c))) {
+      color = mix(color, LIMITE, 0.8);
+    }
   }
   return color;
 }
@@ -139,6 +173,12 @@ export interface UniformsRelieve {
   uImgUv: { value: THREE.Vector3 }
   /** 0 = hipsometría, 1 = foto. */
   uImagen: { value: number }
+  /** Índice de municipio por texel, muestreado con NEAREST. */
+  uIndices: { value: THREE.Texture | null }
+  /** 1 / lado de la textura de índices: a cuánto está el vecino. */
+  uTexelIdx: { value: THREE.Vector2 }
+  /** 0 = sin límites municipales, 1 = con ellos. */
+  uLimites: { value: number }
 }
 
 export interface OpcionesRelieve {
@@ -158,6 +198,10 @@ export interface OpcionesRelieve {
    * para que el test no tenga que armar una escena.
    */
   cascadas?: { setupMaterial: (m: THREE.Material) => void }
+  /** Índice de municipio por texel (indiceMunicipios), fila 0 = norte. */
+  indices?: THREE.Texture
+  /** 1 / lado de la textura de índices. */
+  texelIndices?: number
 }
 
 /**
@@ -184,6 +228,9 @@ export function materialRelieve (o: OpcionesRelieve): THREE.MeshStandardMaterial
     uMin: { value: o.min }, uMax: { value: o.max }, uMascara: { value: o.mascara },
     uGanancia: { value: o.ganancia ?? 1 },
     uImg: { value: null }, uImgUv: { value: new THREE.Vector3(0, 0, 1) }, uImagen: { value: 0 },
+    uIndices: { value: o.indices ?? null },
+    uTexelIdx: { value: new THREE.Vector2(o.texelIndices ?? 0, o.texelIndices ?? 0) },
+    uLimites: { value: 0 },
   }
   material.userData.uniforms = uniforms
   o.cascadas?.setupMaterial(material)
