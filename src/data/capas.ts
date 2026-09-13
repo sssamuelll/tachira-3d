@@ -31,6 +31,12 @@ export const CAPAS_FIJAS: readonly CapaFija[] = [
 
 export type Geometria = 'punto' | 'linea' | 'poligono'
 
+/**
+ * Convención entre CapaPuntos.tsx y FichaRasgo.tsx, no una regla de este
+ * archivo: un campo con `clave: 'nombre'` es el título del rasgo. El marcador
+ * lo usa como etiqueta y la ficha lo muestra como encabezado en vez de
+ * listarlo junto a los demás campos.
+ */
 export interface Campo {
   clave: string
   nombre: string

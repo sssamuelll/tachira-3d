@@ -63,7 +63,9 @@ sale de OpenStreetMap, una consulta en el registro de semillas.
    y `porDefecto` (booleano: visible sin `?capas=` en la URL). Los campos son lo
    que se puede saber de cada rasgo; un campo de tipo `opcion` declara sus
    valores posibles. Ningún campo puede llamarse `origen`, `osmId` ni `version`:
-   esos los pone el sistema.
+   esos los pone el sistema. Si uno de tus campos es el nombre del rasgo,
+   llámalo `nombre`: el marcador lo usa de etiqueta y la ficha lo muestra como
+   título en vez de listarlo con los demás.
 
 2. **El archivo.** `public/data/capas/<id>.geojson`, un `FeatureCollection`
    con `capa: '<id>'`. Cada rasgo lleva un `id` único y estable, su geometría
