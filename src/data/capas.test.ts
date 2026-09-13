@@ -105,6 +105,18 @@ describe('validarCapa', () => {
     expect(() => validarCapa(capa, coleccion([rasgo({ origen: 'inventado' })]))).toThrow(/origen/)
   })
 
+  // Sin este par, un origen 'osm' sin osmId pasaba el portero y FichaRasgo
+  // terminaba enlazando a https://www.openstreetmap.org/undefined.
+  it('rechaza un origen osm sin osmId', () => {
+    const sinOsmId = rasgo()
+    delete (sinOsmId.properties as Record<string, unknown>).osmId
+    expect(() => validarCapa(capa, coleccion([sinOsmId]))).toThrow(/osmId/)
+  })
+
+  it('rechaza un origen comunidad que sí trae osmId', () => {
+    expect(() => validarCapa(capa, coleccion([rasgo({ origen: 'comunidad' })]))).toThrow(/osmId/)
+  })
+
   it('rechaza una version que no es un entero ≥ 1', () => {
     expect(() => validarCapa(capa, coleccion([rasgo({ version: 0 })]))).toThrow(/version/)
     expect(() => validarCapa(capa, coleccion([rasgo({ version: 1.5 })]))).toThrow(/version/)

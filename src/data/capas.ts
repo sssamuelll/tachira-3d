@@ -170,6 +170,15 @@ export function validarCapa (capa: Capa, coleccion: unknown): Rasgo[] {
     if (p.origen !== 'osm' && p.origen !== 'comunidad') {
       throw new Error(`${donde}: origen '${p.origen}', se esperaba 'osm' o 'comunidad'`)
     }
+    // Sin este par, un origen 'osm' sin osmId pasaba el portero y FichaRasgo
+    // terminaba enlazando a openstreetmap.org/undefined -- la única puerta de
+    // este validador que un PR ajeno puede de verdad activar.
+    if (p.origen === 'osm' && !p.osmId) {
+      throw new Error(`${donde}: origen 'osm' sin osmId`)
+    }
+    if (p.origen === 'comunidad' && p.osmId !== undefined) {
+      throw new Error(`${donde}: origen 'comunidad' no debería traer osmId ('${p.osmId}')`)
+    }
     if (!Number.isInteger(p.version) || (p.version as number) < 1) {
       throw new Error(`${donde}: version '${p.version}', se esperaba un entero ≥ 1`)
     }
