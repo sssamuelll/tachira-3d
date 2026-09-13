@@ -6,6 +6,7 @@ import { TerrainLod } from './scene/TerrainLod'
 import { Roads } from './scene/Roads'
 import { Buildings } from './scene/Buildings'
 import { Piezas } from './scene/Piezas'
+import { CapaPuntos } from './scene/CapaPuntos'
 import { SombrasEdificios } from './scene/SombrasEdificios'
 import { fechaDeEscena } from './scene/sol'
 import { FlyTo, Vista, bboxCenterAndSpan, idsCenterAndSpan, enuOf, type Encuadre, type ApiVista } from './scene/Camera'
@@ -22,7 +23,7 @@ import { T, nf } from './ui/theme'
 import type { Escala } from './ui/escala'
 import type { Mirilla } from './ui/disco'
 import { loadAll } from './data/load'
-import { CAPAS_FIJAS } from './data/capas'
+import { CAPAS_FIJAS, CAPAS, type Capa, type Rasgo } from './data/capas'
 import { BBOX } from './data/constants'
 import { AttrStore } from './data/store'
 import { AttrTexture } from './data/attrTexture'
@@ -188,6 +189,11 @@ function textoAviso (a: AvisoCarga | null): string | null {
   return partes.join(' ')
 }
 
+// Todo lo que el panel puede prender, en el orden en que se lista. Es también
+// el orden en que capasAUrl escribe los ids, así que un enlace no cambia de
+// texto según en qué orden hayas hecho clic.
+const DISPONIBLES = [...CAPAS_FIJAS, ...CAPAS]
+
 export default function App () {
   const [data, setData] = useState<Data | null>(null)
   // La fecha de la escena: de ella salen el sol, el cielo y las sombras. Se
@@ -197,7 +203,7 @@ export default function App () {
   // Qué capas se dibujan. Nace de la URL para que un enlace reproduzca la
   // vista, y vuelve a la URL en cada cambio por la misma razón. El viejo
   // ?edificios=0 sigue funcionando: lo absorbe capasDesdeUrl como alias.
-  const [visibles, setVisibles] = useState(() => capasDesdeUrl(location.search, CAPAS_FIJAS))
+  const [visibles, setVisibles] = useState(() => capasDesdeUrl(location.search, DISPONIBLES))
   const alternarCapa = useCallback((id: string) => {
     setVisibles(v => {
       const s = new Set(v)
@@ -208,7 +214,7 @@ export default function App () {
   // replaceState y no pushState: prender una capa no es navegar, y llenar el
   // historial de pasos obligaría a dar doce veces "atrás" para salir del mapa.
   useEffect(() => {
-    const q = capasAUrl(visibles, CAPAS_FIJAS)
+    const q = capasAUrl(visibles, DISPONIBLES)
     // Se conservan los demás parámetros (?hora=, los que vengan): esto es
     // dueño de `capas` y `edificios`, de nada más.
     const p = new URLSearchParams(location.search)
@@ -217,6 +223,9 @@ export default function App () {
     const texto = p.toString()
     history.replaceState(null, '', texto ? `?${texto}` : location.pathname)
   }, [visibles])
+  // La capa se guarda junto al rasgo porque la ficha necesita las dos cosas:
+  // el rasgo trae los valores y la capa trae cómo se llama cada campo.
+  const [elegido, setElegido] = useState<{ capa: Capa; rasgo: Rasgo } | null>(null)
   const [objetivo, setObjetivo] = useState<Encuadre | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [lassoOn, setLassoOn] = useState(false)
@@ -500,6 +509,10 @@ export default function App () {
           <Sky date={date} />
           <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen}
             date={date} limites={visibles.has('municipios')} />
+          {CAPAS.filter(c => visibles.has(c.id) && c.geometria === 'punto').map(c => (
+            <CapaPuntos key={c.id} capa={c} grid={data.terrainGrid} meta={data.terrain}
+              onElegir={(capa, rasgo) => setElegido({ capa, rasgo })} />
+          ))}
           {visibles.has('edificios') && <Buildings />}
           {visibles.has('edificios') && <Piezas />}
           {visibles.has('edificios') && <SombrasEdificios date={date} />}
@@ -549,7 +562,10 @@ export default function App () {
       />
 
       <MapControls
-        capas={CAPAS_FIJAS.map(c => ({ id: c.id, nombre: c.nombre }))}
+        capas={[
+          ...CAPAS_FIJAS.map(c => ({ id: c.id, nombre: c.nombre })),
+          ...CAPAS.map(c => ({ id: c.id, nombre: c.nombre, color: c.color })),
+        ]}
         visibles={visibles}
         onCapa={alternarCapa}
         lazo={lassoOn}
