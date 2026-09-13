@@ -50,6 +50,15 @@ describe('el catálogo', () => {
       }
     }
   })
+
+  // Tripwire, no una regla de negocio: CapaPuntos es hoy el único componente
+  // que dibuja una capa (App.tsx filtra por geometria === 'punto'). El día que
+  // alguien añada una capa 'linea' o 'poligono' -- CONTRIBUTING.md ya avisa que
+  // el catálogo y el validador lo aceptan -- esto se pone rojo y señala el
+  // componente que falta, en vez de dejarla en el panel sin dibujar nada.
+  it('todas las capas del catálogo son de puntos, que es lo único que se dibuja hoy', () => {
+    for (const c of CAPAS) expect(c.geometria, c.id).toBe('punto')
+  })
 })
 
 describe('validarCapa', () => {
