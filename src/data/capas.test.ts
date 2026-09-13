@@ -60,7 +60,7 @@ describe('validarCapa', () => {
 
   it('rechaza un rasgo sin id', () => {
     const sinId = { ...rasgo(), id: undefined }
-    expect(() => validarCapa(capa, coleccion([sinId]))).toThrow(/id/)
+    expect(() => validarCapa(capa, coleccion([sinId]))).toThrow(/sin id/)
   })
 
   it('rechaza dos rasgos con el mismo id, nombrándolo', () => {
@@ -112,5 +112,33 @@ describe('validarCapa', () => {
   it('el mensaje de un rasgo malo dice cuál es', () => {
     const malo = { ...rasgo({ version: 0 }), id: 'osm/node/42' }
     expect(() => validarCapa(capa, coleccion([malo]))).toThrow(/osm\/node\/42/)
+  })
+
+  // La capa de arriba es de puntos, así que su rasgo LineString muere en la
+  // comprobación de geometría antes de que nadie mire una coordenada. Para
+  // llegar al recorrido de coordenadas hace falta una capa que SÍ las case.
+  const capaPoligono: Capa = {
+    ...capa, id: 'poligonos', geometria: 'poligono', archivo: 'capas/poligonos.geojson',
+  }
+
+  const poligono = (anillo: [number, number][]) => ({
+    type: 'Feature',
+    id: 'osm/way/7',
+    geometry: { type: 'Polygon', coordinates: [anillo] },
+    properties: { clase: 'a', origen: 'osm', osmId: 'way/7', version: 1 },
+  })
+
+  it('acepta un polígono con todos sus vértices dentro del bbox', () => {
+    const dentro: [number, number][] = [[-72.2, 7.8], [-72.1, 7.8], [-72.1, 7.9], [-72.2, 7.9]]
+    expect(validarCapa(capaPoligono, coleccion([poligono(dentro)], 'poligonos'))).toHaveLength(1)
+  })
+
+  // El que ejercita la recursión de verdad: el vértice malo está DOS niveles de
+  // anidamiento abajo, dentro de su anillo. Un recorrido que solo mirara el
+  // primer nivel lo dejaría pasar.
+  it('rechaza un vértice de polígono invertido, anidado dentro de su anillo', () => {
+    const conUnoMalo: [number, number][] = [[-72.2, 7.8], [7.8, -72.1], [-72.1, 7.9], [-72.2, 7.9]]
+    expect(() => validarCapa(capaPoligono, coleccion([poligono(conUnoMalo)], 'poligonos')))
+      .toThrow(/fuera del bbox/)
   })
 })
