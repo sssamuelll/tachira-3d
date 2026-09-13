@@ -3,7 +3,9 @@
  * traducción de sus elementos a rasgos.
  *
  * Añadir una capa sembrada desde OSM es añadir una entrada acá y otra en el
- * catálogo de src/data/capas.ts. Nada más.
+ * catálogo de src/data/capas.ts. Eso alcanza para una capa de puntos; una de
+ * línea o polígono además necesita el componente que la dibuje, que todavía
+ * no existe (CONTRIBUTING.md).
  */
 
 const BBOX = '7.3612911,-72.4878225,8.6826552,-71.3153029'   // s,w,n,e, como quiere Overpass

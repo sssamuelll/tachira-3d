@@ -210,6 +210,11 @@ export function TerrainLod ({ meta, municipios, date, imagen = true, limites = f
   // NEAREST en los dos filtros, y no es sabor: esto no es una imagen sino una
   // tabla de índices. Interpolar el índice 3 con el 7 da 5, que es otro
   // municipio, y la línea aparecería en mitad de un valle.
+  //
+  // Se arma aunque `limites` empiece apagado -- quien nunca prenda Municipios
+  // nunca la usa -- porque es barata: rasteriza los municipios que ya están en
+  // memoria, una sola vez al montar. No vale la pena la complejidad de
+  // retrasarla hasta el primer prendido por algo que ya sale gratis.
   const indices = useMemo(() => {
     const tex = new THREE.DataTexture(
       indiceMunicipios(municipios, meta.bbox, INDICES, INDICES),

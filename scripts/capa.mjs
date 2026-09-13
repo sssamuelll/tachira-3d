@@ -47,6 +47,10 @@ async function main () {
   const features = fusionar(existentes, nuevos)
 
   await mkdir(DIR, { recursive: true })
+  // Este script no llama a validarCapa (spec §5.9): es TypeScript y este
+  // archivo es un .mjs suelto sin transpilar. El portero de verdad corre
+  // después, sobre el archivo ya escrito: src/data/capas.test.ts ("el archivo
+  // que se versiona pasa el validador").
   await writeFile(ruta, JSON.stringify({
     type: 'FeatureCollection',
     capa: id,
