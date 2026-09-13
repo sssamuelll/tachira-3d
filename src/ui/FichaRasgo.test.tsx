@@ -8,6 +8,7 @@ const capa: Capa = {
   campos: [
     { clave: 'nombre', nombre: 'Nombre', tipo: 'texto' },
     { clave: 'clase', nombre: 'Clase', tipo: 'opcion', opciones: ['hospital'], obligatorio: true },
+    { clave: 'tipo', nombre: 'Tipo', tipo: 'opcion', opciones: ['publico', 'privado', 'sin_dato'], obligatorio: true },
     { clave: 'emergencias', nombre: 'Emergencias', tipo: 'booleano' },
   ],
   archivo: 'capas/hospitales.geojson', porDefecto: false, color: '#e0453a',
@@ -69,5 +70,15 @@ describe('FichaRasgo', () => {
       rasgo={rasgo({ clase: 'hospital', origen: 'comunidad', version: 2 })} />)
 
     expect(html).toContain('comunidad')
+  })
+
+  // sin_dato es el valor de 122 de los 127 hospitales -- la cadena más leída
+  // de toda la ficha -- y un guion bajo es jerga de programador, no de vecino.
+  it('un valor de opción con guion bajo se lee con espacio', () => {
+    const html = renderToStaticMarkup(<FichaRasgo capa={capa} onCerrar={() => {}}
+      rasgo={rasgo({ clase: 'hospital', tipo: 'sin_dato', origen: 'osm', osmId: 'node/1', version: 1 })} />)
+
+    expect(html).toContain('sin dato')
+    expect(html).not.toContain('sin_dato')
   })
 })

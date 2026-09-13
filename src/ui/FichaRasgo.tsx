@@ -2,9 +2,13 @@ import { T } from './theme'
 import type { Capa, Rasgo } from '../data/capas'
 
 /** Cómo se dice cada valor en pantalla. Un booleano en crudo ("true") es
- *  lenguaje de máquina en una ficha que lee un vecino. */
+ *  lenguaje de máquina en una ficha que lee un vecino, y lo mismo el guion
+ *  bajo de un token de opción ("sin_dato" es el valor de 122 de los 127
+ *  hospitales): se cambia por espacio para cualquier texto, sin tocar
+ *  `opciones` en el catálogo -- eso es el dato, esto es solo cómo se muestra. */
 function texto (valor: unknown): string {
   if (typeof valor === 'boolean') return valor ? 'Sí' : 'No'
+  if (typeof valor === 'string') return valor.replace(/_/g, ' ')
   return String(valor)
 }
 
