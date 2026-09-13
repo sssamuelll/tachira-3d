@@ -59,10 +59,11 @@ Una capa son tres cosas: una entrada en el catálogo, un archivo GeoJSON y, si
 sale de OpenStreetMap, una consulta en el registro de semillas.
 
 1. **El catálogo.** Añade una entrada a `CAPAS` en `src/data/capas.ts` con su
-   `id`, su `nombre`, su `geometria`, sus `campos`, su `archivo` y su `color`.
-   Los campos son lo que se puede saber de cada rasgo; un campo de tipo
-   `opcion` declara sus valores posibles. Ningún campo puede llamarse
-   `origen`, `osmId` ni `version`: esos los pone el sistema.
+   `id`, su `nombre`, su `geometria`, sus `campos`, su `archivo`, su `color`
+   y `porDefecto` (booleano: visible sin `?capas=` en la URL). Los campos son lo
+   que se puede saber de cada rasgo; un campo de tipo `opcion` declara sus
+   valores posibles. Ningún campo puede llamarse `origen`, `osmId` ni `version`:
+   esos los pone el sistema.
 
 2. **El archivo.** `public/data/capas/<id>.geojson`, un `FeatureCollection`
    con `capa: '<id>'`. Cada rasgo lleva un `id` único y estable, su geometría
@@ -82,12 +83,21 @@ sale de OpenStreetMap, una consulta en el registro de semillas.
    ordenado por id. Lo que alguien haya añadido a mano con `origen:
    'comunidad'` se conserva; lo de OSM se reemplaza.
 
-`validarCapa` en `src/data/capas.ts` es el portero: rechaza ids repetidos,
-geometrías que no corresponden, coordenadas fuera del estado (el síntoma de
-haber escrito `[lat, lon]`), campos obligatorios que faltan y valores fuera de
-las opciones declaradas. La prueba de `src/data/capas.test.ts` lo corre contra
-el archivo real, así que un GeoJSON roto se ve en el CI y no en el navegador
-de un vecino.
+`validarCapa` en `src/data/capas.ts` es el portero: rechaza rasgos sin `id`,
+ids repetidos, geometrías que no corresponden, coordenadas fuera del estado
+(el síntoma de haber escrito `[lat, lon]`), campos obligatorios que faltan,
+valores fuera de las opciones declaradas, un `origen` que no sea `'osm'` o
+`'comunidad'`, y una `version` que no sea un entero ≥ 1. La prueba de
+`src/data/capas.test.ts` lo corre contra el archivo real, así que un GeoJSON
+roto se ve en el CI y no en el navegador de un vecino.
+
+**Aviso: hoy solo se dibujan capas de puntos.** `CapaPuntos` es el único
+componente de capa que existe. Si añades una capa con `geometria: 'linea'` o
+`'poligono'`, pasará la validación, aparecerá en el panel con su color, se
+podrá prender y apagar en la URL — pero no dibujará nada, porque no hay
+componente que lo haga. Eso no es un error tuyo; la capa quedará lista para
+cuando ese componente exista. Dibujar líneas y polígonos es trabajo pendiente,
+planeado desde aquí, no algo que hayas olvidado.
 
 ## Regenerar los datos base
 
