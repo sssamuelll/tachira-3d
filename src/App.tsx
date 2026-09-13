@@ -211,6 +211,9 @@ export default function App () {
       if (!s.delete(id)) s.add(id)
       return s
     })
+    // Si la capa que se apaga es la de la ficha abierta, la ficha se cierra
+    // con ella: si no, describiría un rasgo de una capa que ya no se dibuja.
+    setElegido(el => (el?.capa.id === id ? null : el))
   }, [])
   // replaceState y no pushState: prender una capa no es navegar, y llenar el
   // historial de pasos obligaría a dar doce veces "atrás" para salir del mapa.
