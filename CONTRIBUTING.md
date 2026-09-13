@@ -53,6 +53,42 @@ En resumen: un script de Blender que genera el GLB a partir de un JSON de
 medidas, el GLB sellado con su procedencia, una entrada en `src/data/piezas.ts`
 y un documento que separa lo medido de lo estimado.
 
+## Añadir una capa
+
+Una capa son tres cosas: una entrada en el catálogo, un archivo GeoJSON y, si
+sale de OpenStreetMap, una consulta en el registro de semillas.
+
+1. **El catálogo.** Añade una entrada a `CAPAS` en `src/data/capas.ts` con su
+   `id`, su `nombre`, su `geometria`, sus `campos`, su `archivo` y su `color`.
+   Los campos son lo que se puede saber de cada rasgo; un campo de tipo
+   `opcion` declara sus valores posibles. Ningún campo puede llamarse
+   `origen`, `osmId` ni `version`: esos los pone el sistema.
+
+2. **El archivo.** `public/data/capas/<id>.geojson`, un `FeatureCollection`
+   con `capa: '<id>'`. Cada rasgo lleva un `id` único y estable, su geometría
+   en `[lon, lat]` (el estándar, no al revés) y en `properties` los campos de
+   la capa más `origen`, `version` y, si viene de OSM, `osmId`.
+
+3. **La semilla, si sale de OSM.** Añade una entrada a `REGISTRO` en
+   `scripts/lib/capas-osm.mjs` con su consulta a Overpass y una función
+   `traducir(elemento)` que devuelva el rasgo, o `null` para descartarlo.
+   Después:
+
+   ```bash
+   npm run capa -- <id>
+   ```
+
+   Baja de Overpass (con caché en `.cache/`), traduce, y escribe el archivo
+   ordenado por id. Lo que alguien haya añadido a mano con `origen:
+   'comunidad'` se conserva; lo de OSM se reemplaza.
+
+`validarCapa` en `src/data/capas.ts` es el portero: rechaza ids repetidos,
+geometrías que no corresponden, coordenadas fuera del estado (el síntoma de
+haber escrito `[lat, lon]`), campos obligatorios que faltan y valores fuera de
+las opciones declaradas. La prueba de `src/data/capas.test.ts` lo corre contra
+el archivo real, así que un GeoJSON roto se ve en el CI y no en el navegador
+de un vecino.
+
 ## Regenerar los datos base
 
 Solo hace falta si cambias el pipeline.

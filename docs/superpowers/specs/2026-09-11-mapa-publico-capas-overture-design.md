@@ -701,7 +701,7 @@ binario y 0,9 GB de metadata antes de filtros, y algo más de la mitad después
 
 ```
 1  publicación     master al día · Pages sirviendo · Release datos-<fecha> · README
-2  capas           panel · hospitales desde OSM · municipios como límites · URL
+2  capas           panel · hospitales desde OSM · municipios como límites · URL · ✓ 2026-09-13 · 127 hospitales
 3  Overture        edificios regenerados · bucket · informe con calibración
 4  editor          spec aparte: Supabase, cuentas, propuestas, moderación
 ```
