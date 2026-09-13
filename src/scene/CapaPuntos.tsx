@@ -48,8 +48,9 @@ function textura (color: string): THREE.Texture {
  * El apoyo va en dos pasos y el segundo se repite siempre, no solo hasta el
  * primer acierto: el primer impacto puede venir de un nodo grueso provisional
  * y el fino llega después, así que un marcador que se diera por apoyado se
- * quedaría enterrado o flotando. Con menos de cien rasgos por capa son unos
- * pocos raycasts por segundo.
+ * quedaría enterrado o flotando. Solo se consultan los rasgos a menos de 3 km
+ * de la cámara, así que aunque la capa traiga cientos -- hospitales trae
+ * 127 -- son unos pocos raycasts por segundo.
  *
  * A diferencia de las piezas, esto NO demanda teselas del DEM: los puntos se
  * apoyan en lo que el relieve ya cargó para la cámara. Pedir teselas por cada
