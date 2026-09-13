@@ -4,8 +4,9 @@ import * as THREE from 'three'
 import type { CSM } from 'three/examples/jsm/csm/CSM.js'
 import {
   BUILDINGS_BASE, BUILDINGS_INDEX, BuildingDownloads, decodeBuildingChunk, validateBuildingManifest,
-  type BuildingChunkMeta,
+  type BuildingBuffer, type BuildingChunkMeta,
 } from '../data/buildings'
+import { cajasSustituidas, vaciarSustituidos } from '../data/piezas'
 import { materialEdificios } from './buildingsShader'
 import { distanciaVista } from './distanciaVista'
 import { metrosPorPixel } from './roadStyle'
@@ -37,6 +38,18 @@ interface BuildingRuntime {
 }
 
 const INTERVALO_SELECCION = 0.2
+
+/** La malla fusionada de una tesela, ya sin los bloques que una pieza GLB
+ * sustituye. Un chunk sin sustitución no paga copia ni recorrido extra. */
+export function geometriaChunk (data: BuildingBuffer, bounds: readonly number[]): THREE.BufferGeometry {
+  const indices = vaciarSustituidos(data.positions, data.indices, cajasSustituidas(bounds))
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3))
+  geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3, true))
+  geometry.setAttribute('color', new THREE.BufferAttribute(data.colors, 3, true))
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+  return geometry
+}
 
 function bytesChunk (meta: BuildingChunkMeta): number {
   return Math.ceil((16 + meta.vertices * 18) / 4) * 4 + meta.triangles * 12
@@ -192,11 +205,7 @@ export function Buildings () {
             if (runtime.meshes.size < CHUNKS_EDIFICIOS_CACHE && runtime.bytes + data.byteLength <= BYTES_EDIFICIOS_CACHE) break
             liberarChunk(runtime, root, chunk.meta.key)
           }
-          const geometry = new THREE.BufferGeometry()
-          geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3))
-          geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3, true))
-          geometry.setAttribute('color', new THREE.BufferAttribute(data.colors, 3, true))
-          geometry.setIndex(new THREE.BufferAttribute(data.indices, 1))
+          const geometry = geometriaChunk(data, meta.bounds)
           geometry.boundingBox = meta.caja.clone()
           geometry.boundingSphere = meta.caja.getBoundingSphere(new THREE.Sphere())
           const mesh = new THREE.Mesh(geometry, runtime.material)

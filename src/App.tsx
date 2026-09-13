@@ -1,5 +1,5 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, useStore } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { Sky } from './scene/Sky'
 import { TerrainLod } from './scene/TerrainLod'
@@ -8,7 +8,7 @@ import { Buildings } from './scene/Buildings'
 import { Piezas } from './scene/Piezas'
 import { SombrasEdificios } from './scene/SombrasEdificios'
 import { fechaDeEscena } from './scene/sol'
-import { FlyTo, Vista, bboxCenterAndSpan, idsCenterAndSpan, type Encuadre, type ApiVista } from './scene/Camera'
+import { FlyTo, Vista, bboxCenterAndSpan, idsCenterAndSpan, enuOf, type Encuadre, type ApiVista } from './scene/Camera'
 import { usePicking } from './scene/PickingPass'
 import { LassoOverlay, pointInLasso, type Pt } from './ui/LassoOverlay'
 import { SearchPanel } from './ui/SearchPanel'
@@ -37,6 +37,31 @@ type PickerApi = ReturnType<typeof usePicking>
 // como clic. Calibrable: 5 px absorbe el temblor de una mano sobre un trackpad
 // sin tragarse un clic deliberado (una órbita real mueve decenas de píxeles).
 const UMBRAL_CLIC_PX = 5
+
+/**
+ * Publica el store de la escena en `window.__escena` para que el E2E
+ * (e2e/relieve.spec.ts) pueda recorrer la malla que se está dibujando y mover
+ * la cámara. Solo en desarrollo: `import.meta.env.DEV` es una constante que
+ * Vite reemplaza al compilar, así que en producción el bundle ni lo incluye.
+ *
+ * Va con puente explícito y no leyendo `canvas.__r3f` desde el test: eso es
+ * interno de react-three-fiber, no tiene contrato, y se rompe en silencio al
+ * actualizar la librería -- dejando el test verde por la razón equivocada.
+ */
+function PuenteEscena () {
+  const store = useStore()
+  useEffect(() => {
+    const w = window as unknown as { __escena?: unknown; __enu?: unknown }
+    w.__escena = store
+    // El test sitúa la cámara por latitud/longitud (los sitios donde se
+    // midieron las anomalías del DEM). Se expone la conversión de la app y no
+    // se rehace en el test: dos implementaciones del mismo ENU se separan y el
+    // test terminaría mirando a un kilómetro de donde cree.
+    w.__enu = enuOf
+    return () => { delete w.__escena; delete w.__enu }
+  }, [store])
+  return null
+}
 
 // Traduce el clic del DOM a un id de vía a través del id buffer (Task 16) y se
 // lo pasa a App. Vive dentro de <Canvas> porque usePicking necesita
@@ -438,7 +463,16 @@ export default function App () {
           de sombra pasa a ser también emisor (así lo documenta three), y eso
           anularía el corte por distancia de TerrainLod -- el relieve entero
           volvería a los tres shadow maps y con él la caída a 20 fps. */}
-      <Canvas shadows="percentage" camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
+      {/* dpr topado a 1,5. Sin el prop, r3f sube hasta 2x el devicePixelRatio
+          (node_modules/@react-three/fiber/dist/events-156d8d12.esm.js:15715,
+          `dpr = [1, 2]`): en un monitor que reporta 2 son CUATRO veces los
+          pixeles, multiplicado por los tres pases de pantalla completa del
+          composer. MiniMapa.tsx:54 ya lo topaba a mano; el Canvas se habia
+          quedado con el default.
+          Calibrable, y es lo primero que hay que medir con el A/B de siempre:
+          si sobra GPU, subirlo antes que tocar cualquier otra cosa. */}
+      <Canvas shadows="percentage" dpr={[1, 1.5]} camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
+        {import.meta.env.DEV && <PuenteEscena />}
         <Suspense fallback={null}>
           <Sky date={date} />
           <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen} date={date} />
@@ -521,7 +555,7 @@ export default function App () {
 
       <BarraEscala escala={escala} />
 
-      <Atribucion visible={imagen} />
+      <Atribucion imagen={imagen} />
 
       <BarraArchivo
         nombre={handle?.name ?? null}

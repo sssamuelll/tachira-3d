@@ -30,14 +30,52 @@ function origen (dem, z, x, y) {
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
-/** Altura del píxel (i, j) de la tesela (z, x, y): el post de G que le toca.
- *  Los niveles gruesos DECIMAN (toman el post, no promedian): un promedio
- *  desplaza un plano inclinado y daría error donde no lo hay, y el error que
- *  sí hay lo mide errorNodo con honestidad. Fuera de G se extiende el borde. */
+/** Altura del píxel (i, j) de la tesela (z, x, y).
+ *
+ *  En z12 es el post de G que le toca. En los niveles gruesos el píxel
+ *  representa un bloque de s×s posts, y TOMAR UNO SUELTO era el origen de las
+ *  agujas y los cráteres: si el post que toca cae en una cumbre, el vértice se
+ *  lleva la cumbre entera y la malla la une con vecinos que están a s posts de
+ *  distancia y cientos de metros más abajo; si cae en una quebrada, abre un
+ *  pozo. En los Andes el relieve cambia más rápido que el paso de muestreo, así
+ *  que no es un caso raro: pasa en todo el mapa y empeora con cada nivel que se
+ *  sube. No es ruido de Terrarium -- el dato fino está sano -- es el muestreo.
+ *
+ *  Se promedia el bloque con una ventana trapezoidal CENTRADA en el post
+ *  (extremos a peso ½). Centrada y simétrica, sobre un plano -- horizontal o
+ *  inclinado -- devuelve exactamente el valor del centro, así que NO desplaza
+ *  el relieve recto: la objeción que traía el comentario anterior no se
+ *  sostiene, y hay una prueba que la fija. Solo recorta lo que sobresale de su
+ *  entorno, que es justo lo que un vértice cada s posts no puede representar.
+ *
+ *  errorNodo mide contra el dato fino, así que el error de cada nodo sigue
+ *  contando la verdad de lo que se dibuja. Fuera de G se extiende el borde. */
 export function alturaVertice (dem, z, x, y, i, j) {
   const { s, c0, f0 } = origen(dem, z, x, y)
-  const c = clamp(c0 + i * s, 0, dem.width - 1), f = clamp(f0 + j * s, 0, dem.height - 1)
-  return dem.data[f * dem.width + c]
+  const W = dem.width - 1, H = dem.height - 1
+  const c = clamp(c0 + i * s, 0, W), f = clamp(f0 + j * s, 0, H)
+  if (s <= 1) return dem.data[f * dem.width + c]
+  // La ventana se ENCOGE simétrica cuando no cabe contra el borde de G, en vez
+  // de estirar el dato hacia fuera: repetir el borde le mete error a una
+  // ladera recta, y extrapolarla se dispara donde no hay dato -- una tesela
+  // gruesa se sale del estado por cientos de posts. Encogida sigue centrada,
+  // así que sigue devolviendo el centro exacto sobre un plano, y en el borde
+  // mismo degrada a no filtrar, que es lo honesto: ahí no hay con qué.
+  const rc = Math.min(s / 2, c, W - c), rf = Math.min(s / 2, f, H - f)
+  const pesos = r => {
+    if (r < 1) return [[0, 1]]
+    const out = []
+    for (let d = -r; d <= r; d++) out.push([d, d === -r || d === r ? 0.5 : 1])
+    return out
+  }
+  let suma = 0, peso = 0
+  for (const [df, wf] of pesos(rf)) {
+    for (const [dc, wc] of pesos(rc)) {
+      suma += wf * wc * dem.data[(f + df) * dem.width + c + dc]
+      peso += wf * wc
+    }
+  }
+  return suma / peso
 }
 
 /** Dentro del estado si algún post del bloque s×s que representa el píxel lo

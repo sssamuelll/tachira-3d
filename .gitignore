@@ -3,3 +3,10 @@ dist/
 public/data/*
 !public/data/piezas/
 .cache/
+datos-base.tar.gz
+
+# Playwright: capturas e informes del E2E del relieve
+e2e/salida/
+e2e/salida-rojo/
+test-results/
+playwright-report/

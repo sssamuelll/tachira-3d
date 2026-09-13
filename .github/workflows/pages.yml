@@ -1,0 +1,59 @@
+# Verifica cada pull request y despliega master a GitHub Pages.
+#
+# datos:bajar va ANTES que los tests a propósito: buildings.test.ts,
+# piezas.test.ts y Buildings.test.ts leen chunks reales de
+# public/data/edificios/, que no están en git.
+name: pages
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Bajar los datos base
+        run: npm run datos:bajar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pruebas
+        run: npx vitest run
+      - name: Tipos de la app
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build
+        env:
+          BASE_PATH: /tachira-3d/
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name == 'push'
+        with:
+          path: dist
+
+  desplegar:
+    if: github.event_name == 'push'
+    needs: verificar
+    runs-on: ubuntu-latest
+    # Un despliegue a la vez. Sin cancelar el que esté en curso: dejar el
+    # sitio a medias es peor que esperar.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - id: despliegue
+        uses: actions/deploy-pages@v4

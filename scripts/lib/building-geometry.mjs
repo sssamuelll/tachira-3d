@@ -1,6 +1,7 @@
 import { ShapeUtils, Vector2 } from 'three'
 import { geodeticToEnu } from './enu.mjs'
 import { tileXf, tileYf, tileXToLon, tileYToLat } from './terrarium.mjs'
+import {caparazonTecho} from './building-roof-shape.mjs'
 
 const world = (frame, [lon, lat], h = 0) => {
   const [e,n,u] = geodeticToEnu(frame,lat,lon,h)
@@ -80,7 +81,7 @@ export function apoyarAnillo(ring) {
 const linear = n => {const c=n/255;return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4}
 const byteColor = rgb => rgb.map(c=>Math.round(linear(c)*255))
 
-export function hornearEdificio(building,altura,roof,sample,frame) {
+export function hornearEdificio(building,altura,roof,sample,frame,forma) {
   const positions=[],normals=[],colors=[],indices=[]
   const at=p=>{
     const h=sample(p[1],p[0])
@@ -111,6 +112,20 @@ export function hornearEdificio(building,altura,roof,sample,frame) {
   // Revoque claro, mineral y mate; variación cromática del techo con amplitud
   // pequeña, sin inventar pinturas saturadas ni luz en los vertex colors.
   const wallColor=byteColor(roof.rgb.map(c=>Math.round(184*0.82+c*0.18)))
+  // La forma del techo entra como parametro OPCIONAL: sin ella se hornea la
+  // tapa plana de siempre, que es lo que siguen esperando los llamadores y los
+  // tests anteriores a building-roof-shape.mjs. `techoForma` es la forma que de
+  // verdad se construyo, no la que se pidio -- si la huella tiene patio se
+  // degrada a plana y el registro lo dice, porque caparazonTecho recibe un solo
+  // anillo y no sabe de patios: taparle el patio a un edificio para poder
+  // ponerle dos aguas seria cambiar la huella levantada por una mas bonita.
+  const conPatio=building.polygons.some(p=>p.holes.length)
+  const techoForma=!forma
+    ? {forma:'plana',alturaM:0,fuente:'sin-evaluar',evidencia:'horneado sin muestreador de forma'}
+    : conPatio&&forma.forma!=='plana'
+      ? {...forma,forma:'plana',alturaM:0,evidencia:`${forma.evidencia}; degradado a plana: la huella tiene patio`}
+      : forma
+  const inclinado=techoForma.forma!=='plana'&&techoForma.alturaM>0
   const vertex=(p,n,c)=>{
     const i=positions.length/3;positions.push(...p);normals.push(...n);colors.push(...c);return i
   }
@@ -118,14 +133,26 @@ export function hornearEdificio(building,altura,roof,sample,frame) {
     const p=polygons[pi]
     const rings=[p.outer,...p.holes]
     const points=rings.flat()
-    const first=positions.length/3
-    for(const q of points) vertex([q[0],roofY,q[2]],[0,127,0],roofColor)
-    const triangles=ShapeUtils.triangulateShape(p.outer.map(q=>new Vector2(q[0],q[2])),p.holes.map(r=>r.map(q=>new Vector2(q[0],q[2]))))
-    if(!triangles.length) throw new Error(`Techo no triangulable: ${building.id}`)
-    for(const t of triangles) {
-      const [a,b,c]=t.map(i=>points[i])
-      const up=(b[2]-a[2])*(c[0]-a[0])-(b[0]-a[0])*(c[2]-a[2])
-      indices.push(...(up>0?t:[t[0],t[2],t[1]]).map(i=>first+i))
+    // El caparazon trae sus propias posiciones y normales ya en bytes; solo hay
+    // que desplazarle los indices y ponerle el color del techo, que sigue
+    // saliendo del satelite igual que antes.
+    const cap=inclinado?caparazonTecho(p.outer.map(q=>[q[0],q[2]]),techoForma.forma,techoForma.alturaM,roofY):null
+    if(cap&&cap.indices.length) {
+      const base=positions.length/3
+      for(let i=0;i<cap.positions.length;i+=3) vertex(
+        [cap.positions[i],cap.positions[i+1],cap.positions[i+2]],
+        [cap.normals[i],cap.normals[i+1],cap.normals[i+2]],roofColor)
+      for(const i of cap.indices) indices.push(base+i)
+    } else {
+      const first=positions.length/3
+      for(const q of points) vertex([q[0],roofY,q[2]],[0,127,0],roofColor)
+      const triangles=ShapeUtils.triangulateShape(p.outer.map(q=>new Vector2(q[0],q[2])),p.holes.map(r=>r.map(q=>new Vector2(q[0],q[2]))))
+      if(!triangles.length) throw new Error(`Techo no triangulable: ${building.id}`)
+      for(const t of triangles) {
+        const [a,b,c]=t.map(i=>points[i])
+        const up=(b[2]-a[2])*(c[0]-a[0])-(b[0]-a[0])*(c[2]-a[2])
+        indices.push(...(up>0?t:[t[0],t[2],t[1]]).map(i=>first+i))
+      }
     }
     for(const [ri,r0] of support[pi].entries()) {
       const r=((signedArea(r0)>0)===(ri===0))?r0:[...r0].reverse()
@@ -144,7 +171,7 @@ export function hornearEdificio(building,altura,roof,sample,frame) {
   }
   let low=Infinity
   for(const rings of support) for(const r of rings) for(const p of r) low=Math.min(low,p[1])
-  const record={id:building.id,osmId:building.osmId,osmType:building.osmType,tags:building.tags,polygons,altura,techo:roof,baseY,roofY,
+  const record={id:building.id,osmId:building.osmId,osmType:building.osmType,tags:building.tags,polygons,altura,techo:roof,techoForma,baseY,roofY,
     apoyo:{fuente:'dem-tallado-z12',desnivel:baseY-0.03-low,cimientoMax:baseY-low,revisar:baseY-low>5}}
   return {record,positions,normals,colors,indices}
 }

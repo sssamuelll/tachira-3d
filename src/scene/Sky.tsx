@@ -3,7 +3,7 @@ import {
   Atmosphere, Sky as TakramSky, SunLight, SkyLight, AerialPerspective,
   type AtmosphereApi,
 } from '@takram/three-atmosphere/r3f'
-import { EffectComposer, N8AO, ToneMapping } from '@react-three/postprocessing'
+import { EffectComposer, N8AO, ToneMapping, SMAA } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
 import { ORIGIN } from '../data/constants'
 import { worldToEcefMatrix } from './sol'
@@ -105,7 +105,19 @@ export function Sky ({ date }: { date: Date }) {
           light-source, mixed lighting — sección AerialPerspectiveEffect)
           siempre emparejan el efecto con ToneMappingEffect(AGX); acá es
           el mismo par, vía el componente r3f. */}
-      <EffectComposer>
+      {/* multisampling={0} y no el 8 por defecto del paquete
+          (node_modules/@react-three/postprocessing/dist/index.js:328,
+          `multisampling = 8, frameBufferType = HalfFloatType`). Ocho muestras
+          sobre un buffer RGBA16F son ancho x alto x 8 bytes x 8: a 2560x1440,
+          236 MB en UN target, y el composer hace ping-pong. En 4 GB, donde ya
+          viven 300 teselas de imagen (~105 MB), los chunks de edificios (96
+          MiB), el target de picking a resolucion completa y tres shadow maps,
+          ese es el presupuesto que faltaba.
+          Y ademas MSAA solo toca bordes de geometria: el hormigueo de la
+          calzada es aliasing de shader y no lo arreglaba de todos modos.
+          SMAA cubre los bordes por un pase de pantalla completa. Calibrable:
+          si algo se ve mal, 2 antes que volver a 8. */}
+      <EffectComposer multisampling={0}>
         {/* Oclusión ambiental. Va ANTES de AerialPerspective: la oclusión
             oscurece la luz que llega del cielo a los pliegues del relieve, y
             eso pasa en el terreno, antes de que la neblina de la atmósfera se
@@ -140,6 +152,10 @@ export function Sky ({ date }: { date: Date }) {
         />
         <AerialPerspective />
         <ToneMapping mode={ToneMappingMode.AGX} />
+        {/* Ultimo de la cadena, despues del AgX: SMAA busca bordes por
+            contraste percibido, y sobre la salida HDR sin mapear los umbrales
+            no significan lo mismo. */}
+        <SMAA />
       </EffectComposer>
     </Atmosphere>
   )

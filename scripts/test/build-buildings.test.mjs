@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PNG } from 'pngjs'
@@ -37,5 +37,40 @@ describe('horneado de edificios sobre DEM tallado', () => {
     const p = (x, y) => [tileXToLon(x, 15), tileYToLat(y, 15)]
     const b = { polygons: [{ outer: [p(9824.99, 15648.2), p(9825.01, 15648.2), p(9825.01, 15648.3), p(9824.99, 15648.3)], holes: [] }] }
     expect(nodosDem(b)).toEqual(['15/9824/15648', '15/9825/15648'])
+  })
+})
+
+// `hornear()` no tiene fixture de punta a punta (I/O real contra public/data,
+// 45.593 edificios): esto es un chequeo ESTRUCTURAL del punto de union, no de
+// comportamiento. La aceptacion real es la corrida completa que hace el
+// controlador despues del cambio, leyendo techoFormas/techoFuentes del
+// manifiesto. building-roof-shape.mjs (18 tests) y el soporte de `forma`
+// opcional en building-geometry.mjs ya existen y estan probados: este
+// contrato solo verifica que build-buildings.mjs los INVOQUE.
+describe('el horneado pide techos inclinados', () => {
+  const fuente = readFileSync(new URL('../build-buildings.mjs', import.meta.url), 'utf8')
+
+  it('importa e invoca el generador de forma de techo', () => {
+    expect(fuente).toMatch(/building-roof-shape\.mjs/)
+    expect(fuente).toMatch(/formaTecho/)
+    expect(fuente).toMatch(/MODELO_TECHO/)
+  })
+
+  it('hornearEdificio se llama con el sexto argumento (forma)', () => {
+    const llamada = fuente.match(/hornearEdificio\(([^)]*)\)/)
+    expect(llamada).not.toBeNull()
+    const args = llamada[1].split(',').map(s => s.trim()).filter(Boolean)
+    expect(args).toHaveLength(6)
+    expect(args.slice(0, 5)).toEqual(['b', 'altura', 'techo', 'sample', 'frame'])
+  })
+
+  it('el manifiesto anuncia el modelo y la fuente de forma de techo generada', () => {
+    expect(fuente).toMatch(/MODELO_TECHO/)
+    expect(fuente).toMatch(/roofShape:/)
+  })
+
+  it('las estadisticas separan por forma y por fuente de techo', () => {
+    expect(fuente).toMatch(/techoFormas/)
+    expect(fuente).toMatch(/techoFuentes/)
   })
 })

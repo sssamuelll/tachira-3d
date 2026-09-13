@@ -1,6 +1,6 @@
 # Empalmes de puentes: medición sin hornear
 
-Rama `feat/vialidad-3d`, sobre `7d0f265`. Código preparado y probado; **no se ejecutaron `npm run data` ni `npm run img`**. Tampoco se abrió un navegador ni se modificaron `vectorizer` o los GLB.
+Rama `feat/vialidad-3d`, sobre `7d0f265`. Código preparado y probado; **no se ejecutó `npm run data`**. La imagen satelital ya no se hornea: el mapa la pide en vivo. Tampoco se abrió un navegador ni se modificaron `vectorizer` o los GLB.
 
 El p99 del quiebre en los estribos baja **34,1 %**, de **24,81199 a 16,35279 puntos porcentuales**. No queda una red universalmente suave: persisten casos inviables y quiebres al terminar algunos acuerdos.
 
@@ -87,11 +87,13 @@ Requiere el snapshot indicado, `.cache/vias.json` y los PNG originales de `.cach
 
 Pasaron **623 tests en 66 archivos** con `npx vitest run --maxWorkers=1 --no-file-parallelism`, además de `npx tsc --noEmit`, `npm run build` y `npm run verify`. Las pruebas añadidas usan fixtures sintéticos: **ninguna necesita datos regenerados ni queda deliberadamente fallando hasta el horneado**. Build conserva el aviso existente de chunks mayores de 500 kB. `verify` pasó sobre los archivos existentes; la simulación es la comprobación del cambio pendiente de hornear.
 
-Para regenerar datos, imagen satelital y verificar, en ese orden y deteniéndose si falla un paso, ejecuta desde `D:\Desktop\projects\vialidad-tachira`:
+Para regenerar los datos y verificarlos, en ese orden y deteniéndose si falla un paso, ejecuta desde la raíz del repo:
 
 ```powershell
-cmd /c "npm run data && npm run img && npm run verify"
+cmd /c "npm run data && npm run verify"
 ```
+
+La imagen satelital no entra en esa cadena: ya no se hornea, se pide en vivo.
 
 Después puedes contrastar los binarios realmente escritos contra la misma referencia:
 

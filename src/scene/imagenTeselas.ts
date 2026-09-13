@@ -6,21 +6,14 @@ import type { Nodo } from './quadtree'
  * quadtree ES una tesela (z, x, y) de Web Mercator, así que le toca la tesela
  * de imagen del MISMO z/x/y: no hay reproyección, ni bordes, ni un atlas.
  *
- * De dónde sale cada nivel:
- *  - z8 a z12: del horneado propio (public/data/img, scripts/bake-img.mjs).
- *    217 teselas, 3 MB. La vista de estado y la de municipio se dibujan sin
- *    red.
- *  - z13 a z17: de Esri al vuelo. Son decenas de miles de teselas para el
- *    estado entero y solo se miran unas pocas por sesión, así que hornearlas
- *    no tiene sentido.
+ * Todos los niveles se piden en vivo a Esri. No se guarda ni se reparte
+ * ninguna tesela: sus condiciones permiten usar el servicio con atribución,
+ * no redistribuir copias. La atribución está en pantalla (MapControls.tsx).
  *
- * Sin red, la petición en vivo falla y el nodo cae a la tesela del ancestro
- * horneado (ancestroCargado): borroso, pero nunca un hueco gris. Sin horneado
- * tampoco, el material apaga la imagen y queda la hipsometría de siempre.
+ * Sin red, la petición falla y el nodo cae a la tesela viva más gruesa que ya
+ * llegó (ancestroCargado). Si no llegó ninguna, el material apaga la imagen y
+ * queda la hipsometría del relieve: nunca un hueco gris.
  */
-
-// Hasta acá llega el horneado; de aquí para arriba se pide en vivo.
-export const Z_HORNEADO = 12
 
 // Nivel más fino que se pide. Esri sirve San Cristóbal hasta z18, pero z17 ya
 // da 0,30 m por texel y es donde TerrainLod corta el quadtree.
@@ -35,7 +28,7 @@ const INTENTOS = 2
  *  la ruta {z}/{x}/{y} de nuestras teselas. Invertirlo no da 404, da una
  *  tesela de otro sitio del planeta. */
 export const urlImagen = (z: number, x: number, y: number): string =>
-  z <= Z_HORNEADO ? `/data/img/${z}/${x}/${y}.jpg` : `${ESRI}/${z}/${y}/${x}`
+  `${ESRI}/${z}/${y}/${x}`
 
 export interface Ventana {
   z: number; x: number; y: number
@@ -74,12 +67,13 @@ export class CacheImagenes {
   private readonly texturas = new Map<string, THREE.Texture>()
   private readonly enVuelo = new Set<string>()
   // Cuántas veces falló cada tesela. A los INTENTOS fallos se deja de pedir en
-  // toda la sesión: sin red, el ancestro horneado ya la cubre, y reintentar en
-  // cada cuadro serían cientos de peticiones por segundo contra Esri. Dos
-  // intentos y no uno porque el primer fallo suele ser el propio atasco de la
-  // ráfaga inicial, no que la tesela no exista. ponytail: sin reintento
-  // diferido; si molesta que una caída de un segundo deje un nodo borroso toda
-  // la sesión, guardar el instante del fallo y reintentar pasado un minuto.
+  // toda la sesión: sin red se cae a la tesela viva más gruesa, o a la
+  // hipsometría, y reintentar en cada cuadro serían cientos de peticiones por
+  // segundo contra Esri. Dos intentos y no uno porque el primer fallo suele
+  // ser el propio atasco de la ráfaga inicial, no que la tesela no exista.
+  // ponytail: sin reintento diferido; si molesta que una caída de un segundo
+  // deje un nodo borroso toda la sesión, guardar el instante del fallo y
+  // reintentar pasado un minuto.
   private readonly fallos = new Map<string, number>()
 
   constructor (

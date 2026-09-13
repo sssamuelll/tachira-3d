@@ -1,6 +1,7 @@
 import type { RoadsMeta, TerrainMeta, Municipio } from './types'
 import { ORIGIN } from './constants'
 import { prepararJuntas } from '../scene/juntas'
+import { urlGenerado } from './rutas'
 
 async function getOk (path: string) {
   const res = await fetch(path)
@@ -55,14 +56,14 @@ export function checkOrigin (terrainOrigin: TerrainMeta['origin'], expected: typ
 
 export async function loadAll () {
   const [terrain, roads, municipios, tBuf, pBuf, sBuf, iBuf, nBuf] = await Promise.all([
-    json<TerrainMeta>('/data/terrain.json'),
-    json<RoadsMeta>('/data/roads-meta.json'),
-    json<Municipio[]>('/data/municipios.json'),
-    bin('/data/terrain.bin'),
-    bin('/data/roads-pos.bin'),
-    bin('/data/roads-segid.bin'),
-    bin('/data/roads-index.bin'),
-    bin('/data/roads-nrm.bin'),
+    json<TerrainMeta>(urlGenerado('terrain.json')),
+    json<RoadsMeta>(urlGenerado('roads-meta.json')),
+    json<Municipio[]>(urlGenerado('municipios.json')),
+    bin(urlGenerado('terrain.bin')),
+    bin(urlGenerado('roads-pos.bin')),
+    bin(urlGenerado('roads-segid.bin')),
+    bin(urlGenerado('roads-index.bin')),
+    bin(urlGenerado('roads-nrm.bin')),
   ])
   const positions = new Float32Array(pBuf)
   const segIds = new Float32Array(sBuf)

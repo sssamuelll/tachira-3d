@@ -1,6 +1,7 @@
 import { ORIGIN } from './constants'
+import { urlGenerado } from './rutas'
 
-export const BUILDINGS_BASE = '/data/edificios/'
+export const BUILDINGS_BASE = urlGenerado('edificios/')
 export const BUILDINGS_INDEX = `${BUILDINGS_BASE}index.json`
 
 /** OSM aporta un dato declarado, no una medición verificada por el Colegio.
