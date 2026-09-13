@@ -1,4 +1,5 @@
 import { stateMask } from '../scene/stateMask'
+import { alturaGruesa } from '../data/terreno'
 import type { TerrainMeta, Municipio } from '../data/types'
 
 /**
@@ -116,7 +117,7 @@ const SOL = (() => {
 export function relieve (
   grid: Int16Array, meta: TerrainMeta, municipios: Municipio[], w: number, h: number,
 ): Uint8ClampedArray {
-  const { width: W, height: H, bbox } = meta
+  const { bbox } = meta
   const dentro = stateMask(municipios, bbox, w, h)
   const out = new Uint8ClampedArray(w * h * 4)
   const rango = Math.max(1, meta.max - meta.min)
@@ -127,13 +128,15 @@ export function relieve (
   const mNorte = (bbox.n - bbox.s) * M_POR_GRADO / (h - 1)
   const col: [number, number, number] = [0, 0, 0]
 
-  // Altura del DEM en el píxel (x, y) del minimapa, acotada al borde: las dos
-  // rejillas cubren el mismo bbox y comparten la fila 0 = norte.
-  const alt = (x: number, y: number) => {
-    const gx = Math.min(W - 1, Math.max(0, Math.round(x / (w - 1) * (W - 1))))
-    const gy = Math.min(H - 1, Math.max(0, Math.round(y / (h - 1) * (H - 1))))
-    return grid[gy * W + gx]
-  }
+  // Altura del DEM en el píxel (x, y) del minimapa. El píxel se pasa a lat/lon
+  // y de ahí al vértice del DEM: es el mismo redondeo de siempre, dicho una
+  // sola vez en data/terreno.ts para que las capas apoyen sus marcadores
+  // contra exactamente la misma superficie que este relieve dibuja.
+  const alt = (x: number, y: number) => alturaGruesa(
+    grid, meta,
+    bbox.n - y / (h - 1) * (bbox.n - bbox.s),
+    bbox.w + x / (w - 1) * (bbox.e - bbox.w),
+  )
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
