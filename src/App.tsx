@@ -14,6 +14,7 @@ import { usePicking } from './scene/PickingPass'
 import { LassoOverlay, pointInLasso, type Pt } from './ui/LassoOverlay'
 import { SearchPanel } from './ui/SearchPanel'
 import { Ficha } from './ui/Ficha'
+import { FichaRasgo } from './ui/FichaRasgo'
 import { MapControls, BarraArchivo, BarraEscala, Atribucion } from './ui/MapControls'
 import { MiniMapa } from './ui/MiniMapa'
 import { capasDesdeUrl, capasAUrl } from './ui/capasUrl'
@@ -582,6 +583,13 @@ export default function App () {
         onAlejar={() => vista.current?.alejar()}
         onFoto={() => foto.current?.tomar()}
       />
+
+      {elegido && (
+        <div style={{ position: 'fixed', left: 12, top: 12, zIndex: 21 }}>
+          <FichaRasgo capa={elegido.capa} rasgo={elegido.rasgo}
+            onCerrar={() => setElegido(null)} />
+        </div>
+      )}
 
       <PanelFoto estado={estadoFoto} onCancelar={() => {
         foto.current?.cancelar()
