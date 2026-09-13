@@ -1,0 +1,2437 @@
+{
+  "type": "FeatureCollection",
+  "capa": "hospitales",
+  "generado": "2026-09-13T16:39:21Z",
+  "fuente": "OSM vía Overpass",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "osm/node/1037620126",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.829069,
+          8.251171
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1037620126",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1176479648",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.65009,
+          8.6186
+        ]
+      },
+      "properties": {
+        "nombre": "Consultorio Santander Castro Zuñiga",
+        "clase": "consultorio",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1176479648",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1176480513",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.650849,
+          8.61736
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica De La Mujer y El Niño",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1176480513",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1176481338",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.650567,
+          8.617572
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica El Vigia",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1176481338",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1176482108",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.645407,
+          8.609928
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica Vargas",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1176482108",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1176483115",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.646874,
+          8.617212
+        ]
+      },
+      "properties": {
+        "nombre": "CliniSalud El Vigia",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1176483115",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1176486164",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.650388,
+          8.608934
+        ]
+      },
+      "properties": {
+        "nombre": "IPASME",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1176486164",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1176487876",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.649554,
+          8.620482
+        ]
+      },
+      "properties": {
+        "nombre": "Unidad Medico Adaptogenos UMA",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1176487876",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1205523570",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.5522659,
+          8.1984247
+        ]
+      },
+      "properties": {
+        "nombre": "Dispensario el Molino",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1205523570",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1205523909",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.4607052,
+          8.1251609
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital de Canagua",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1205523909",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1205523977",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.4348644,
+          8.1816633
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio Rural Tipo II - Chacantá",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1205523977",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/12154386534",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.263445,
+          8.0339623
+        ]
+      },
+      "properties": {
+        "nombre": "Materno Quirúrgico Santa Lucía",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/12154386534",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/12239839356",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2583447,
+          8.0304393
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica Dr. Prada",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/12239839356",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/12479616974",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2581183,
+          8.037111
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Dr. Ernesto Segundo Paolini",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/12479616974",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/12843072439",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.3515979,
+          7.7065466
+        ]
+      },
+      "properties": {
+        "nombre": "Centro Médico Rubio, C.A.",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/12843072439",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/12861624404",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.3609754,
+          7.7053873
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica de prevención del cáncer",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/12861624404",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/12926786273",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.3562499,
+          7.6958662
+        ]
+      },
+      "properties": {
+        "nombre": "Centro Medico La Colonia, C.A.",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/12926786273",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/13657308498",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.480732,
+          7.896154
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/13657308498",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/13915444129",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4763373,
+          7.8728094
+        ]
+      },
+      "properties": {
+        "nombre": "Intituto la esperanza para niños con discapacidad cognitiva",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/13915444129",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/13954294132",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2441101,
+          8.0585165
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Gnóstico Paracelso",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/13954294132",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/13973303245",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4847408,
+          7.8993862
+        ]
+      },
+      "properties": {
+        "nombre": "Clinica Medical Duarte",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/13973303245",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/14090609775",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.222704,
+          7.782266
+        ]
+      },
+      "properties": {
+        "nombre": "Clinica Veterinaria",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/14090609775",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/14142799053",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4562693,
+          7.9178015
+        ]
+      },
+      "properties": {
+        "nombre": "CDI Ureña",
+        "clase": "consultorio",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/14142799053",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1779232842",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2249886,
+          7.7629004
+        ]
+      },
+      "properties": {
+        "nombre": "Seguros Horizonte",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1779232842",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1816768837",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.7552213,
+          8.3305099
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1816768837",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1890585859",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.3568913,
+          7.6895337
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Padre Justo",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1890585859",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1942241096",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2484833,
+          7.9540752
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1942241096",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/1967697463",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.3883394,
+          8.5039024
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital de Lagunillas",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/1967697463",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2106295885",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.6505778,
+          8.6179493
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica Jose Gregorio Hernandez",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2106295885",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2210183315",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.5242815,
+          8.3667854
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio/escuela",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2210183315",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2305813482",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.6444537,
+          8.6144137
+        ]
+      },
+      "properties": {
+        "nombre": "Policlínica Virgen de Fatima",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2305813482",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2513640753",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2323773,
+          7.7742225
+        ]
+      },
+      "properties": {
+        "nombre": "Sanidad y Asistencia Social",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2513640753",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2535981894",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2021357,
+          7.7866363
+        ]
+      },
+      "properties": {
+        "nombre": "Emergencias 171",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2535981894",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2541192448",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2152127,
+          7.7672082
+        ]
+      },
+      "properties": {
+        "nombre": "IBIDSA",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2541192448",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2543373593",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2154838,
+          7.7594479
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica de mamas",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2543373593",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2543553422",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2256388,
+          7.7559454
+        ]
+      },
+      "properties": {
+        "nombre": "Cardiológico",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2543553422",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2543553435",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2255496,
+          7.7573539
+        ]
+      },
+      "properties": {
+        "nombre": "Psiquiátrico",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2543553435",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2547676774",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2319346,
+          7.7749094
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica Dr. Plata",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2547676774",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2547778760",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2195686,
+          7.7735654
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica SANGO",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2547778760",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2547931000",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2356084,
+          7.7731869
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica IPAS M.E.",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2547931000",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2558819700",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2230055,
+          7.7739719
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica Integral de la Mujer",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2558819700",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2667785464",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2004637,
+          7.792437
+        ]
+      },
+      "properties": {
+        "nombre": "Enfermería",
+        "clase": "consultorio",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2667785464",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2726461162",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2168012,
+          7.7740986
+        ]
+      },
+      "properties": {
+        "nombre": "Centro Quirúrgico de Especialidades",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2726461162",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2727035069",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2168769,
+          7.7739488
+        ]
+      },
+      "properties": {
+        "nombre": "Centro de Cirugía Ambulatoria Zaragoza",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2727035069",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/2912041574",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.1648401,
+          8.1690485
+        ]
+      },
+      "properties": {
+        "nombre": "Centro de diagnóstico integral Las Mesas",
+        "clase": "consultorio",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/2912041574",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/3339097377",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.7518201,
+          8.3324596
+        ]
+      },
+      "properties": {
+        "nombre": "Policlínica Tovar",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/3339097377",
+        "version": 1,
+        "emergencias": false
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/3339100548",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.7642226,
+          8.3194646
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital II San Jose de Tovar",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/3339100548",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/3783660480",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.7530428,
+          8.3319717
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica ROA",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/3783660480",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/4250807592",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.7706019,
+          8.0227767
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital 1 San roque",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/4250807592",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/4250807596",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.7647061,
+          8.0184822
+        ]
+      },
+      "properties": {
+        "nombre": "Módulo",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/4250807596",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/4343685686",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2342089,
+          7.7792342
+        ]
+      },
+      "properties": {
+        "nombre": "Centro Clínico El Samán",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/4343685686",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/5237319722",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4333491,
+          7.9222424
+        ]
+      },
+      "properties": {
+        "nombre": "Ipasme",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/5237319722",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/5263585483",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.6224053,
+          8.6292173
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio tipo II La Blanca",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/5263585483",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/5299736370",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.5088085,
+          7.622412
+        ]
+      },
+      "properties": {
+        "nombre": "Medicatura",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/5299736370",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/6448882637",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.0141695,
+          7.9172829
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio Rural Tipo I",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/6448882637",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/6855939406",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2530277,
+          8.224569
+        ]
+      },
+      "properties": {
+        "nombre": "Módulo",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/6855939406",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/6855945002",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4015269,
+          8.3668323
+        ]
+      },
+      "properties": {
+        "nombre": "Módulo de Boca de Grita",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/6855945002",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/6881382085",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2479872,
+          7.929726
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/6881382085",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/7245287032",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.407449,
+          8.3644058
+        ]
+      },
+      "properties": {
+        "nombre": "Laboratorio Clínico",
+        "clase": "hospital",
+        "tipo": "privado",
+        "origen": "osm",
+        "osmId": "node/7245287032",
+        "version": 1,
+        "emergencias": false
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/847804999",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4715046,
+          7.832427
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Jorge Cristo Sahium",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/847804999",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/node/9758398158",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4692157,
+          7.8360992
+        ]
+      },
+      "properties": {
+        "nombre": "Vihonco",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "node/9758398158",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/relation/4207297",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2392675,
+          7.7714883
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital de Puente Real",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "relation/4207297",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/104682373",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.6525052,
+          8.6207341
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital II El Vigia",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/104682373",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1132527706",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.9747491,
+          7.9103987
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio Tipo II",
+        "clase": "consultorio",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1132527706",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1202105492",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.221254,
+          7.7698943
+        ]
+      },
+      "properties": {
+        "nombre": "Centro Urológico 2000 C.A.",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1202105492",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1202678506",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2254147,
+          7.7843192
+        ]
+      },
+      "properties": {
+        "nombre": "Colsalud C.A.",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1202678506",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1233881371",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.9767009,
+          7.8268705
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio Rural San Pablo",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1233881371",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1320414513",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2602417,
+          8.0325839
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Clínico la Trinidad",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1320414513",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1339851457",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4829925,
+          7.5055727
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1339851457",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1360449928",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.6228676,
+          8.6284707
+        ]
+      },
+      "properties": {
+        "nombre": "Consultorio Popular Tipo Iii La Blanca",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1360449928",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1409832792",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2270884,
+          7.8410728
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1409832792",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1418230670",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.3585048,
+          7.7026688
+        ]
+      },
+      "properties": {
+        "nombre": "Modulo de Barrio Adentro",
+        "clase": "hospital",
+        "tipo": "publico",
+        "origen": "osm",
+        "osmId": "way/1418230670",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1418230671",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.3583,
+          7.7029325
+        ]
+      },
+      "properties": {
+        "nombre": "Modulo de Barrio Adentro",
+        "clase": "hospital",
+        "tipo": "publico",
+        "origen": "osm",
+        "osmId": "way/1418230671",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1418230672",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.3580517,
+          7.702875
+        ]
+      },
+      "properties": {
+        "nombre": "Modulo de Barrio Adentro",
+        "clase": "hospital",
+        "tipo": "publico",
+        "origen": "osm",
+        "osmId": "way/1418230672",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1418230703",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.356156,
+          7.6959091
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1418230703",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1418230704",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.3558178,
+          7.696086
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1418230704",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1449469773",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2253757,
+          7.7564303
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Central San Cristóbal",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1449469773",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1489627302",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4807353,
+          7.8961505
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1489627302",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1489627305",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4805901,
+          7.8963244
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1489627305",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1490421945",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4827806,
+          7.8934404
+        ]
+      },
+      "properties": {
+        "nombre": "Clinica Odontologica Dental Health Plus",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1490421945",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1490452661",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4830093,
+          7.8937885
+        ]
+      },
+      "properties": {
+        "nombre": "Centro Médico San Luis IPS SAS",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1490452661",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1490883267",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4815378,
+          7.8925196
+        ]
+      },
+      "properties": {
+        "nombre": "I.PS SAN LUIS",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1490883267",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1491144370",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4763746,
+          7.8861305
+        ]
+      },
+      "properties": {
+        "nombre": "UBS Libertad",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1491144370",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1525959051",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2441021,
+          8.058554
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Gnostico Paracelso",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1525959051",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1531217975",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.9775226,
+          8.1273839
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Doctor Carlos Roa Moreno",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1531217975",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/1548741292",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2230547,
+          7.6636922
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio de San Josecito",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/1548741292",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/160307438",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4077486,
+          8.36313
+        ]
+      },
+      "properties": {
+        "nombre": "Centro de Salud",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/160307438",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/224651677",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.9601865,
+          7.5349401
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital El Piñal",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/224651677",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/226391780",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.6738414,
+          8.6046873
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital General de El Vigía",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/226391780",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/243508398",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.282088,
+          7.6412019
+        ]
+      },
+      "properties": {
+        "nombre": "Centro de Diágnostico Integral de Santa Ana",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/243508398",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/243722951",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4293079,
+          7.9206662
+        ]
+      },
+      "properties": {
+        "nombre": "Geriatrico",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/243722951",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/244443017",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.1927976,
+          7.8107087
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio Palo Gordo",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/244443017",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/246570490",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2176369,
+          7.7730569
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica La Trinidad",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/246570490",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/246570573",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2184958,
+          7.7722587
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Materno Infantil Los Andes",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/246570573",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/247112548",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2262308,
+          7.7517904
+        ]
+      },
+      "properties": {
+        "nombre": "Club de Leones",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/247112548",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/247112563",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2215391,
+          7.7480997
+        ]
+      },
+      "properties": {
+        "nombre": "CDI Módulo Unidad Vecinal",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/247112563",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/247130462",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2185357,
+          7.7785884
+        ]
+      },
+      "properties": {
+        "nombre": "Cruz Roja",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/247130462",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/247130508",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2257814,
+          7.78236
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica CEMOC",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/247130508",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/247187626",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2152074,
+          7.7672583
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica IBIDSA",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/247187626",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/247457525",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.213262,
+          7.7643274
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica Rotary",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/247457525",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/247457552",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2144908,
+          7.758603
+        ]
+      },
+      "properties": {
+        "nombre": "Policlínica Táchira",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/247457552",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/247474369",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2270924,
+          7.7544474
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica Andina",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/247474369",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/247919687",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2343077,
+          7.7639708
+        ]
+      },
+      "properties": {
+        "nombre": "Centro Médico Quirurgico Dr. Semidey",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/247919687",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/247955551",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2162261,
+          7.7673312
+        ]
+      },
+      "properties": {
+        "nombre": "Centro de Emergencia Infantil Coromoto",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/247955551",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/292047231",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2244666,
+          7.7573813
+        ]
+      },
+      "properties": {
+        "nombre": "Oncológico",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/292047231",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/295009889",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4416576,
+          7.8826441
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio Tienditas",
+        "clase": "consultorio",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/295009889",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/317420807",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2021456,
+          7.7866264
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/317420807",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/383715436",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.4219091,
+          7.5402239
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatorio",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/383715436",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/435073002",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2174213,
+          7.7937412
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Dr. Patrocinio Peñuela Ruiz",
+        "clase": "hospital",
+        "tipo": "publico",
+        "origen": "osm",
+        "osmId": "way/435073002",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/435073003",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2172215,
+          7.7945838
+        ]
+      },
+      "properties": {
+        "nombre": "Fundacor",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/435073003",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/436786402",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2175276,
+          7.8223547
+        ]
+      },
+      "properties": {
+        "nombre": "Módulo Táriba",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/436786402",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/436795633",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2273752,
+          7.779408
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica del Dolor Doctor Cho",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/436795633",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/437066844",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2285698,
+          7.7844231
+        ]
+      },
+      "properties": {
+        "nombre": "Centro Médico Quirúrgico Venezuela",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/437066844",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/437346312",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2073267,
+          7.7907616
+        ]
+      },
+      "properties": {
+        "nombre": "Clínica La Trinidad",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/437346312",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/438354986",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.193676,
+          7.7967315
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Militar",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/438354986",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/439965869",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2198382,
+          7.822761
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital Fundahosta",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/439965869",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/439965870",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2223799,
+          7.8200902
+        ]
+      },
+      "properties": {
+        "nombre": "Hospital San Antonio",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/439965870",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/503656982",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.1831591,
+          7.8549734
+        ]
+      },
+      "properties": {
+        "nombre": "Medicatura Cordero",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/503656982",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/503656983",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.1785402,
+          7.8594661
+        ]
+      },
+      "properties": {
+        "nombre": "Módulo Cordero",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/503656983",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/687882518",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.0140886,
+          7.9172494
+        ]
+      },
+      "properties": {
+        "nombre": "Ambulatio Urbano Tipo I",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/687882518",
+        "version": 1,
+        "emergencias": true
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/689789700",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.0199975,
+          7.9185606
+        ]
+      },
+      "properties": {
+        "nombre": "",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/689789700",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/690096502",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.0147077,
+          7.9173879
+        ]
+      },
+      "properties": {
+        "nombre": "Consultorio Dr. Rodolfo Bustamante",
+        "clase": "consultorio",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/690096502",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/75698692",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2181133,
+          7.782472
+        ]
+      },
+      "properties": {
+        "nombre": "Centro De Cirugía San Sebastián",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/75698692",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/75698694",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2266545,
+          7.7788436
+        ]
+      },
+      "properties": {
+        "nombre": "Centro Clínico San Cristóbal",
+        "clase": "clinica",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/75698694",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/827229408",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2782209,
+          7.6445274
+        ]
+      },
+      "properties": {
+        "nombre": "Medicatura Rural",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/827229408",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/958322150",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2323608,
+          7.834866
+        ]
+      },
+      "properties": {
+        "nombre": "CDI Palmira",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/958322150",
+        "version": 1
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "osm/way/958322151",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.2321127,
+          7.8350254
+        ]
+      },
+      "properties": {
+        "nombre": "CRI Palmira",
+        "clase": "hospital",
+        "tipo": "sin_dato",
+        "origen": "osm",
+        "osmId": "way/958322151",
+        "version": 1
+      }
+    }
+  ]
+}

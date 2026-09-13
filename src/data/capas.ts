@@ -54,7 +54,30 @@ export interface Capa {
 /** Nombres que ningún campo del catálogo puede usar: los pone el sistema. */
 export const RESERVADOS = ['origen', 'osmId', 'version'] as const
 
-export const CAPAS: readonly Capa[] = []
+export const CAPAS: readonly Capa[] = [
+  {
+    id: 'hospitales',
+    nombre: 'Hospitales y centros médicos',
+    geometria: 'punto',
+    campos: [
+      // 'nombre' NO es obligatorio: en OSM muchos centros vienen sin nombre, y
+      // eso es un dato sobre el centro, no un error del archivo.
+      { clave: 'nombre', nombre: 'Nombre', tipo: 'texto' },
+      {
+        clave: 'clase', nombre: 'Clase', tipo: 'opcion',
+        opciones: ['hospital', 'clinica', 'consultorio', 'ambulatorio'], obligatorio: true,
+      },
+      {
+        clave: 'tipo', nombre: 'Tipo', tipo: 'opcion',
+        opciones: ['publico', 'privado', 'sin_dato'], obligatorio: true,
+      },
+      { clave: 'emergencias', nombre: 'Emergencias', tipo: 'booleano' },
+    ],
+    archivo: 'capas/hospitales.geojson',
+    porDefecto: false,
+    color: '#e0453a',
+  },
+]
 
 /**
  * La geometría de un rasgo, tipada acá y no con @types/geojson: el tsconfig

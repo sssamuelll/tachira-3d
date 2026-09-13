@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { CAPAS, CAPAS_FIJAS, RESERVADOS, validarCapa, type Capa } from './capas'
+// @ts-ignore  node:fs no está en los types del tsconfig de la app (solo
+// vite/client). Mismo patrón que usa src/data/buildings.test.ts.
+import { readFileSync } from 'node:fs'
+
+// Se lee y se parsea en vez de importarlo: Vite resuelve .json, no .geojson, y
+// registrar un plugin para una extensión sería más de lo que hace falta.
+const hospitales = JSON.parse(readFileSync('public/data/capas/hospitales.geojson', 'utf8'))
 
 const capa: Capa = {
   id: 'prueba',
@@ -140,5 +147,27 @@ describe('validarCapa', () => {
     const conUnoMalo: [number, number][] = [[-72.2, 7.8], [7.8, -72.1], [-72.1, 7.9], [-72.2, 7.9]]
     expect(() => validarCapa(capaPoligono, coleccion([poligono(conUnoMalo)], 'poligonos')))
       .toThrow(/fuera del bbox/)
+  })
+})
+
+describe('la capa de hospitales, contra el archivo real', () => {
+  const capa = CAPAS.find(c => c.id === 'hospitales')!
+
+  it('está en el catálogo', () => {
+    expect(capa).toBeDefined()
+  })
+
+  // Esta es la prueba que importa: el archivo que se sirve pasa por el mismo
+  // portero que un aporte de la comunidad. Si alguien edita el GeoJSON a mano
+  // y lo rompe, se entera acá y no en el navegador de un vecino.
+  it('el archivo que se versiona pasa el validador', () => {
+    expect(validarCapa(capa, hospitales).length).toBeGreaterThan(100)
+  })
+
+  it('todos sus rasgos vienen de OSM con su osmId', () => {
+    for (const f of validarCapa(capa, hospitales)) {
+      expect(f.properties.origen, f.id).toBe('osm')
+      expect(f.properties.osmId, f.id).toMatch(/^(node|way|relation)\/\d+$/)
+    }
   })
 })
