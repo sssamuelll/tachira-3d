@@ -94,10 +94,13 @@ export function stateMask (municipios: Municipio[], bbox: Bbox, W: number, H: nu
  * del estado, i+1 para el municipio i. Es lo que el fragment del relieve lee
  * para saber dónde cambia de municipio y pintar ahí la línea de límite.
  *
- * Sin el tapado de pinchazos del final de stateMask: acá un vértice apagado
- * entre dos municipios distintos no es un agujero que tape el cielo, es
- * exactamente la costura sobre la que se quiere dibujar la línea. Taparlo con
- * uno de los dos índices movería la frontera medio vértice a capricho.
+ * Incluye el tapado de pinchazos de un vértice (como stateMask), pero aquí es
+ * seguro porque el índice escrito nunca rompe la invariante: un vértice en el
+ * contorno exterior del estado siempre tiene al menos un vecino en 0 (fuera),
+ * así que nunca se llena. Un pinchazc en un borde compartido recibe uno de los
+ * dos índices adyacentes, y la línea de límite se dibuja donde los índices
+ * *difieren*, así que aparece de todas formas. Desaparecen solo los puntitos
+ * de ruido donde un 0 rodeado de índices distintos dibujaría una línea falsa.
  *
  * En un solape gana el último que se rasteriza. Da igual cuál: dos municipios
  * de OSM solapan a lo sumo en un vértice de borde mal compartido, y ahí la
@@ -141,10 +144,15 @@ export function indiceMunicipios (municipios: Municipio[], bbox: Bbox, W: number
     }
   }
 
-  // Igual que en stateMask, tapar pinchazos de un vértice. En el índice, se toma
-  // el índice del municipio de cualquier vecino encendido. Los pinchazos son
-  // interiores a un municipio o sobre el borde compartido, y en el borde la línea
-  // se dibuja igual con cualquiera de los dos índices.
+  // Igual que en stateMask, tapar pinchazos de un vértice: donde OSM no compartió
+  // nodos exactos en un borde, uno de los dos rellenos cae medio vértice al lado
+  // del otro, dejando un píxel oscuro rodeado por los cuatro vecinos encendidos
+  // (medición 2026-09-13: 3 pinchazos en la rejilla real de 256x256).
+  // Taparlo es seguro: la frontera entre municipios nunca toca el contorno del
+  // estado (tiene al menos un vecino en 0 allí), y en una frontera compartida
+  // entre dos municipios, la línea se dibuja donde los índices *difieren*
+  // —cualquiera de los dos índices la muestra correctamente. Solo desaparecen
+  // los puntitos de ruido donde habría un 0 rodeado de índices diferentes.
   for (let y = 1; y < H - 1; y++) {
     for (let x = 1; x < W - 1; x++) {
       const i = y * W + x
@@ -154,7 +162,7 @@ export function indiceMunicipios (municipios: Municipio[], bbox: Bbox, W: number
         const up = idx[i - W]
         const down = idx[i + W]
         if (left && right && up && down) {
-          idx[i] = left || right || up || down
+          idx[i] = left
         }
       }
     }
