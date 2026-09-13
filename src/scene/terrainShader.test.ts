@@ -77,7 +77,10 @@ describe('materialRelieve', () => {
     // estándar shader.uniforms no existe hasta el primer cuadro. Si userData
     // y el shader tuvieran objetos distintos, la foto se escribiría en el
     // vacío y el relieve saldría siempre con hipsometría.
-    const m = materialRelieve({ min: 0, max: 4000, mascara: new THREE.Texture(), ganancia: 1.35 })
+    const m = materialRelieve({
+      min: 0, max: 4000, mascara: new THREE.Texture(), ganancia: 1.35,
+      indices: new THREE.Texture(), texelIndices: 1 / 2048,
+    })
     const u = m.userData.uniforms
     u.uImagen.value = 1
     const s = compilar(m)
@@ -102,7 +105,10 @@ describe('materialRelieve', () => {
       camera: new THREE.PerspectiveCamera(45, 1.5, 10, 2e6), parent: new THREE.Scene(),
       cascades: 3, maxFar: 5000, shadowMapSize: 1024, lightDirection: new THREE.Vector3(0, -1, 0),
     })
-    const m = materialRelieve({ min: 0, max: 4000, mascara: new THREE.Texture(), cascadas: csm })
+    const m = materialRelieve({
+      min: 0, max: 4000, mascara: new THREE.Texture(), cascadas: csm,
+      indices: new THREE.Texture(), texelIndices: 1 / 2048,
+    })
     expect(m.defines!.USE_CSM).toBe(1)
     expect(m.defines!.CSM_CASCADES).toBe(3)
     expect(csm.shaders.get(m)).toBeNull()        // registrado, todavía sin compilar

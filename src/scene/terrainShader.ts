@@ -199,9 +199,9 @@ export interface OpcionesRelieve {
    */
   cascadas?: { setupMaterial: (m: THREE.Material) => void }
   /** Índice de municipio por texel (indiceMunicipios), fila 0 = norte. */
-  indices?: THREE.Texture
+  indices: THREE.Texture
   /** 1 / lado de la textura de índices. */
-  texelIndices?: number
+  texelIndices: number
 }
 
 /**
@@ -228,8 +228,8 @@ export function materialRelieve (o: OpcionesRelieve): THREE.MeshStandardMaterial
     uMin: { value: o.min }, uMax: { value: o.max }, uMascara: { value: o.mascara },
     uGanancia: { value: o.ganancia ?? 1 },
     uImg: { value: null }, uImgUv: { value: new THREE.Vector3(0, 0, 1) }, uImagen: { value: 0 },
-    uIndices: { value: o.indices ?? null },
-    uTexelIdx: { value: new THREE.Vector2(o.texelIndices ?? 0, o.texelIndices ?? 0) },
+    uIndices: { value: o.indices },
+    uTexelIdx: { value: new THREE.Vector2(o.texelIndices, o.texelIndices) },
     uLimites: { value: 0 },
   }
   material.userData.uniforms = uniforms

@@ -498,7 +498,8 @@ export default function App () {
         {import.meta.env.DEV && <PuenteEscena />}
         <Suspense fallback={null}>
           <Sky date={date} />
-          <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen} date={date} />
+          <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen}
+            date={date} limites={visibles.has('municipios')} />
           {visibles.has('edificios') && <Buildings />}
           {visibles.has('edificios') && <Piezas />}
           {visibles.has('edificios') && <SombrasEdificios date={date} />}

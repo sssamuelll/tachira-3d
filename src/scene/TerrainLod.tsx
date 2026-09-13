@@ -11,13 +11,22 @@ import { CacheTeselas } from './demTiles'
 import { CacheImagenes, Z_MAX_IMG } from './imagenTeselas'
 import { seleccionar, clave, ERROR_PX, type Nodo } from './quadtree'
 import { geometriaNodo, raices, ventana } from './nodoTerreno'
-import { stateMask } from './stateMask'
+import { stateMask, indiceMunicipios } from './stateMask'
 import { ancestrosEdificios, coberturaEdificios, errorMallaEdificios } from './buildingTerrain'
 import type { TerrainMeta, Municipio } from '../data/types'
 
 // Resolución de la máscara del estado: la misma rejilla de 1024² con la que
 // el relieve se recortaba antes (y con la que el minimapa sigue), ~130 m.
 const MASCARA = 1024
+
+// La textura de índices va al DOBLE que la máscara y por una razón medida: a
+// 1024 el texel mide 127 x 143 m en el Táchira y una línea de un texel se ve
+// como una escalera desde el primer acercamiento. A 2048 baja a 63 x 72 m, y
+// son 4 MB de un canal -- el mismo orden que una sola tesela de imagen.
+// ponytail: techo conocido. El camino de mejora es dibujar los límites
+// vectoriales drapeados sobre el DEM tallado, el mismo muestreo que la Plaza
+// Bolívar tiene pendiente; no subir esto a 4096.
+const INDICES = 2048
 
 // Sin imagen, z15 es la superficie exacta del DEM (~36 m) y no hay nada que
 // justifique bajar más: los nodos más finos dibujarían los mismos triángulos.
@@ -164,12 +173,14 @@ function sesgar (csm: CSM) {
  * atmósfera cada cuadro (ver el comentario de allá) y acá se copia a las
  * cascadas.
  */
-export function TerrainLod ({ meta, municipios, date, imagen = true }: {
+export function TerrainLod ({ meta, municipios, date, imagen = true, limites = false }: {
   meta: TerrainMeta; municipios: Municipio[]
   /** Fecha de la escena: de ella sale la dirección del sol (sol.ts). */
   date: Date
   /** Foto satelital de albedo en vez de hipsometría. */
   imagen?: boolean
+  /** Límites municipales dibujados sobre el relieve. */
+  limites?: boolean
 }) {
   const { camera, size, scene } = useThree()
   const grupo = useRef<THREE.Group>(null)
@@ -195,6 +206,22 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     tex.needsUpdate = true
     return tex
   }, [municipios, meta])
+
+  // NEAREST en los dos filtros, y no es sabor: esto no es una imagen sino una
+  // tabla de índices. Interpolar el índice 3 con el 7 da 5, que es otro
+  // municipio, y la línea aparecería en mitad de un valle.
+  const indices = useMemo(() => {
+    const tex = new THREE.DataTexture(
+      indiceMunicipios(municipios, meta.bbox, INDICES, INDICES),
+      INDICES, INDICES, THREE.RedFormat, THREE.UnsignedByteType,
+    )
+    tex.minFilter = THREE.NearestFilter
+    tex.magFilter = THREE.NearestFilter
+    tex.flipY = false                 // fila 0 = norte, igual que uvMascara
+    tex.needsUpdate = true
+    return tex
+  }, [municipios, meta])
+  useEffect(() => () => indices.dispose(), [indices])
 
   // Dirección HACIA el sol para la fecha de la escena, en ejes del mundo. La
   // fecha no cambia mientras la app corre, así que esto se calcula una vez.
@@ -261,7 +288,8 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
   // dentro, porque CSM.setupMaterial pisa onBeforeCompile y el orden importa.
   // Solo se llama desde el cuadro, que no corre sin cascadas.
   const materialNodo = () => materialRelieve({
-    min: meta.min, max: meta.max, mascara, ganancia: GANANCIA, cascadas: csm.current ?? undefined,
+    min: meta.min, max: meta.max, mascara, indices, texelIndices: 1 / INDICES,
+    ganancia: GANANCIA, cascadas: csm.current ?? undefined,
   })
 
   // El <SunLight> de takram, buscado por nombre igual que PickingPass busca a
@@ -430,6 +458,11 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     // propia, en vez de parpadear en gris.
     for (const n of sel) {
       const u = (mallas.get(clave(n))!.mesh.material as THREE.Material).userData.uniforms as UniformsRelieve
+      // Antes de los dos `continue` de abajo: si quedara después de alguno, un
+      // nodo sin tesela de imagen (foto cargando o `imagen` apagado) se
+      // quedaría sin línea de límite, y la línea se vería romperse a trozos
+      // según llega la foto en vez de encenderse entera con la capa.
+      u.uLimites.value = limites ? 1 : 0
       if (!imagen) { u.uImagen.value = 0; continue }
       if (frustum.intersectsBox(mallas.get(clave(n))!.caja)) imgs.pedir(n.z, n.x, n.y)
       const mejor = imgs.mejor(n)
