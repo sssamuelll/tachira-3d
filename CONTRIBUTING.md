@@ -89,9 +89,11 @@ sale de OpenStreetMap, una consulta en el registro de semillas.
 ids repetidos, geometrías que no corresponden, coordenadas fuera del estado
 (el síntoma de haber escrito `[lat, lon]`), campos obligatorios que faltan,
 valores fuera de las opciones declaradas, un `origen` que no sea `'osm'` o
-`'comunidad'`, y una `version` que no sea un entero ≥ 1. La prueba de
-`src/data/capas.test.ts` lo corre contra el archivo real, así que un GeoJSON
-roto se ve en el CI y no en el navegador de un vecino.
+`'comunidad'`, un `origen: 'osm'` sin su `osmId`, o uno `'comunidad'` que
+todavía trae el `osmId` de la plantilla de la que lo copiaste, y una
+`version` que no sea un entero ≥ 1. La prueba de `src/data/capas.test.ts`
+lo corre contra el archivo real, así que un GeoJSON roto se ve en el CI y
+no en el navegador de un vecino.
 
 **Aviso: hoy solo se dibujan capas de puntos.** `CapaPuntos` es el único
 componente de capa que existe. Si añades una capa con `geometria: 'linea'` o
