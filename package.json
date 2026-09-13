@@ -22,6 +22,7 @@
     "verify": "node scripts/verify-data.mjs",
     "datos:empaquetar": "node scripts/datos-empaquetar.mjs",
     "datos:bajar": "node scripts/datos-bajar.mjs",
+    "capa": "node scripts/capa.mjs",
     "e2e": "playwright test"
   },
   "keywords": [],

@@ -2,6 +2,7 @@ node_modules/
 dist/
 public/data/*
 !public/data/piezas/
+!public/data/capas/
 .cache/
 datos-base.tar.gz
 
