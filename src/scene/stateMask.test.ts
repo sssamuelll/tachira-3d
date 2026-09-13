@@ -89,8 +89,14 @@ describe('indiceMunicipios', () => {
       [muni(cuadrado(-0.5, 0, -0.5, 0.5)), muni(cuadrado(0, 0.5, -0.5, 0.5))],
       { w: -1, e: 1, s: -1, n: 1 }, 21, 21)
 
-    expect(idx[10 * 21 + 5]).toBe(1)    // dentro del primero
-    expect(idx[10 * 21 + 15]).toBe(2)   // dentro del segundo
+    // Las dos sondas van ESTRICTAMENTE dentro de su cuadrado, nunca sobre un
+    // borde: la columna 7 es lon −0,30 y la 12 es lon 0,20. Sondear un borde
+    // probaría la regla semiabierta del rasterizado (que excluye el lado
+    // derecho a propósito, para que dos vecinos no se pisen una columna), y
+    // eso no es lo que esta prueba quiere saber: quiere saber si el índice
+    // que se escribe es el del municipio correcto.
+    expect(idx[10 * 21 + 7]).toBe(1)    // dentro del primero
+    expect(idx[10 * 21 + 12]).toBe(2)   // dentro del segundo
     expect(idx[0]).toBe(0)              // esquina NO, fuera de los dos
   })
 
