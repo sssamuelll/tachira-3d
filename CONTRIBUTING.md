@@ -85,15 +85,15 @@ sale de OpenStreetMap, una consulta en el registro de semillas.
    ordenado por id. Lo que alguien haya añadido a mano con `origen:
    'comunidad'` se conserva; lo de OSM se reemplaza.
 
-`validarCapa` en `src/data/capas.ts` es el portero: rechaza rasgos sin `id`,
-ids repetidos, geometrías que no corresponden, coordenadas fuera del estado
-(el síntoma de haber escrito `[lat, lon]`), campos obligatorios que faltan,
-valores fuera de las opciones declaradas, un `origen` que no sea `'osm'` o
-`'comunidad'`, un `origen: 'osm'` sin su `osmId`, o uno `'comunidad'` que
-todavía trae el `osmId` de la plantilla de la que lo copiaste, y una
-`version` que no sea un entero ≥ 1. La prueba de `src/data/capas.test.ts`
-lo corre contra el archivo real, así que un GeoJSON roto se ve en el CI y
-no en el navegador de un vecino.
+`validarCapa` en `src/data/capas.ts` es el portero. Revisa la forma del
+archivo (una `FeatureCollection` de la capa que dice ser, cada rasgo con su
+`id`, su geometría y sus `properties`), el contenido contra lo que el
+catálogo declara (campos obligatorios, valores entre las opciones), y el
+trío `origen`/`osmId`/`version` que pone el sistema. Lo que nadie adivina
+solo: `[lat, lon]` al revés -- las coordenadas siguen siendo válidas, nada
+más se queja --, un `origen: 'osm'` sin su `osmId`, o uno `'comunidad'` que
+aún trae el de la plantilla que copiaste. Son ejemplos, no la lista: la
+regla exacta vive en `validarCapa`.
 
 **Aviso: hoy solo se dibujan capas de puntos.** `CapaPuntos` es el único
 componente de capa que existe. Si añades una capa con `geometria: 'linea'` o
