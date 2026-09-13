@@ -1,3 +1,6 @@
+import { urlVersionado } from './rutas'
+import { BBOX } from './constants'
+
 /**
  * El catálogo de capas del mapa: qué se puede prender, y de dónde sale.
  *
@@ -25,9 +28,6 @@ export const CAPAS_FIJAS: readonly CapaFija[] = [
   { id: 'edificios', nombre: 'Edificaciones', porDefecto: true },
   { id: 'municipios', nombre: 'Municipios', porDefecto: false },
 ]
-
-import { urlVersionado } from './rutas'
-import { BBOX } from './constants'
 
 export type Geometria = 'punto' | 'linea' | 'poligono'
 
