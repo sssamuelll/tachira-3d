@@ -60,6 +60,14 @@ export function MiniMapa ({ grid, meta, municipios, mirilla, onIr }: {
     const bg = fondo.current
     const ctx = cv?.getContext('2d')
     if (!cv || !bg || !ctx) return
+    // Canvas 2D no entiende "var(--token)": fillStyle/strokeStyle necesitan un
+    // color ya resuelto, y T ahora son referencias CSS (Task 6). Se lee el
+    // valor computado contra la raíz del documento, donde main.tsx declaró
+    // las variables -- así este disco sigue el tema igual que el resto del
+    // chrome en vez de quedarse pintado del negro por defecto de un fillStyle
+    // inválido.
+    const raiz = getComputedStyle(document.documentElement)
+    const chrome = (token: string) => raiz.getPropertyValue(token.slice(4, -1)).trim()
     const r = L / 2
     ctx.clearRect(0, 0, L, L)
     ctx.save()
@@ -68,7 +76,7 @@ export function MiniMapa ({ grid, meta, municipios, mirilla, onIr }: {
     ctx.clip()
     // Fondo claro bajo la silueta: lo que queda fuera del estado es blanco, y
     // eso es lo que hace legible el contorno del Táchira a este tamaño.
-    ctx.fillStyle = T.fondo
+    ctx.fillStyle = chrome(T.fondo)
     ctx.fillRect(0, 0, L, L)
     ctx.drawImage(bg, encaje.x, encaje.y)
 
@@ -102,7 +110,7 @@ export function MiniMapa ({ grid, meta, municipios, mirilla, onIr }: {
       // desaparece, y es lo único que siempre tiene que verse.
       ctx.beginPath()
       ctx.arc(t.x, t.y, RADIO_PUNTO * dpr, 0, Math.PI * 2)
-      ctx.fillStyle = T.acento
+      ctx.fillStyle = chrome(T.acento)
       ctx.fill()
       ctx.lineWidth = 2 * dpr
       ctx.strokeStyle = '#fff'
@@ -114,7 +122,7 @@ export function MiniMapa ({ grid, meta, municipios, mirilla, onIr }: {
     ctx.beginPath()
     ctx.arc(r, r, r - dpr / 2, 0, Math.PI * 2)
     ctx.lineWidth = dpr
-    ctx.strokeStyle = T.lineaFuerte
+    ctx.strokeStyle = chrome(T.lineaFuerte)
     ctx.stroke()
   }, [L, dpr, encaje])
 

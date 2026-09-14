@@ -3,33 +3,42 @@
 // estilos que herede -- cada componente escribe estilos en línea y todos
 // leen de acá.
 //
-// Tema claro sobre un mapa claro (relieve hipsométrico bajo cielo diurno).
-// Los grises van apenas fríos, no neutros puros: contra el verde-ocre del
-// terreno un gris exacto se ve sucio.
+// El color de T ya no es literal: son variables CSS (`var(--fondo)`, etc).
+// Los valores de las dos paletas -- clara y oscura -- viven en `tema.ts`
+// (TOKENS_CLARO / TOKENS_OSCURO) y se inyectan como <style> en main.tsx;
+// cuál paleta rige lo decide el atributo `data-tema` en la raíz del documento
+// (Task 7). Acá solo quedan los nombres de los campos.
+//
+// La frontera que no se cruza: esto es color de CHROME (fondo, textos,
+// líneas, acento, avisos, sombras) y cambia con el tema. El color del DATO
+// -- la rampa del PCI, la hipsometría, el color de cada capa -- no vive acá,
+// se queda en src/data/constants.ts y en css3() de abajo, y no cambia nunca
+// con el tema: un verde que significa "pavimento bueno" tiene que ser el
+// mismo verde de día y de noche, o el mapa miente.
 export const T = {
-  fondo: '#ffffff',
-  fondoSuave: '#f5f6f7',
-  texto: '#1f2124',
-  texto2: '#5b6169',
-  texto3: '#868c94',
-  linea: '#e4e6e9',
-  lineaFuerte: '#d0d4d9',
+  fondo: 'var(--fondo)',
+  fondoSuave: 'var(--fondoSuave)',
+  texto: 'var(--texto)',
+  texto2: 'var(--texto2)',
+  texto3: 'var(--texto3)',
+  linea: 'var(--linea)',
+  lineaFuerte: 'var(--lineaFuerte)',
 
   // Azul petróleo. No compite con la rampa ASTM (verde→rojo) ni con el
   // relieve: es el único color de la interfaz que no significa "estado del
   // pavimento", y por eso puede significar "esto es lo que tocaste".
-  acento: '#15607a',
-  acentoHover: '#0f4b60',
-  acentoSuave: '#e8f1f4',
+  acento: 'var(--acento)',
+  acentoHover: 'var(--acentoHover)',
+  acentoSuave: 'var(--acentoSuave)',
 
-  aviso: '#7a5200',
-  avisoFondo: '#fff4dc',
-  avisoLinea: '#f0dcae',
+  aviso: 'var(--aviso)',
+  avisoFondo: 'var(--avisoFondo)',
+  avisoLinea: 'var(--avisoLinea)',
 
   // Elevación de Material: una sombra de contacto corta y una difusa larga.
   // Una sola sombra sobre un mapa con textura no despega el panel.
-  sombra: '0 1px 2px rgba(31,33,36,.22), 0 6px 20px rgba(31,33,36,.14)',
-  sombraChica: '0 1px 2px rgba(31,33,36,.24), 0 2px 6px rgba(31,33,36,.10)',
+  sombra: 'var(--sombra)',
+  sombraChica: 'var(--sombraChica)',
 
   radio: 8,
   radioChico: 6,
