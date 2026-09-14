@@ -509,4 +509,63 @@ test.describe.serial('sobre el relieve dibujado', () => {
     expect(medida.px).toBeGreaterThan(10)
     expect(medida.px).toBeLessThan(60)
   })
+
+  test('el tema cambia el chrome y NO cambia el color del dato', async () => {
+    // Hace falta una vía seleccionada: la ficha del PCI es donde vive el color
+    // del dato en el DOM. Se selecciona con el lazo, como en el test del clic.
+    await situarse(page, SAN_CRISTOBAL.lat, SAN_CRISTOBAL.lon, 1200)
+    await esperarCuadros(page, 20)
+
+    // El lazo puede haber quedado activo desde el test 'el clic en un
+    // marcador NO toca la selección de vías': esa prueba lo enciende y nunca
+    // lo apaga, y este describe.serial comparte la misma página (y con ella
+    // el estado de React) entre tests. Pedir el botón por el nombre exacto
+    // "Seleccionar por lazo" fallaría en ese caso -- ya dice "Salir del
+    // lazo". Se ubica por el rol sin fijar cuál de las dos etiquetas trae, y
+    // solo se hace clic si todavía no está en modo lazo.
+    const botonLazo = page.getByRole('button', { name: /lazo/i })
+    if (await botonLazo.getAttribute('aria-pressed') !== 'true') await botonLazo.click()
+
+    const caja = (await page.locator('canvas').first().boundingBox())!
+    const cx = caja.x + caja.width / 2, cy = caja.y + caja.height / 2
+    await page.mouse.move(cx - 250, cy - 180)
+    await page.mouse.down()
+    for (const [dx, dy] of [[250, -180], [250, 180], [-250, 180], [-250, -180]]) {
+      await page.mouse.move(cx + dx, cy + dy, { steps: 8 })
+    }
+    await page.mouse.up()
+    await esperarCuadros(page, 5)
+
+    // El chrome: el fondo del panel de capas.
+    const fondoPanel = () => page.evaluate(() =>
+      getComputedStyle(document.querySelector('[role="group"][aria-label="Capas del mapa"]')!)
+        .backgroundColor)
+    // El dato: el color con que la ficha pinta el tramo de PCI. Se busca el
+    // elemento que lo lleva y se guarda su color calculado, que es lo que el
+    // ojo ve -- no el token, que por definición cambiaría.
+    const colorDelDato = () => page.evaluate(() => {
+      const todos = [...document.querySelectorAll('*')]
+        .map(e => getComputedStyle(e).backgroundColor)
+        .filter(c => c.startsWith('rgb') && c !== 'rgba(0, 0, 0, 0)')
+      return todos.join('|')
+    })
+
+    const chromeAntes = await fondoPanel()
+    const datoAntes = await colorDelDato()
+    expect(datoAntes, 'sin ficha de PCI abierta el test no mide nada').not.toBe('')
+
+    await page.getByRole('button', { name: 'Tema oscuro' }).click()
+    await expect.poll(fondoPanel).not.toBe(chromeAntes)
+
+    // Y ahora lo que el spec §4.1 prohíbe: que el dato haya cambiado con él.
+    const delPci = await page.evaluate(async () => {
+      const { PCI_RANGES } = await import('/src/data/constants.ts')
+      return PCI_RANGES.map((r: any) => `rgb(${r.color.map((c: number) => Math.round(c * 255)).join(', ')})`)
+    })
+    const datoDespues = await colorDelDato()
+    for (const color of delPci) {
+      expect(datoDespues.includes(color), `el tema se llevó por delante ${color} de la rampa del PCI`)
+        .toBe(datoAntes.includes(color))
+    }
+  })
 })

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type PointerEvent, type RefObject } from 'react'
 import * as THREE from 'three'
 import { T } from './theme'
+import type { Tema } from './usarTema'
 import { encajar, relieve, type Mirilla } from './disco'
 import { enuOf } from '../scene/Camera'
 import { alturaMalla } from '../scene/drape'
@@ -38,13 +39,16 @@ const rgbDeHex = (hex: string): [number, number, number] => {
  * queda en un lienzo aparte; a partir de ahí cada cuadro solo lo copia y le
  * dibuja la mirilla encima.
  */
-export function MiniMapa ({ grid, meta, municipios, mirilla, onIr }: {
+export function MiniMapa ({ grid, meta, municipios, mirilla, onIr, tema }: {
   grid: Int16Array
   meta: TerrainMeta
   municipios: Municipio[]
   /** Donde la cámara deja su función de aviso -- ver <Vista> en scene/Camera. */
   mirilla: RefObject<((m: Mirilla) => void) | null>
   onIr: (destino: THREE.Vector3) => void
+  /** Solo para forzar el repintado al conmutar -- dibujar() ya lee los
+   *  colores resueltos vía getComputedStyle, no este valor. Ver más abajo. */
+  tema: Tema
 }) {
   const lienzo = useRef<HTMLCanvasElement>(null)
   // El relieve ya pintado. Se arma una vez y se copia en cada cuadro.
@@ -64,6 +68,14 @@ export function MiniMapa ({ grid, meta, municipios, mirilla, onIr }: {
     const bg = fondo.current
     const ctx = cv?.getContext('2d')
     if (!cv || !bg || !ctx) return
+    // `tema` no se lee para nada de lo que sigue -- los colores salen de
+    // getComputedStyle, que ya refleja el `data-tema` puesto en la raíz. Pero
+    // useCallback memoiza por identidad: sin leer `tema` acá, ESLint no vería
+    // el uso y lo sacaría de las dependencias de abajo, y con él se iría el
+    // disparador que fuerza este repintado al conmutar (Step 6b) -- el disco
+    // se quedaría con los colores del tema anterior hasta que la cámara se
+    // moviera y disparara el otro efecto (el de `mirilla`, más abajo).
+    void tema
     // Canvas 2D no entiende "var(--token)": fillStyle/strokeStyle necesitan un
     // color ya resuelto, y T ahora son referencias CSS (Task 6). Se lee el
     // valor computado contra la raíz del documento, donde main.tsx declaró
@@ -137,7 +149,7 @@ export function MiniMapa ({ grid, meta, municipios, mirilla, onIr }: {
     ctx.lineWidth = dpr
     ctx.strokeStyle = chrome(T.lineaFuerte)
     ctx.stroke()
-  }, [L, dpr, encaje])
+  }, [L, dpr, encaje, tema])
 
   // El relieve: una pasada sobre el DEM que ya está en memoria, remuestreado
   // al tamaño del disco. Décimas de milisegundo, una vez por carga.

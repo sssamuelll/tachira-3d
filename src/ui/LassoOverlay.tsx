@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { T } from './theme'
 
 export type Pt = { x: number; y: number }
 
@@ -83,7 +84,7 @@ export function LassoOverlay (
       {pts.length > 1 && (
         <polygon
           points={pts.map(p => `${p.x},${p.y}`).join(' ')}
-          fill="rgba(21,96,122,0.12)" stroke="#15607a" strokeWidth={1.5}
+          fill="rgba(21,96,122,0.12)" stroke={T.acento} strokeWidth={1.5}
         />
       )}
     </svg>

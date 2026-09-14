@@ -21,6 +21,7 @@ import { MiniMapa } from './ui/MiniMapa'
 import { capasDesdeUrl, capasAUrl } from './ui/capasUrl'
 import { Foto, PanelFoto, type ApiFoto, type EstadoFoto } from './foto/Foto'
 import { indexar, buscar, type Resultado } from './ui/search'
+import { usarTema } from './ui/usarTema'
 import { T, nf } from './ui/theme'
 import type { Escala } from './ui/escala'
 import type { Mirilla } from './ui/disco'
@@ -279,6 +280,11 @@ export default function App () {
   const [imagen, setImagen] = useState(true)
   // Calzada mojada. Apagada de entrada: el estado de una vía se evalúa en seco.
   const [lluvia, setLluvia] = useState(false)
+  // Claro/oscuro del chrome. El hook ya deja `data-tema` puesto en la raíz
+  // del documento -- acá solo se reparte a quien no vive del CSS: los
+  // límites municipales (geometría de three, Task 4) y el minimapa (canvas
+  // 2D, Step 6b).
+  const { tema, alternar } = usarTema()
   const [q, setQ] = useState('')
   // Clave del resultado de búsqueda sobre el que está puesto el foco, y la
   // máscara de vías que ese resultado abarca. null = no hay foco, y el mapa
@@ -557,7 +563,7 @@ export default function App () {
               onElegir={(capa, rasgo) => setElegido({ capa, rasgo })} />
           ))}
           {visibles.has('municipios') && (
-            <LimitesMunicipales posiciones={data.limites} />
+            <LimitesMunicipales posiciones={data.limites} oscuro={tema === 'oscuro'} />
           )}
           {visibles.has('edificios') && <Buildings />}
           {visibles.has('edificios') && <Piezas />}
@@ -618,6 +624,8 @@ export default function App () {
         onLazo={() => setLassoOn(o => !o)}
         imagen={imagen}
         onImagen={() => setImagen(v => !v)}
+        oscuro={tema === 'oscuro'}
+        onTema={alternar}
         lluvia={lluvia}
         onLluvia={() => setLluvia(v => !v)}
         // Un Encuadre nuevo en cada clic: el efecto de <FlyTo> depende de la
@@ -646,7 +654,7 @@ export default function App () {
 
       <MiniMapa
         grid={data.terrainGrid} meta={data.terrain} municipios={data.municipios}
-        mirilla={mirilla} onIr={p => vista.current?.irA(p)}
+        mirilla={mirilla} onIr={p => vista.current?.irA(p)} tema={tema}
       />
 
       <BarraEscala escala={escala} />

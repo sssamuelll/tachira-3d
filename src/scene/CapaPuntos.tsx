@@ -179,7 +179,7 @@ export function CapaPuntos ({ capa, grid, meta, onElegir, onFallo }: {
             <Html center style={{
               transform: 'translateY(-18px)', pointerEvents: 'none', userSelect: 'none',
               fontFamily: T.fuente, fontSize: 11, whiteSpace: 'nowrap',
-              color: T.texto, background: 'rgba(255,255,255,.82)',
+              color: T.texto, background: T.etiquetaFondo,
               borderRadius: 3, padding: '1px 5px',
             }}>
               {String(s.rasgo.properties.nombre)}

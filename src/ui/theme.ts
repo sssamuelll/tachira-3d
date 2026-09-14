@@ -40,6 +40,8 @@ export const T = {
   sombra: 'var(--sombra)',
   sombraChica: 'var(--sombraChica)',
 
+  etiquetaFondo: 'var(--etiquetaFondo)',
+
   radio: 8,
   radioChico: 6,
   fuente: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',

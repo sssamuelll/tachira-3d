@@ -23,6 +23,10 @@ export const TOKENS_CLARO: Record<string, string> = {
   avisoLinea: '#f0dcae',
   sombra: '0 1px 2px rgba(31,33,36,.22), 0 6px 20px rgba(31,33,36,.14)',
   sombraChica: '0 1px 2px rgba(31,33,36,.24), 0 2px 6px rgba(31,33,36,.10)',
+  // Fondo de la etiqueta flotante de un marcador (CapaPuntos.tsx). Era un
+  // blanco fijo: sobre relieve oscuro quedaba un rectángulo blanco pegado al
+  // mapa. Chrome, no dato -- el texto encima ya usa `texto`, que sí cambia.
+  etiquetaFondo: 'rgba(255,255,255,.82)',
 }
 
 /** Azulado y no gris neutro, por la misma razón que el claro: contra el
@@ -47,6 +51,7 @@ export const TOKENS_OSCURO: Record<string, string> = {
   // que la sombra se mantiene por la forma y el borde hace el trabajo.
   sombra: '0 1px 2px rgba(0,0,0,.5), 0 6px 20px rgba(0,0,0,.4)',
   sombraChica: '0 1px 2px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.3)',
+  etiquetaFondo: 'rgba(17,22,28,.82)',
 }
 
 const declarar = (t: Record<string, string>) =>

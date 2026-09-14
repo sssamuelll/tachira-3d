@@ -116,3 +116,22 @@ export const Menos = (p: { size?: number }) => (
     <path d="M5 12h14" />
   </svg>
 )
+
+/** Tema: a diferencia de Foto o Lluvia, cuyo trazo no cambia con el estado,
+ * este SÍ dibuja algo distinto según el tema activo -- un sol en claro, una
+ * luna en oscuro -- porque lo que el botón activa es precisamente ese cambio,
+ * no algo aparte que el dibujo pudiera representar de forma neutra. */
+export const Tema = (p: { size?: number; oscuro?: boolean }) => (
+  p.oscuro
+    ? (
+      <svg {...base} width={p.size ?? 20} height={p.size ?? 20} aria-hidden>
+        <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+      </svg>
+      )
+    : (
+      <svg {...base} width={p.size ?? 20} height={p.size ?? 20} aria-hidden>
+        <circle cx="12" cy="12" r="4.3" />
+        <path d="M12 2.5v2.6M12 18.9v2.6M21.5 12h-2.6M5.1 12H2.5M18.6 5.4l-1.8 1.8M7.2 16.8l-1.8 1.8M18.6 18.6l-1.8-1.8M7.2 7.2 5.4 5.4" />
+      </svg>
+      )
+)

@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { T } from './theme'
-import { Encuadre, Lazo, Archivo, Foto, Lluvia, Mas, Menos } from './icons'
+import { Encuadre, Lazo, Archivo, Foto, Lluvia, Mas, Menos, Tema } from './icons'
 import { Camara } from '../foto/Foto'
 import type { Escala } from './escala'
 import { PanelCapas, type Fila } from './PanelCapas'
@@ -41,7 +41,7 @@ const par: CSSProperties = {
 
 export function MapControls ({
   capas, visibles, onCapa,
-  lazo, onLazo, imagen, onImagen, lluvia, onLluvia, onEncuadrar, onAcercar, onAlejar, onFoto,
+  lazo, onLazo, imagen, onImagen, oscuro, onTema, lluvia, onLluvia, onEncuadrar, onAcercar, onAlejar, onFoto,
 }: {
   capas: readonly Fila[]
   visibles: Set<string>
@@ -50,6 +50,8 @@ export function MapControls ({
   onLazo: () => void
   imagen: boolean
   onImagen: () => void
+  oscuro: boolean
+  onTema: () => void
   lluvia: boolean
   onLluvia: () => void
   onEncuadrar: () => void
@@ -70,6 +72,10 @@ export function MapControls ({
           entra en un modo del que haya que salir, prende y apaga una capa, y
           aria-pressed ya dice cuál de las dos. */}
       <Boton titulo="Imagen satelital" activo={imagen} onClick={onImagen}><Foto /></Boton>
+      {/* Mismo patrón: prende y apaga, así que el título no cambia y
+          aria-pressed dice cuál de las dos. El icono sí cambia -- sol o
+          luna -- porque acá lo que se representa es justo el estado. */}
+      <Boton titulo="Tema oscuro" activo={oscuro} onClick={onTema}><Tema oscuro={oscuro} /></Boton>
       {/* Moja la calzada. Mismo patrón que el satelital: prende y apaga una
           capa, así que el título no cambia y aria-pressed dice cuál de las
           dos. Un pavimento mojado enseña su estado mejor que uno seco -- los
