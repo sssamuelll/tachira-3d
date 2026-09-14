@@ -29,9 +29,9 @@ describe('aristasUnicas', () => {
     }
   })
 
-  it('sobre el dato real da 81.599 aristas de 132.165 vértices', async () => {
+  it('sobre el dato real da 81.570 aristas de 132.165 vértices', async () => {
     const { readFileSync } = await import('node:fs')
     const municipios = JSON.parse(readFileSync('public/data/municipios.json', 'utf8'))
-    expect(aristasUnicas(municipios)).toHaveLength(81_599)
+    expect(aristasUnicas(municipios)).toHaveLength(81_570)
   })
 })

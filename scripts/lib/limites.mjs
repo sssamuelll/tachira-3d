@@ -13,7 +13,9 @@
  * coinciden exactos, y esa tolerancia absorbe el ruido de pasar por JSON sin
  * llegar a fundir dos nodos distintos. Los nodos que OSM NO comparte no se
  * funden y su arista sale dos veces; eso es ruido del dato, el mismo que
- * stateMask ya trata como pinchazos.
+ * stateMask ya trata como pinchazos. Los 29 anillos de OSM repiten su primer
+ * vértice al final, así que la arista de cierre de cada uno mide cero: por eso
+ * salen 81.570 y no 81.599.
  */
 export function aristasUnicas (municipios) {
   const vistas = new Set()
