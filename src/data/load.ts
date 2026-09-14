@@ -55,7 +55,7 @@ export function checkOrigin (terrainOrigin: TerrainMeta['origin'], expected: typ
 }
 
 export async function loadAll () {
-  const [terrain, roads, municipios, tBuf, pBuf, sBuf, iBuf, nBuf] = await Promise.all([
+  const [terrain, roads, municipios, tBuf, pBuf, sBuf, iBuf, nBuf, lBuf] = await Promise.all([
     json<TerrainMeta>(urlGenerado('terrain.json')),
     json<RoadsMeta>(urlGenerado('roads-meta.json')),
     json<Municipio[]>(urlGenerado('municipios.json')),
@@ -64,6 +64,7 @@ export async function loadAll () {
     bin(urlGenerado('roads-segid.bin')),
     bin(urlGenerado('roads-index.bin')),
     bin(urlGenerado('roads-nrm.bin')),
+    bin(urlGenerado('limites-pos.bin')),
   ])
   const positions = new Float32Array(pBuf)
   const segIds = new Float32Array(sBuf)
@@ -86,5 +87,6 @@ export async function loadAll () {
     normals,
     juntas: prepararJuntas(positions, index, roads.ways),
     municipios,
+    limites: new Float32Array(lBuf),
   }
 }

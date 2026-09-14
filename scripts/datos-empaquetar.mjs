@@ -33,6 +33,7 @@ export const CONTENIDO = [
   'data/VERSION',
   'data/dem',
   'data/edificios',
+  'data/limites-pos.bin',
   'data/municipios.json',
   'data/terrain.bin',
   'data/terrain.json',
