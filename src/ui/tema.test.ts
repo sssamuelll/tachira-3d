@@ -38,10 +38,18 @@ describe('los tokens del tema', () => {
       return null   // sombras y demás: no son un color suelto
     }
     const delDato = new Set(PCI_RANGES.map(r => r.color.map(c => Math.round(c * 255)).join(',')))
-    for (const [clave, valor] of Object.entries({ ...TOKENS_CLARO, ...TOKENS_OSCURO })) {
-      const rgb = rgbDe(valor)
-      if (rgb === null) continue
-      expect(delDato.has(rgb), `--${clave} (${valor}) es un color de la rampa del PCI`).toBe(false)
+    // Las dos paletas se recorren POR SEPARADO. Fusionarlas con
+    // `{ ...CLARO, ...OSCURO }` las colapsa por clave -- las dos declaran los
+    // mismos 15 nombres -- y solo quedarían los valores de la oscura. La clara
+    // es justamente la que se aplica mientras nadie toque `data-tema`, así que
+    // ese fusionado vigilaba el lado inerte y dejaba suelto el que importa.
+    for (const [nombre, tokens] of [['clara', TOKENS_CLARO], ['oscura', TOKENS_OSCURO]] as const) {
+      for (const [clave, valor] of Object.entries(tokens)) {
+        const rgb = rgbDe(valor)
+        if (rgb === null) continue
+        expect(delDato.has(rgb),
+          `--${clave} de la paleta ${nombre} (${valor}) es un color de la rampa del PCI`).toBe(false)
+      }
     }
   })
 })

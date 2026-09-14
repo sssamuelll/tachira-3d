@@ -19,10 +19,14 @@ const MARGEN = 7
 
 const RADIO_PUNTO = 4.5
 
-// El cono de visión, en el azul de la interfaz (T.acento). Va con alfa y no
-// con un color sólido porque tiene que dejar ver el relieve de debajo: es una
-// indicación de hacia dónde miras, no una mancha.
-const CONO = (a: number) => `rgba(21,96,122,${a})`
+/** '#rrggbb' ya resuelto -> [r,g,b] en 0..255. El cono de abajo necesita
+ *  variarle el alfa al acento del tema, y eso no se puede escribir en un
+ *  rgba(...) con el color ya mezclado adentro -- hace falta separarlo en
+ *  componentes primero. */
+const rgbDeHex = (hex: string): [number, number, number] => {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim())
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [0, 0, 0]
+}
 
 /**
  * El estado completo en la esquina, con la marca de dónde estás mirando.
@@ -68,6 +72,15 @@ export function MiniMapa ({ grid, meta, municipios, mirilla, onIr }: {
     // inválido.
     const raiz = getComputedStyle(document.documentElement)
     const chrome = (token: string) => raiz.getPropertyValue(token.slice(4, -1)).trim()
+    // El cono de visión, en el acento del tema activo. Antes era un
+    // rgba(21,96,122,·) escrito a mano -- el hex del acento CLARO -- así que
+    // con el tema oscuro puesto se hubiera quedado pegado a ese azul en vez
+    // de seguirlo (Task 6). Con alfa y no un color sólido porque tiene que
+    // dejar ver el relieve de debajo: es una indicación de hacia dónde
+    // miras, no una mancha.
+    const acento = chrome(T.acento)
+    const [cr, cg, cb] = rgbDeHex(acento)
+    const CONO = (a: number) => `rgba(${cr},${cg},${cb},${a})`
     const r = L / 2
     ctx.clearRect(0, 0, L, L)
     ctx.save()
@@ -110,7 +123,7 @@ export function MiniMapa ({ grid, meta, municipios, mirilla, onIr }: {
       // desaparece, y es lo único que siempre tiene que verse.
       ctx.beginPath()
       ctx.arc(t.x, t.y, RADIO_PUNTO * dpr, 0, Math.PI * 2)
-      ctx.fillStyle = chrome(T.acento)
+      ctx.fillStyle = acento
       ctx.fill()
       ctx.lineWidth = 2 * dpr
       ctx.strokeStyle = '#fff'
