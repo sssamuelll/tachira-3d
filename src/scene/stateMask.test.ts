@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stateMask, indiceMunicipios } from './stateMask'
+import { stateMask } from './stateMask'
 import { pointInPolygon } from '../../scripts/lib/geo.mjs'
 import municipiosJson from '../../public/data/municipios.json'
 import terrainJson from '../../public/data/terrain.json'
@@ -80,66 +80,5 @@ describe('stateMask', () => {
       expect(frac).toBeGreaterThan(0.44)
       expect(frac).toBeLessThan(0.56)
     })
-  })
-})
-
-describe('indiceMunicipios', () => {
-  it('numera cada municipio desde 1 y deja 0 fuera', () => {
-    const idx = indiceMunicipios(
-      [muni(cuadrado(-0.5, 0, -0.5, 0.5)), muni(cuadrado(0, 0.5, -0.5, 0.5))],
-      { w: -1, e: 1, s: -1, n: 1 }, 21, 21)
-
-    // Las dos sondas van ESTRICTAMENTE dentro de su cuadrado, nunca sobre un
-    // borde: la columna 7 es lon −0,30 y la 12 es lon 0,20. Sondear un borde
-    // probaría la regla semiabierta del rasterizado (que excluye el lado
-    // derecho a propósito, para que dos vecinos no se pisen una columna), y
-    // eso no es lo que esta prueba quiere saber: quiere saber si el índice
-    // que se escribe es el del municipio correcto.
-    expect(idx[10 * 21 + 7]).toBe(1)    // dentro del primero
-    expect(idx[10 * 21 + 12]).toBe(2)   // dentro del segundo
-    expect(idx[0]).toBe(0)              // esquina NO, fuera de los dos
-  })
-
-  it('en un solape gana el último, que es el que se rasteriza después', () => {
-    const idx = indiceMunicipios(
-      [muni(cuadrado(-0.5, 0.5, -0.5, 0.5)), muni(cuadrado(-0.5, 0.5, -0.5, 0.5))],
-      { w: -1, e: 1, s: -1, n: 1 }, 21, 21)
-
-    expect(idx[10 * 21 + 10]).toBe(2)
-  })
-
-  // El invariante que importa en el mapa: la línea de límite no puede
-  // aparecer donde el relieve está recortado, ni faltar donde sí se dibuja.
-  it('marca exactamente los mismos vértices que stateMask sobre los municipios reales', () => {
-    const W = 256, H = 256
-    const idx = indiceMunicipios(municipios, bbox, W, H)
-    const mask = stateMask(municipios, bbox, W, H)
-
-    let distintos = 0
-    for (let i = 0; i < W * H; i++) if ((idx[i] > 0) !== (mask[i] > 0)) distintos++
-    expect(distintos).toBe(0)
-  })
-
-  it('los 29 municipios salen todos, ninguno tapado del todo por un vecino', () => {
-    const idx = indiceMunicipios(municipios, bbox, 1024, 1024)
-    const vistos = new Set(idx)
-    vistos.delete(0)
-    expect(vistos.size).toBe(municipios.length)
-  })
-
-  // El índice es un Uint8Array y el 0 está tomado por "fuera del estado", así
-  // que caben 255 municipios y ni uno más. Pasado ese punto los índices dan la
-  // vuelta en silencio y dos municipios distintos comparten número: la línea
-  // de límite entre ellos desaparece, sin un solo error por ningún lado. El
-  // Táchira tiene 29, así que esto no salta hoy -- salta el día que alguien
-  // reutilice esto para un país entero.
-  it('se niega a indexar más municipios de los que caben en un byte', () => {
-    const muchos = Array.from({ length: 256 }, () => muni(cuadrado(-72.2, -72.1, 7.8, 7.9)))
-    expect(() => indiceMunicipios(muchos, bbox, 64, 64)).toThrow(/municipios/)
-  })
-
-  it('acepta el máximo que sí cabe', () => {
-    const justos = Array.from({ length: 255 }, () => muni(cuadrado(-72.2, -72.1, 7.8, 7.9)))
-    expect(() => indiceMunicipios(justos, bbox, 64, 64)).not.toThrow()
   })
 })

@@ -15,7 +15,6 @@ function fragmentRelieve (): string {
   }
   const m = materialRelieve({
     min: 0, max: 1, mascara: new THREE.Texture(),
-    indices: new THREE.Texture(), texelIndices: 1 / 2048,
   })
   m.onBeforeCompile(shader as never, null as never)
   return shader.fragmentShader

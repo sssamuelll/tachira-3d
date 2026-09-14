@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import * as THREE from 'three'
 import { CSM } from 'three/examples/jsm/csm/CSM.js'
-import { GANCHOS, materialRelieve, UniformsRelieve } from './terrainShader'
+import { GANCHOS, materialRelieve } from './terrainShader'
 
 // Compila el material a mano: three llama a onBeforeCompile con el shader ya
 // ensamblado, así que acá se le pasa el de ShaderLib.standard tal cual, que es
@@ -19,7 +19,6 @@ function compilar (material: THREE.Material) {
 function mat () {
   return materialRelieve({
     min: 0, max: 4000, mascara: new THREE.Texture(),
-    indices: new THREE.Texture(), texelIndices: 1 / 2048,
   })
 }
 
@@ -79,7 +78,6 @@ describe('materialRelieve', () => {
     // vacío y el relieve saldría siempre con hipsometría.
     const m = materialRelieve({
       min: 0, max: 4000, mascara: new THREE.Texture(), ganancia: 1.35,
-      indices: new THREE.Texture(), texelIndices: 1 / 2048,
     })
     const u = m.userData.uniforms
     u.uImagen.value = 1
@@ -107,7 +105,6 @@ describe('materialRelieve', () => {
     })
     const m = materialRelieve({
       min: 0, max: 4000, mascara: new THREE.Texture(), cascadas: csm,
-      indices: new THREE.Texture(), texelIndices: 1 / 2048,
     })
     expect(m.defines!.USE_CSM).toBe(1)
     expect(m.defines!.CSM_CASCADES).toBe(3)
@@ -130,57 +127,5 @@ describe('materialRelieve', () => {
     // Sin esto three mete las caras TRASERAS en el shadow map y el relieve,
     // que es una superficie abierta, proyecta al revés.
     expect(m.shadowSide).toBe(THREE.FrontSide)
-  })
-
-  describe('límites municipales', () => {
-    it('el material expone los uniforms de los límites, apagados de fábrica', () => {
-      const u = mat().userData.uniforms as UniformsRelieve
-      expect(u.uLimites.value).toBe(0)
-      expect(u.uIndices.value).not.toBeNull()
-      expect(u.uTexelIdx.value.x).toBeCloseTo(1 / 2048)
-      expect(u.uTexelIdx.value.y).toBeCloseTo(1 / 2048)
-    })
-
-    it('el fragment declara el muestreador de índices y el interruptor', () => {
-      const s = compilar(mat())
-      expect(s.fragmentShader).toContain('uniform sampler2D uIndices')
-      expect(s.fragmentShader).toContain('uniform float uLimites')
-      expect(s.fragmentShader).toContain('uniform vec2 uTexelIdx')
-    })
-
-    // Lo que hace que sea un límite y no ruido: se compara el texel con sus
-    // cuatro vecinos a un texel de distancia, sobre la misma uv que la máscara.
-    it('el fragment compara el índice con sus cuatro vecinos', () => {
-      const s = compilar(mat())
-      // Los cuatro desplazamientos, cada uno una vez. Contar llamadas a difiere()
-      // dependería de si la declaración lleva espacio antes del paréntesis; esto
-      // comprueba lo que de verdad importa, que se mire a los cuatro lados.
-      for (const offset of [
-        'vec2(uTexelIdx.x, 0.0)',
-        'vec2(0.0, uTexelIdx.y)',
-      ]) {
-        expect(s.fragmentShader.split(offset).length - 1, offset).toBe(2)
-      }
-      expect(s.fragmentShader).toContain('vUvM + vec2(uTexelIdx.x, 0.0)')
-      expect(s.fragmentShader).toContain('vUvM - vec2(uTexelIdx.x, 0.0)')
-      expect(s.fragmentShader).toContain('vUvM + vec2(0.0, uTexelIdx.y)')
-      expect(s.fragmentShader).toContain('vUvM - vec2(0.0, uTexelIdx.y)')
-    })
-
-    // Dentro del albedo, no después: la línea tiene que recibir la luz del
-    // terreno. Si alguien la sacara del albedo, esto lo dice.
-    it('la línea se mezcla dentro del albedo, antes de la iluminación', () => {
-      const s = compilar(mat())
-      const albedo = s.fragmentShader.slice(s.fragmentShader.indexOf('vec3 albedoRelieve'))
-      expect(albedo.slice(0, albedo.indexOf('\n}'))).toContain('uLimites')
-    })
-
-    it('los uniforms del material y los del shader son el mismo objeto', () => {
-      const m = mat()
-      const s = compilar(m)
-      const u = m.userData.uniforms as UniformsRelieve
-      u.uLimites.value = 1
-      expect((s.uniforms.uLimites as { value: number }).value).toBe(1)
-    })
   })
 })

@@ -7,6 +7,7 @@ import { Roads } from './scene/Roads'
 import { Buildings } from './scene/Buildings'
 import { Piezas } from './scene/Piezas'
 import { CapaPuntos } from './scene/CapaPuntos'
+import { LimitesMunicipales } from './scene/LimitesMunicipales'
 import { SombrasEdificios } from './scene/SombrasEdificios'
 import { fechaDeEscena } from './scene/sol'
 import { FlyTo, Vista, bboxCenterAndSpan, idsCenterAndSpan, enuOf, type Encuadre, type ApiVista } from './scene/Camera'
@@ -550,11 +551,14 @@ export default function App () {
         <Suspense fallback={null}>
           <Sky date={date} />
           <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen}
-            date={date} limites={visibles.has('municipios')} />
+            date={date} />
           {CAPAS.filter(c => visibles.has(c.id) && c.geometria === 'punto').map(c => (
             <CapaPuntos key={c.id} capa={c} grid={data.terrainGrid} meta={data.terrain} onFallo={anotarFallo}
               onElegir={(capa, rasgo) => setElegido({ capa, rasgo })} />
           ))}
+          {visibles.has('municipios') && (
+            <LimitesMunicipales posiciones={data.limites} />
+          )}
           {visibles.has('edificios') && <Buildings />}
           {visibles.has('edificios') && <Piezas />}
           {visibles.has('edificios') && <SombrasEdificios date={date} />}

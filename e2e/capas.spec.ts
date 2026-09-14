@@ -10,9 +10,9 @@ import { appendFileSync, mkdirSync } from 'node:fs'
  *  - Un marcador de hospital termina donde está el suelo, o flotando, o
  *    enterrado. El apoyo es un raycast contra la malla YA dibujada: sin malla
  *    real no hay nada que medir, y `alturaGruesa` sola no lo responde.
- *  - El uniforme `uLimites` llega a TODOS los nodos del terreno o sólo a los
- *    que el bucle por cuadro alcanzó antes de un `continue`. Un test unitario
- *    del shader no ve el bucle; acá se leen los materiales vivos.
+ *  - Que ningún nodo del relieve conserve el uniforme `uLimites`: es el
+ *    camino viejo que este mismo cambio borró, y un test unitario del shader
+ *    no ve el bucle por nodo que podía dejarlo a medio apagar.
  *  - La URL y el panel no se desincronizan ni entran en ciclo.
  *  - Un clic en un marcador abre su ficha -- y qué le hace a la selección de
  *    vías, que es el defecto conocido y sin arreglar de esta rama.
@@ -149,19 +149,6 @@ async function esperarCuadros (page: Page, n: number) {
       requestAnimationFrame(tic)
     })
   }, n, { timeout: 180_000 } as any)
-}
-
-/** Espera a que TODOS los nodos visibles del terreno lleven el valor pedido en
- *  `uLimites`. Por condición y no por reloj: el uniforme se escribe dentro del
- *  useFrame y con WebGL por software esto corre a ~1 cuadro por segundo. */
-async function esperarUniforme (page: Page, valor: number) {
-  await page.waitForFunction(v => {
-    const g = window.__estado!().scene.getObjectByName('terrain')
-    const vis = (g?.children ?? []).filter((m: any) => m.visible &&
-      m.material?.userData?.uniforms?.uLimites)
-    return vis.length > 0 &&
-      vis.every((m: any) => m.material.userData.uniforms.uLimites.value === v)
-  }, valor, { timeout: 60_000 })
 }
 
 /** Prende o apaga una capa por su nombre visible, y espera a que el botón lo
@@ -366,55 +353,42 @@ test.describe.serial('sobre el relieve dibujado', () => {
       `el peor marcador está a ${peor.desvio} m del suelo`).toBeLessThan(APOYO_MAX)
   })
 
-  test('los límites municipales llegan a todos los nodos del terreno', async () => {
-    // Apagados primero: el uniforme tiene que estar en cero en TODOS, incluidos
-    // los nodos que el bucle por cuadro salta con un `continue`. Un nodo que se
-    // quede con el valor del cuadro anterior dibuja una línea fantasma.
-    // Se espera por CONDICIÓN, no por tiempo. Con WebGL por software esta app
-    // corre a ~1 cuadro por segundo (medido), y el uniforme sólo se reescribe
-    // dentro del useFrame: cualquier espera en milisegundos es una apuesta
-    // sobre cuántos cuadros caben. Con esto el test mide lo que quiere medir
-    // -- que el valor llega -- y no la velocidad de la máquina.
+  test('los límites municipales se dibujan como línea, no como textura', async () => {
     await alternar(page, 'Municipios', false)
-    await esperarUniforme(page, 0)
-
-    // Los uniformes del relieve no cuelgan de `material.uniforms` sino de
-    // `material.userData.uniforms`: el material es un MeshStandardMaterial
-    // parcheado con onBeforeCompile, no un ShaderMaterial. Sólo se miran los
-    // nodos VISIBLES -- los que el quadtree dejó fuera conservan los valores
-    // del cuadro en que se los usó, y eso no dibuja nada.
-    const leer = () => page.evaluate(() => {
-      const g = window.__estado!().scene.getObjectByName('terrain')
-      const vals: number[] = []
-      let sinTextura = 0, texel: any = null
-      for (const m of g.children as any[]) {
-        if (!m.visible) continue
-        const u = m.material?.userData?.uniforms
-        if (!u?.uLimites) continue
-        vals.push(u.uLimites.value)
-        if (!u.uIndices?.value) sinTextura++
-        if (!texel && u.uTexelIdx) texel = [u.uTexelIdx.value.x, u.uTexelIdx.value.y]
-      }
-      return { n: vals.length, unos: vals.filter(v => v === 1).length, sinTextura, texel }
-    })
-
-    const off = await leer()
-    informar(`municipios apagados: ${off.unos}/${off.n} nodos con uLimites=1`)
-    expect(off.n, 'ningún nodo del terreno expone uLimites').toBeGreaterThan(0)
-    expect(off.unos, 'nodos dibujando límites con la capa apagada').toBe(0)
+    await page.waitForFunction(
+      () => !window.__estado!().scene.getObjectByName('limites'), { timeout: 60_000 })
 
     await alternar(page, 'Municipios', true)
-    await esperarUniforme(page, 1)
+    await page.waitForFunction(
+      () => !!window.__estado!().scene.getObjectByName('limites'), { timeout: 60_000 })
 
-    const on = await leer()
-    informar(`municipios prendidos: ${on.unos}/${on.n} nodos con uLimites=1, ` +
-      `sin textura de índices: ${on.sinTextura}, texel ${JSON.stringify(on.texel)}`)
-    expect(on.unos, 'nodos que se quedaron sin el uniforme al prender la capa').toBe(on.n)
-
-    // El uniforme sin la textura no dibuja nada y no avisa: es el fallo
-    // silencioso que este test existe para atrapar.
-    expect(on.sinTextura, 'nodos con uLimites=1 pero uIndices null').toBe(0)
-    expect(on.texel[0]).toBeCloseTo(1 / 2048, 8)
+    const m = await page.evaluate(() => {
+      const o = window.__estado!().scene.getObjectByName('limites') as any
+      const s = window.__estado!().size
+      return {
+        segmentos: o.geometry.attributes.instanceStart.count,
+        anchoPx: o.material.linewidth,
+        resolucion: [o.material.resolution.x, o.material.resolution.y],
+        lienzo: [s.width, s.height],
+        // worldUnits decide si el ancho va en píxeles o en metros, y es la
+        // diferencia entera con la textura que esto reemplaza. renderOrder
+        // negativo mantiene la línea por debajo de toda vía (ordenCapa nunca
+        // baja de 0). Ningún test unitario los cubre: una regresión que
+        // borrara cualquiera de los dos pasaba la suite entera en verde.
+        worldUnits: o.material.worldUnits,
+        orden: o.renderOrder,
+        // El uniforme viejo no puede seguir vivo en ningún nodo del relieve.
+        quedanUniformes: (window.__estado!().scene.getObjectByName('terrain')?.children ?? [])
+          .filter((n: any) => n.material?.userData?.uniforms?.uLimites).length,
+      }
+    })
+    informar(`límites: ${m.segmentos} segmentos, ${m.anchoPx} px, resolución ${JSON.stringify(m.resolucion)}`)
+    expect(m.segmentos).toBeGreaterThan(80_000)
+    expect(m.quedanUniformes, 'quedó uLimites en algún nodo del relieve').toBe(0)
+    // Si la resolución no sigue al lienzo, el ancho en píxeles deja de ser el pedido.
+    expect(m.resolucion).toEqual(m.lienzo)
+    expect(m.worldUnits, 'con worldUnits el ancho volvería a ir en metros').toBe(false)
+    expect(m.orden, 'la línea tiene que quedar por debajo de toda vía').toBeLessThan(0)
   })
 
   test('un clic en un marcador abre su ficha', async () => {
