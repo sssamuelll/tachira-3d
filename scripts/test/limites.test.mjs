@@ -68,11 +68,22 @@ describe('limitesEnu', () => {
 
   // Una arista larga sobre relieve que cambia tiene que partirse: si no, la
   // cuerda recta cruza por debajo de la loma que hay en medio.
-  it('parte una arista larga que se apartaría del relieve', () => {
-    const loma = (lon) => (lon > 0.4 && lon < 0.6 ? 500 : 0)
-    const buf = limitesEnu([[[0, 0], [1, 0]]], {
-      alturaDe: (lon) => loma(lon), frame, alza: 0, enu: enuPlano, pasoM: 30,
+  //
+  // `pasoM` enorme a propósito, para que `subdividir` no parta nada y lo único
+  // que pueda meter puntos sea `apoyar` -- que es lo que este test dice
+  // probar. Con pasoM: 30 la arista de [0,0] a [1,0], que mide ~111 km, se
+  // partía en 3.712 puntos ella sola: el test pasaba aunque `apoyar` no se
+  // llamara. Y sin el control de abajo tampoco distinguiría partir por la loma
+  // de partir porque sí.
+  it('parte una arista larga solo donde el relieve lo pide', () => {
+    const conLoma = limitesEnu([[[0, 0], [1, 0]]], {
+      alturaDe: (lon) => (lon > 0.4 && lon < 0.6 ? 500 : 0),
+      frame, alza: 0, enu: enuPlano, pasoM: 1e9,
     })
-    expect(buf.length / 6).toBeGreaterThan(1)
+    const llano = limitesEnu([[[0, 0], [1, 0]]], {
+      alturaDe: () => 0, frame, alza: 0, enu: enuPlano, pasoM: 1e9,
+    })
+    expect(llano.length / 6, 'sin loma que esquivar no hay nada que partir').toBe(1)
+    expect(conLoma.length / 6, 'la loma tiene que obligar a partir').toBeGreaterThan(1)
   })
 })
