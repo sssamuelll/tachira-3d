@@ -51,7 +51,7 @@ Medido sobre `public/data/municipios.json` (2026-09-14):
 | Municipios | 29 |
 | Anillos | 29 |
 | Vértices | 132.165 |
-| **Aristas únicas** | **81.599** |
+| **Aristas únicas** | **81.570** |
 | **Aristas compartidas por dos municipios** | **50.566 (62 %)** |
 | Perímetro total | 3.242 km |
 | Largo de arista: mediana / p90 / p99 / máx | 15,5 m / 40,8 m / 152 m / 5.564 m |
@@ -82,7 +82,13 @@ en OSM son el mismo nodo, así que coinciden exactamente; siete decimales
 absorben el ruido de la serialización a JSON sin llegar a fundir dos nodos
 distintos.
 
-Salida: 81.599 aristas, un 38 % menos que dibujando los anillos.
+Salida: 81.570 aristas, un 38 % menos que dibujando los anillos.
+
+Ese número excluye las 29 aristas de cierre degeneradas -- una por anillo:
+los 29 anillos de OSM repiten su primer vértice al final, así que el tramo
+`último → primero` mide cero y no es una arista. Medido el 2026-09-14, después
+de que la Task 1 lo destapara: la primera cuenta de este spec decía 81.599
+porque las contaba.
 
 **Los nodos que OSM no comparte exactamente no se funden y se dibujarán dos
 veces.** Eso es aceptable —son los pinchazos que `stateMask` ya trata como
@@ -260,7 +266,7 @@ de dar esto por bueno hay que mirar, en oscuro:
 
 - `aristasUnicas()`: dos municipios que comparten una frontera producen esa
   arista una sola vez; el sentido del recorrido no importa; el conteo sobre el
-  dato real es 81.599.
+  dato real es 81.570.
 - El drapeado del pipeline: una arista sobre terreno conocido sale con la
   altura que `alturaTriangulo` da en esos puntos.
 - `temaDe(guardado, prefiereOscuro)`: la elección explícita gana; sin ella
@@ -283,7 +289,7 @@ satelital, y si la paleta oscura se ve como él quiere.
 
 | Riesgo | Qué se hace |
 |---|---|
-| Los 81.599 segmentos en un solo `LineSegments2` pueden pesar al dibujar | Medir con GPU real antes de optimizar. Si pesa, el corte natural es por municipio y recortar por frustum, no bajar la calidad de la línea |
+| Los ~81.570 segmentos en un solo `LineSegments2` pueden pesar al dibujar | Medir con GPU real antes de optimizar. Si pesa, el corte natural es por municipio y recortar por frustum, no bajar la calidad de la línea |
 | La línea se hunde donde el DEM del pipeline y la malla dibujada no coinciden exactamente | Es el mismo riesgo que ya corren las vías, con el mismo margen (`ALZA_MIN_M`). Si aparece, se sube ese margen para los límites, que toleran más paralaje que una calzada |
 | Borrar los uniformes del shader toca `albedoRelieve()`, que dibuja todo el relieve | Los tests de `terrainShader` existen y se corren; el e2e del relieve (`relieve.spec.ts`) es la red de verdad y hay que correrlo entero antes de cerrar |
 | El tema oscuro deja algún color ilegible que nadie mira | §4.5 lo lista explícitamente; además el e2e comprueba que la rampa del PCI no cambia |

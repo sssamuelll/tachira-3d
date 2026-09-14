@@ -69,10 +69,10 @@ describe('aristasUnicas', () => {
     }
   })
 
-  it('sobre el dato real da 81.599 aristas de 132.165 vértices', async () => {
+  it('sobre el dato real da 81.570 aristas de 132.165 vértices', async () => {
     const { readFileSync } = await import('node:fs')
     const municipios = JSON.parse(readFileSync('public/data/municipios.json', 'utf8'))
-    expect(aristasUnicas(municipios)).toHaveLength(81_599)
+    expect(aristasUnicas(municipios)).toHaveLength(81_570)
   })
 })
 ```
@@ -134,7 +134,7 @@ Expected: PASS, 4/4.
 
 - [ ] **Step 5: Comprobar que el test del dato real discrimina**
 
-Cambia temporalmente `if (vistas.has(k)) continue` por `if (false) continue`, corre el test y confirma que el conteo pasa de 81.599 a 132.165. Restaura y pega las dos salidas en el informe. Un test que cuenta tiene que demostrar que cuenta.
+Cambia temporalmente `if (vistas.has(k)) continue` por `if (false) continue`, corre el test y confirma que el conteo pasa de 81.570 a 132.136. Restaura y pega las dos salidas en el informe. Un test que cuenta tiene que demostrar que cuenta.
 
 - [ ] **Step 6: Commit**
 
@@ -177,18 +177,21 @@ describe('limitesEnu', () => {
   const frame = null
   const enuPlano = (_f, lat, lon, h) => [lon * 1000, lat * 1000, h]
 
+  // Ningún componente vale cero a propósito: con lat 0 el -norte sale como
+  // -0, y toEqual distingue -0 de 0. El mapeo de ejes se comprueba igual de
+  // bien sin depender del signo del cero.
   it('devuelve 6 floats por segmento, en ejes de three', () => {
-    const buf = limitesEnu([[[0, 0], [1, 0]]], {
+    const buf = limitesEnu([[[3, 2], [4, 2]]], {
       alturaDe: () => 100, frame, alza: 0, enu: enuPlano, pasoM: 1e9,
     })
     expect(buf).toBeInstanceOf(Float32Array)
     expect(buf).toHaveLength(6)
     // [este, arriba, -norte] = [lon*1000, h, -lat*1000]
-    expect([...buf]).toEqual([0, 100, -0, 1000, 100, -0])
+    expect([...buf]).toEqual([3000, 100, -2000, 4000, 100, -2000])
   })
 
   it('alza cada vértice sobre el terreno', () => {
-    const buf = limitesEnu([[[0, 0], [1, 0]]], {
+    const buf = limitesEnu([[[3, 2], [4, 2]]], {
       alturaDe: () => 100, frame, alza: 0.25, enu: enuPlano, pasoM: 1e9,
     })
     expect(buf[1]).toBeCloseTo(100.25, 5)
@@ -283,7 +286,7 @@ la *escritura* de `municipios.json`, que no estorba.
 - [ ] **Step 6: Correr el pipeline y comprobar el archivo**
 
 Run: `npm run data`
-Expected: la línea `6b/9 límites municipales` con 81.599 aristas y un número de segmentos mayor o igual. Después:
+Expected: la línea `6b/9 límites municipales` con 81.570 aristas y un número de segmentos mayor o igual. Después:
 
 ```bash
 node -e "const {statSync}=require('fs');const b=statSync('public/data/limites-pos.bin');console.log(b.size,'bytes =',b.size/4/6,'segmentos')"
@@ -686,12 +689,24 @@ describe('los tokens del tema', () => {
 
   // La regla que no se cruza: el color del DATO no puede entrar acá. Un verde
   // que significa "pavimento bueno" tiene que ser el mismo de día y de noche.
+  //
+  // Los dos lados se normalizan a triplete rgb antes de comparar. Comparar el
+  // hex del token contra lo que css3() devuelve (`rgb(33,158,79)`) no casaría
+  // NUNCA, y el test pasaría siempre sin comprobar nada.
   it('ningún token es un color de la rampa del PCI', async () => {
     const { PCI_RANGES } = await import('../data/constants')
-    const { css3 } = await import('./theme')
-    const delDato = new Set(PCI_RANGES.map(r => css3(r.color).toLowerCase()))
-    for (const valor of Object.values(TOKENS_CLARO)) {
-      expect(delDato.has(String(valor).toLowerCase()), `${valor} es un color del PCI`).toBe(false)
+    const rgbDe = (v: string): string | null => {
+      const hex = /^#([0-9a-f]{6})$/i.exec(v.trim())
+      if (hex) return [0, 2, 4].map(i => parseInt(hex[1].slice(i, i + 2), 16)).join(',')
+      const rgb = /^rgba?\(([^)]+)\)$/i.exec(v.trim())
+      if (rgb) return rgb[1].split(',').slice(0, 3).map(n => Math.round(+n)).join(',')
+      return null   // sombras y demás: no son un color suelto
+    }
+    const delDato = new Set(PCI_RANGES.map(r => r.color.map(c => Math.round(c * 255)).join(',')))
+    for (const [clave, valor] of Object.entries({ ...TOKENS_CLARO, ...TOKENS_OSCURO })) {
+      const rgb = rgbDe(valor)
+      if (rgb === null) continue
+      expect(delDato.has(rgb), `--${clave} (${valor}) es un color de la rampa del PCI`).toBe(false)
     }
   })
 })
@@ -962,17 +977,52 @@ Añadir al final de `e2e/capas.spec.ts`:
 
 ```typescript
   test('el tema cambia el chrome y NO cambia el color del dato', async () => {
+    // Hace falta una vía seleccionada: la ficha del PCI es donde vive el color
+    // del dato en el DOM. Se selecciona con el lazo, como en el test del clic.
+    await situarse(page, SAN_CRISTOBAL.lat, SAN_CRISTOBAL.lon, 1200)
+    await esperarCuadros(page, 20)
+    await page.getByRole('button', { name: 'Seleccionar por lazo' }).click()
+    const caja = (await page.locator('canvas').first().boundingBox())!
+    const cx = caja.x + caja.width / 2, cy = caja.y + caja.height / 2
+    await page.mouse.move(cx - 250, cy - 180)
+    await page.mouse.down()
+    for (const [dx, dy] of [[250, -180], [250, 180], [-250, 180], [-250, -180]]) {
+      await page.mouse.move(cx + dx, cy + dy, { steps: 8 })
+    }
+    await page.mouse.up()
+    await esperarCuadros(page, 5)
+
+    // El chrome: el fondo del panel de capas.
     const fondoPanel = () => page.evaluate(() =>
       getComputedStyle(document.querySelector('[role="group"][aria-label="Capas del mapa"]')!)
         .backgroundColor)
-    const claro = await fondoPanel()
-    await page.getByRole('button', { name: 'Tema oscuro' }).click()
-    await expect.poll(fondoPanel).not.toBe(claro)
+    // El dato: el color con que la ficha pinta el tramo de PCI. Se busca el
+    // elemento que lo lleva y se guarda su color calculado, que es lo que el
+    // ojo ve -- no el token, que por definición cambiaría.
+    const colorDelDato = () => page.evaluate(() => {
+      const todos = [...document.querySelectorAll('*')]
+        .map(e => getComputedStyle(e).backgroundColor)
+        .filter(c => c.startsWith('rgb') && c !== 'rgba(0, 0, 0, 0)')
+      return todos.join('|')
+    })
 
-    // La rampa del PCI es dato: el mismo verde de día y de noche.
-    const rampa = await page.evaluate(() => getComputedStyle(document.documentElement)
-      .getPropertyValue('--fondo'))
-    expect(rampa.trim()).not.toBe('')
+    const chromeAntes = await fondoPanel()
+    const datoAntes = await colorDelDato()
+    expect(datoAntes, 'sin ficha de PCI abierta el test no mide nada').not.toBe('')
+
+    await page.getByRole('button', { name: 'Tema oscuro' }).click()
+    await expect.poll(fondoPanel).not.toBe(chromeAntes)
+
+    // Y ahora lo que el spec §4.1 prohíbe: que el dato haya cambiado con él.
+    const delPci = await page.evaluate(async () => {
+      const { PCI_RANGES } = await import('/src/data/constants.ts')
+      return PCI_RANGES.map((r: any) => `rgb(${r.color.map((c: number) => Math.round(c * 255)).join(', ')})`)
+    })
+    const datoDespues = await colorDelDato()
+    for (const color of delPci) {
+      expect(datoDespues.includes(color), `el tema se llevó por delante ${color} de la rampa del PCI`)
+        .toBe(datoAntes.includes(color))
+    }
   })
 ```
 
