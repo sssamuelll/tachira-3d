@@ -44,7 +44,13 @@ al montar aunque nadie prenda la capa.
 
 ### 3.1 El dato que hay
 
-Medido sobre `public/data/municipios.json` (2026-09-14):
+Medido sobre `public/data/municipios.json` (2026-09-14). **Las filas de largo
+y conteo van sobre TODAS las aristas de los anillos**, con las compartidas
+contadas dos veces — que es la población que existe antes de deduplicar. Sobre
+las 81.570 únicas los mismos valores dan mediana 15,7 m y ~1.670 aristas de
+más de 100 m; la cifra exacta de esa última baila unas pocas unidades según se
+mida la distancia con geodésica o con la aproximación plana, así que no vale
+citarla al entero.
 
 | | |
 |---|---|
@@ -125,7 +131,7 @@ error real contra el DEM en vez de trocear a ciegas.
 - `public/data/limites-pos.bin` — `Float32Array` con 6 floats por segmento
   (x,y,z del inicio y del fin en ENU), el mismo formato que `roads-pos.bin`
   espera `LineSegmentsGeometry.setPositions`.
-- La entrada correspondiente en la lista `ARCHIVOS` de
+- La entrada correspondiente en la lista `CONTENIDO` de
   `scripts/datos-empaquetar.mjs`, para que entre en el Release.
 - Una carga más en `load.ts`, junto a las que ya hay.
 

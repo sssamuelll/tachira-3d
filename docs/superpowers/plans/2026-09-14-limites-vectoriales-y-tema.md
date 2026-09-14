@@ -200,12 +200,23 @@ describe('limitesEnu', () => {
 
   // Una arista larga sobre relieve que cambia tiene que partirse: si no, la
   // cuerda recta cruza por debajo de la loma que hay en medio.
-  it('parte una arista larga que se apartaría del relieve', () => {
-    const loma = (lon) => (lon > 0.4 && lon < 0.6 ? 500 : 0)
-    const buf = limitesEnu([[[0, 0], [1, 0]]], {
-      alturaDe: (lon) => loma(lon), frame, alza: 0, enu: enuPlano, pasoM: 30,
+  //
+  // `pasoM` enorme a propósito, para que `subdividir` no parta nada y lo único
+  // que pueda meter puntos sea `apoyar` -- que es lo que este test dice
+  // probar. Con pasoM: 30 la arista de [0,0] a [1,0], que mide ~111 km, se
+  // partía en 3.712 puntos ella sola: el test pasaba aunque `apoyar` no se
+  // llamara. Y sin el control de abajo tampoco distinguiría partir por la loma
+  // de partir porque sí.
+  it('parte una arista larga solo donde el relieve lo pide', () => {
+    const conLoma = limitesEnu([[[0, 0], [1, 0]]], {
+      alturaDe: (lon) => (lon > 0.4 && lon < 0.6 ? 500 : 0),
+      frame, alza: 0, enu: enuPlano, pasoM: 1e9,
     })
-    expect(buf.length / 6).toBeGreaterThan(1)
+    const llano = limitesEnu([[[0, 0], [1, 0]]], {
+      alturaDe: () => 0, frame, alza: 0, enu: enuPlano, pasoM: 1e9,
+    })
+    expect(llano.length / 6, 'sin loma que esquivar no hay nada que partir').toBe(1)
+    expect(conLoma.length / 6, 'la loma tiene que obligar a partir').toBeGreaterThan(1)
   })
 })
 ```
@@ -306,7 +317,7 @@ git commit -m "feat: el pipeline drapea los limites municipales contra el DEM"
 ### Task 3: Empaquetar y cargar `limites-pos.bin`
 
 **Files:**
-- Modify: `scripts/datos-empaquetar.mjs` (la lista `ARCHIVOS`, sobre la línea 37)
+- Modify: `scripts/datos-empaquetar.mjs` (la lista exportada `CONTENIDO`, línea 32)
 - Modify: `src/data/load.ts` (el `Promise.all` de la línea 58 y el objeto que devuelve)
 - **`.gitignore` no se toca**: ya ignora `public/data/*` entero (línea 3), con
   excepciones solo para `piezas/` y `capas/`. El binario generado no se
@@ -318,11 +329,17 @@ git commit -m "feat: el pipeline drapea los limites municipales contra el DEM"
 
 - [ ] **Step 1: Añadir el archivo al empaquetado**
 
-En `scripts/datos-empaquetar.mjs`, en la lista `ARCHIVOS`, junto a las demás entradas `data/*.bin` y en orden alfabético con ellas:
+En `scripts/datos-empaquetar.mjs`, en la lista exportada **`CONTENIDO`** (ese
+es su nombre; la línea 32), entre `'data/edificios'` y `'data/municipios.json'`,
+que es donde cae por orden alfabético:
 
 ```javascript
   'data/limites-pos.bin',
 ```
+
+El comentario de esa lista dice que es de exclusiones —lo que no está nombrado
+no viaja—, así que olvidarse de esta línea significa que el binario no entra en
+el Release y el mapa publicado se queda sin límites, sin que nada falle antes.
 
 - [ ] **Step 2: Cargarlo en el navegador**
 
@@ -367,7 +384,7 @@ git commit -m "feat: limites-pos.bin entra en el paquete de datos y se carga al 
 
 **Interfaces:**
 - Consumes: `data.limites: Float32Array` de la Task 3.
-- Produces: `<LimitesMunicipales posiciones={Float32Array} color={string} />`, que monta en la escena un objeto llamado `limites`. Y las constantes exportadas `ANCHO_PX`, `OPACIDAD`.
+- Produces: `<LimitesMunicipales posiciones={Float32Array} oscuro?={boolean} />`, que monta en la escena un objeto llamado `limites`. Y las constantes exportadas `ANCHO_PX`, `OPACIDAD`, `COLOR_CLARO`, `COLOR_OSCURO`.
 
 **Contexto:** el patrón exacto sale de `src/scene/Roads.tsx`. `worldUnits: false` es lo que pone el ancho en **píxeles** en vez de metros, y es el punto de toda la tanda; `material.resolution` hay que mantenerla al día con el tamaño del lienzo o el ancho deja de ser el pedido.
 
@@ -614,6 +631,13 @@ En `e2e/capas.spec.ts`, el test `los límites municipales llegan a todos los nod
         anchoPx: o.material.linewidth,
         resolucion: [o.material.resolution.x, o.material.resolution.y],
         lienzo: [s.width, s.height],
+        // worldUnits decide si el ancho va en píxeles o en metros, y es la
+        // diferencia entera con la textura que esto reemplaza. renderOrder
+        // negativo mantiene la línea por debajo de toda vía (ordenCapa nunca
+        // baja de 0). Ningún test unitario los cubre: una regresión que
+        // borrara cualquiera de los dos pasaba la suite entera en verde.
+        worldUnits: o.material.worldUnits,
+        orden: o.renderOrder,
         // El uniforme viejo no puede seguir vivo en ningún nodo del relieve.
         quedanUniformes: (window.__estado!().scene.getObjectByName('terrain')?.children ?? [])
           .filter((n: any) => n.material?.userData?.uniforms?.uLimites).length,
@@ -624,6 +648,8 @@ En `e2e/capas.spec.ts`, el test `los límites municipales llegan a todos los nod
     expect(m.quedanUniformes, 'quedó uLimites en algún nodo del relieve').toBe(0)
     // Si la resolución no sigue al lienzo, el ancho en píxeles deja de ser el pedido.
     expect(m.resolucion).toEqual(m.lienzo)
+    expect(m.worldUnits, 'con worldUnits el ancho volvería a ir en metros').toBe(false)
+    expect(m.orden, 'la línea tiene que quedar por debajo de toda vía').toBeLessThan(0)
   })
 ```
 
@@ -703,10 +729,18 @@ describe('los tokens del tema', () => {
       return null   // sombras y demás: no son un color suelto
     }
     const delDato = new Set(PCI_RANGES.map(r => r.color.map(c => Math.round(c * 255)).join(',')))
-    for (const [clave, valor] of Object.entries({ ...TOKENS_CLARO, ...TOKENS_OSCURO })) {
-      const rgb = rgbDe(valor)
-      if (rgb === null) continue
-      expect(delDato.has(rgb), `--${clave} (${valor}) es un color de la rampa del PCI`).toBe(false)
+    // Las dos paletas se recorren POR SEPARADO. Fusionarlas con
+    // `{ ...CLARO, ...OSCURO }` las colapsa por clave -- las dos declaran los
+    // mismos 15 nombres -- y solo quedarían los valores de la oscura. La clara
+    // es justamente la que se aplica mientras nadie toque `data-tema`, así que
+    // ese fusionado vigilaba el lado inerte y dejaba suelto el que importa.
+    for (const [nombre, tokens] of [['clara', TOKENS_CLARO], ['oscura', TOKENS_OSCURO]] as const) {
+      for (const [clave, valor] of Object.entries(tokens)) {
+        const rgb = rgbDe(valor)
+        if (rgb === null) continue
+        expect(delDato.has(rgb),
+          `--${clave} de la paleta ${nombre} (${valor}) es un color de la rampa del PCI`).toBe(false)
+      }
     }
   })
 })
@@ -965,6 +999,33 @@ En `src/scene/CapaPuntos.tsx`, la etiqueta del marcador lleva `background: 'rgba
 ```
 
 y en `CapaPuntos.tsx` usar `T.etiquetaFondo` (añádelo también a `T` en `theme.ts` como `var(--etiquetaFondo)`). El color del texto ya sale de `T.texto`, así que ese acompaña solo.
+
+Hay un segundo literal de la misma clase en `src/ui/LassoOverlay.tsx:86`:
+`stroke="#15607a"`, que es el `acento` claro escrito a mano en un atributo SVG.
+Como es SVG dentro del DOM, ahí sí basta con `stroke={T.acento}` — no hace
+falta resolverlo como en el canvas del minimapa.
+
+- [ ] **Step 6b: Que el minimapa repinte al cambiar de tema**
+
+`src/ui/MiniMapa.tsx` pinta en un **canvas 2D**, que no resuelve `var(--token)`:
+por eso lee sus colores con `getComputedStyle` dentro de `dibujar()`. El
+problema es *cuándo* se vuelve a llamar esa función. `dibujar` es un
+`useCallback` con dependencias `[L, dpr, encaje]`, y los efectos que lo
+invocan dependen de `[grid, meta, municipios, encaje, dibujar]` y de
+`[mirilla, encaje, dibujar]`. El tema no está en ninguna.
+
+Resultado si no se toca: al pulsar el interruptor, el disco del minimapa se
+queda con los colores del tema anterior **hasta que muevas la cámara** (que es
+lo que cambia `mirilla`). Medio chrome conmuta y el otro medio no.
+
+El arreglo: `MiniMapa` recibe el tema como prop y lo añade a las dependencias
+de `dibujar`, de modo que cambiar de tema fuerce una repintada. Pásalo desde
+`App.tsx`, que ya tiene `tema` del hook.
+
+Comprueba que funciona **midiendo**, no mirando: en el e2e, lee un píxel del
+canvas del minimapa antes y después de conmutar y exige que cambie. El canvas
+del minimapa es 2D, así que `getImageData` sí funciona sobre él (a diferencia
+del canvas WebGL del mapa, que sin `preserveDrawingBuffer` se lee vacío).
 
 - [ ] **Step 7: Comprobarlo con los ojos y con el e2e**
 
