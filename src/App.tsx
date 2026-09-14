@@ -42,6 +42,13 @@ type PickerApi = ReturnType<typeof usePicking>
 // sin tragarse un clic deliberado (una órbita real mueve decenas de píxeles).
 const UMBRAL_CLIC_PX = 5
 
+// Cuánto vale la marca que deja un marcador de capa al tocarlo. Entre su
+// pointerdown y el click nativo del mismo gesto pasan milisegundos; un segundo
+// es holgadísimo para eso y a la vez corto como para que una marca huérfana
+// -- un arrastre que empezó sobre un marcador y no llegó a producir click --
+// no se coma el clic siguiente.
+const VIGENCIA_MARCADOR_MS = 1000
+
 /**
  * Publica el store de la escena en `window.__escena` para que el E2E
  * (e2e/relieve.spec.ts) pueda recorrer la malla que se está dibujando y mover
@@ -84,7 +91,7 @@ function Picker (
   },
 ) {
   const { pickAt, pickRegion } = usePicking({ positions, segIds, ways, index, normals, limites })
-  const { gl } = useThree()
+  const { gl, scene } = useThree()
 
   useEffect(() => { pickerRef.current = { pickAt, pickRegion } }, [pickerRef, pickAt, pickRegion])
 
@@ -99,6 +106,21 @@ function Picker (
     let desde: { x: number; y: number } | null = null
     const onDown = (ev: PointerEvent) => { desde = { x: ev.clientX, y: ev.clientY } }
     const onClick = (ev: MouseEvent) => {
+      // Un clic que empezó sobre un marcador de capa abre su ficha y no toca las
+      // vías: sin esto, mirar un hospital borraba la selección con la que
+      // estabas trabajando. Es un freno aditivo -- no cambia nada de cómo se
+      // eligen las vías, solo cuándo se pregunta.
+      //
+      // El marcador deja la MARCA DE TIEMPO de su pointerdown, no un booleano, y
+      // se lee aquí antes que nada. Con un booleano habría que limpiarlo al
+      // empezar cada gesto, y eso depende de si este listener corre antes o
+      // después del de r3f sobre el mismo canvas -- r3f registra los suyos al
+      // montar el Canvas, así que corre ANTES que este efecto y el borrado
+      // llegaría justo después de que el sprite la levantó. Con el tiempo no
+      // hay orden que valga: la marca o es de este gesto o ya caducó.
+      const marca = scene.userData.marcadorTocado as number | undefined
+      scene.userData.marcadorTocado = 0
+      if (marca && performance.now() - marca < VIGENCIA_MARCADOR_MS) return
       if (desde && Math.hypot(ev.clientX - desde.x, ev.clientY - desde.y) > UMBRAL_CLIC_PX) return
       const r = el.getBoundingClientRect()
       onPick(pickAt(ev.clientX - r.left, ev.clientY - r.top), ev.shiftKey)
@@ -109,7 +131,7 @@ function Picker (
       el.removeEventListener('pointerdown', onDown)
       el.removeEventListener('click', onClick)
     }
-  }, [gl, pickAt, onPick])
+  }, [gl, scene, pickAt, onPick])
   return null
 }
 
@@ -227,6 +249,22 @@ export default function App () {
     const texto = p.toString()
     history.replaceState(null, '', texto ? `?${texto}` : location.pathname)
   }, [visibles])
+  // Qué capas no cargaron, y por qué. Antes esto era un console.warn y nada
+  // más: el botón quedaba encendido, el mapa no dibujaba nada, y el visitante
+  // no tenía cómo distinguirlo de una capa sin rasgos cerca.
+  const [fallos, setFallos] = useState<Record<string, string>>({})
+  const anotarFallo = useCallback((id: string, error: string | null) => {
+    setFallos(previos => {
+      if (error === null) {
+        if (!(id in previos)) return previos
+        const { [id]: _, ...resto } = previos
+        return resto
+      }
+      // Mismo objeto si el error no cambió: CapaPuntos puede reintentar y esto
+      // se lee en cada render del panel.
+      return previos[id] === error ? previos : { ...previos, [id]: error }
+    })
+  }, [])
   // La capa se guarda junto al rasgo porque la ficha necesita las dos cosas:
   // el rasgo trae los valores y la capa trae cómo se llama cada campo.
   const [elegido, setElegido] = useState<{ capa: Capa; rasgo: Rasgo } | null>(null)
@@ -514,7 +552,7 @@ export default function App () {
           <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen}
             date={date} limites={visibles.has('municipios')} />
           {CAPAS.filter(c => visibles.has(c.id) && c.geometria === 'punto').map(c => (
-            <CapaPuntos key={c.id} capa={c} grid={data.terrainGrid} meta={data.terrain}
+            <CapaPuntos key={c.id} capa={c} grid={data.terrainGrid} meta={data.terrain} onFallo={anotarFallo}
               onElegir={(capa, rasgo) => setElegido({ capa, rasgo })} />
           ))}
           {visibles.has('edificios') && <Buildings />}
@@ -568,7 +606,7 @@ export default function App () {
       <MapControls
         capas={[
           ...CAPAS_FIJAS.map(c => ({ id: c.id, nombre: c.nombre })),
-          ...CAPAS.map(c => ({ id: c.id, nombre: c.nombre, color: c.color })),
+          ...CAPAS.map(c => ({ id: c.id, nombre: c.nombre, color: c.color, fallo: fallos[c.id] })),
         ]}
         visibles={visibles}
         onCapa={alternarCapa}

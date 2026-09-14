@@ -9,5 +9,6 @@ datos-base.tar.gz
 # Playwright: capturas e informes del E2E del relieve
 e2e/salida/
 e2e/salida-rojo/
+e2e/salida-capas/
 test-results/
 playwright-report/

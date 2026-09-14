@@ -95,13 +95,22 @@ más se queja --, un `origen: 'osm'` sin su `osmId`, o uno `'comunidad'` que
 aún trae el de la plantilla que copiaste. Son ejemplos, no la lista: la
 regla exacta vive en `validarCapa`.
 
-**Aviso: hoy solo se dibujan capas de puntos.** `CapaPuntos` es el único
-componente de capa que existe. Si añades una capa con `geometria: 'linea'` o
-`'poligono'`, pasará la validación, aparecerá en el panel con su color, se
-podrá prender y apagar en la URL — pero no dibujará nada, porque no hay
-componente que lo haga. Eso no es un error tuyo; la capa quedará lista para
-cuando ese componente exista. Dibujar líneas y polígonos es trabajo pendiente,
-planeado desde aquí, no algo que hayas olvidado.
+**Hoy solo se aceptan capas de puntos.** `CapaPuntos` es el único componente
+de capa que existe: una capa con `geometria: 'linea'` o `'poligono'` pasaría la
+validación y aparecería en el panel con su color, pero no dibujaría nada.
+
+Para que eso no llegue al mapa, hay una prueba que **rechaza** el catálogo si
+alguna capa no es de puntos, y tu pull request saldrá en rojo con este mensaje:
+
+```
+todas las capas del catálogo son de puntos, que es lo único que se dibuja hoy
+```
+
+No es un error tuyo ni un descuido nuestro: es el freno puesto a propósito para
+que nadie mande datos que el mapa no va a enseñar. Si tienes una capa de líneas
+o polígonos que vale la pena, **abre un issue con los datos antes de escribir el
+GeoJSON** — el componente que los dibuje es trabajo pendiente y planeado, y
+saber que alguien los necesita es lo que lo adelanta.
 
 ## Regenerar los datos base
 

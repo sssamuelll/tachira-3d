@@ -113,12 +113,46 @@ const GEOMETRIA: Record<Geometria, string> = {
   punto: 'Point', linea: 'LineString', poligono: 'Polygon',
 }
 
-/** Recorre las coordenadas de cualquier geometría GeoJSON anidada. */
-function * puntos (coords: unknown): Generator<[number, number]> {
-  if (!Array.isArray(coords)) return
-  if (typeof coords[0] === 'number') { yield coords as [number, number]; return }
-  for (const c of coords) yield * puntos(c)
+/** Cuántos niveles de lista envuelven al par [lon, lat] en cada geometría: el
+ *  punto es el par pelado, la línea una lista de pares, el polígono una lista
+ *  de anillos de pares. Es la forma que manda el estándar. */
+const PROFUNDIDAD: Record<Geometria, number> = { punto: 0, linea: 1, poligono: 2 }
+
+/**
+ * Recorre las coordenadas COMPROBANDO la forma que la geometría declara, y va
+ * entregando los pares.
+ *
+ * Antes esto decidía si algo ya era un punto mirando solo `coords[0]`: si ese
+ * primer elemento no era un número -- un texto, un null, un objeto -- daba el
+ * array por contenedor y bajaba un nivel, a la nada. El efecto no era una
+ * comprobación laxa sino NINGUNA: el bucle del bbox no llegaba a correr, y
+ * `["133.7","-25.2"]` (Australia) entraba mientras que los mismos números sin
+ * comillas se rechazaban. Bajar por niveles contados, y exigir el par al
+ * llegar al fondo, es lo que cierra las dos puertas a la vez.
+ */
+function * puntos (coords: unknown, nivel: number, donde: string): Generator<[number, number]> {
+  if (nivel > 0) {
+    if (!Array.isArray(coords)) {
+      throw new Error(`${donde}: coordenadas mal formadas, se esperaba una lista`)
+    }
+    for (const c of coords) yield * puntos(c, nivel - 1, donde)
+    return
+  }
+  if (!Array.isArray(coords) || coords.length !== 2) {
+    throw new Error(`${donde}: coordenadas mal formadas, se esperaba un par [lon, lat]`)
+  }
+  const [lon, lat] = coords
+  // Number.isFinite descarta de una vez NaN, ±Infinity y todo lo que no sea
+  // número. El 1e400 de un archivo escrito a mano llega acá como Infinity:
+  // JSON.parse no falla con él, así que este es su único filtro.
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+    throw new Error(`${donde}: coordenadas no numéricas [${lon}, ${lat}]`)
+  }
+  yield [lon, lat]
 }
+
+/** La forma de un osmId de OpenStreetMap: el tipo de elemento y su número. */
+const OSM_ID = /^(node|way|relation)\/\d+$/
 
 /**
  * El portero del formato. Lo que entra por acá lo escribió una persona en un
@@ -155,7 +189,7 @@ export function validarCapa (capa: Capa, coleccion: unknown): Rasgo[] {
 
     const tipo = f.geometry?.type
     if (tipo !== esperada) throw new Error(`${donde}: geometría ${tipo}, se esperaba ${esperada}`)
-    for (const [lon, lat] of puntos(f.geometry?.coordinates)) {
+    for (const [lon, lat] of puntos(f.geometry?.coordinates, PROFUNDIDAD[capa.geometria], donde)) {
       if (lon < BBOX.w || lon > BBOX.e || lat < BBOX.s || lat > BBOX.n) {
         throw new Error(`${donde}: [${lon}, ${lat}] cae fuera del bbox del estado (¿[lat, lon] al revés?)`)
       }
@@ -169,6 +203,20 @@ export function validarCapa (capa: Capa, coleccion: unknown): Rasgo[] {
         if (campo.obligatorio) throw new Error(`${donde}: falta el campo obligatorio '${campo.clave}'`)
         continue
       }
+      // El catálogo declara cuatro tipos y antes solo se comprobaba 'opcion'.
+      // Lo que se colaba no era inofensivo: FichaRasgo lee un booleano como
+      // "Sí/No" y cualquier otra cosa la pasa por String(), así que un
+      // `emergencias: "quiza"` salía como texto crudo y un objeto como
+      // [object Object], en la ficha que lee un vecino.
+      if (campo.tipo === 'texto' && typeof v !== 'string') {
+        throw new Error(`${donde}: '${campo.clave}' vale ${JSON.stringify(v)}, se esperaba texto`)
+      }
+      if (campo.tipo === 'numero' && !Number.isFinite(v)) {
+        throw new Error(`${donde}: '${campo.clave}' vale ${JSON.stringify(v)}, se esperaba un número`)
+      }
+      if (campo.tipo === 'booleano' && typeof v !== 'boolean') {
+        throw new Error(`${donde}: '${campo.clave}' vale ${JSON.stringify(v)}, se esperaba true o false`)
+      }
       if (campo.tipo === 'opcion' && !campo.opciones?.includes(v as string)) {
         throw new Error(`${donde}: '${campo.clave}' vale '${v}', que no está entre ${campo.opciones?.join(', ')}`)
       }
@@ -178,9 +226,11 @@ export function validarCapa (capa: Capa, coleccion: unknown): Rasgo[] {
     }
     // Sin este par, un origen 'osm' sin osmId pasaba el portero y FichaRasgo
     // terminaba enlazando a openstreetmap.org/undefined -- la única puerta de
-    // este validador que un PR ajeno puede de verdad activar.
-    if (p.origen === 'osm' && !p.osmId) {
-      throw new Error(`${donde}: origen 'osm' sin osmId`)
+    // este validador que un PR ajeno puede de verdad activar. Se comprueba la
+    // forma y no solo que haya algo: un osmId truthy pero con cualquier
+    // contenido ('123', un número, un array) daba un enlace roto igual.
+    if (p.origen === 'osm' && (typeof p.osmId !== 'string' || !OSM_ID.test(p.osmId))) {
+      throw new Error(`${donde}: osmId ${JSON.stringify(p.osmId)}, se esperaba node|way|relation/<número>`)
     }
     if (p.origen === 'comunidad' && p.osmId !== undefined) {
       throw new Error(`${donde}: origen 'comunidad' no debería traer osmId ('${p.osmId}')`)

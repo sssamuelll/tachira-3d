@@ -468,6 +468,12 @@ export function TerrainLod ({ meta, municipios, date, imagen = true, limites = f
       // quedaría sin línea de límite, y la línea se vería romperse a trozos
       // según llega la foto en vez de encenderse entera con la capa.
       u.uLimites.value = limites ? 1 : 0
+      // La textura de índices también se reescribe acá, no solo al construir el
+      // material: si `municipios` o `meta` cambian, el useMemo hace una textura
+      // nueva y dispone la vieja, pero los materiales ya construidos seguirían
+      // apuntando a la liberada. Hoy esos datos se cargan una sola vez y no
+      // pasa, lo que hace que el día que cambien el fallo sea invisible.
+      u.uIndices.value = indices
       if (!imagen) { u.uImagen.value = 0; continue }
       if (frustum.intersectsBox(mallas.get(clave(n))!.caja)) imgs.pedir(n.z, n.x, n.y)
       const mejor = imgs.mejor(n)

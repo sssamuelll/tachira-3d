@@ -40,4 +40,26 @@ describe('PanelCapas', () => {
 
     expect(html).toContain('#e0453a')
   })
+
+  // Una capa que no cargó y una capa sin rasgos cerca se ven idénticas en el
+  // mapa: las dos no dibujan nada. La única forma de distinguirlas es que el
+  // panel lo diga. Antes el único aviso era un console.warn.
+  it('avisa en la fila de una capa que no cargó', () => {
+    const conFallo = filas.map(f =>
+      f.id === 'hospitales' ? { ...f, fallo: 'HTTP 404' } : f)
+    const html = renderToStaticMarkup(
+      <PanelCapas disponibles={conFallo} visibles={new Set(['hospitales'])} onAlternar={() => {}} />)
+
+    const boton = html.split('<button').slice(1)
+      .find(b => b.includes('Hospitales y centros médicos'))!
+    expect(boton).toContain('no cargó')
+    expect(boton).toContain('HTTP 404')
+  })
+
+  it('no avisa de nada en las capas que sí cargaron', () => {
+    const html = renderToStaticMarkup(
+      <PanelCapas disponibles={filas} visibles={new Set(['hospitales'])} onAlternar={() => {}} />)
+
+    expect(html).not.toContain('no cargó')
+  })
 })

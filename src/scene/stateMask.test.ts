@@ -126,4 +126,20 @@ describe('indiceMunicipios', () => {
     vistos.delete(0)
     expect(vistos.size).toBe(municipios.length)
   })
+
+  // El índice es un Uint8Array y el 0 está tomado por "fuera del estado", así
+  // que caben 255 municipios y ni uno más. Pasado ese punto los índices dan la
+  // vuelta en silencio y dos municipios distintos comparten número: la línea
+  // de límite entre ellos desaparece, sin un solo error por ningún lado. El
+  // Táchira tiene 29, así que esto no salta hoy -- salta el día que alguien
+  // reutilice esto para un país entero.
+  it('se niega a indexar más municipios de los que caben en un byte', () => {
+    const muchos = Array.from({ length: 256 }, () => muni(cuadrado(-72.2, -72.1, 7.8, 7.9)))
+    expect(() => indiceMunicipios(muchos, bbox, 64, 64)).toThrow(/municipios/)
+  })
+
+  it('acepta el máximo que sí cabe', () => {
+    const justos = Array.from({ length: 255 }, () => muni(cuadrado(-72.2, -72.1, 7.8, 7.9)))
+    expect(() => indiceMunicipios(justos, bbox, 64, 64)).not.toThrow()
+  })
 })

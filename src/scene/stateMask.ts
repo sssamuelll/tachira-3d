@@ -107,6 +107,13 @@ export function stateMask (municipios: Municipio[], bbox: Bbox, W: number, H: nu
  * línea sale de todos modos porque los vecinos difieren.
  */
 export function indiceMunicipios (municipios: Municipio[], bbox: Bbox, W: number, H: number): Uint8Array {
+  // El 0 significa "fuera del estado", así que los municipios empiezan en 1 y
+  // el último que cabe en un byte es el 255. Con uno más los índices darían la
+  // vuelta en silencio: dos municipios distintos compartirían número y el
+  // límite entre ellos simplemente no se dibujaría, sin error en ningún lado.
+  if (municipios.length > 255) {
+    throw new Error(`indiceMunicipios: ${municipios.length} municipios, no caben más de 255 en un byte`)
+  }
   const idx = new Uint8Array(W * H)
   const latSpan = bbox.n - bbox.s
   const lonSpan = bbox.e - bbox.w
