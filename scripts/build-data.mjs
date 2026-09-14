@@ -13,6 +13,7 @@ import { escribirPiramide } from './lib/dem-tiles.mjs'
 import { encadenarPuentes, elevarPuentes, esTunel, normalesTablero, layerDe, regresionesGalibo } from './lib/structures.mjs'
 import { capturarAccesos, empalmarAccesos } from './lib/bridge-approaches.mjs'
 import { auditarContactosPuente, tallarAccesos, redrapearCrucesTerreno } from './lib/approach-terrain.mjs'
+import { aristasUnicas, limitesEnu } from './lib/limites.mjs'
 
 const BBOX = { s: 7.3612911, w: -72.4878225, n: 8.6826552, e: -71.3153029 }
 const ORIGIN = { lat: 8.021973, lon: -71.901563, h: 0 }
@@ -202,6 +203,12 @@ async function main () {
   await writeBin(`${OUT}/roads-index.bin`, packed.index)
   await writeBin(`${OUT}/roads-nrm.bin`, packed.nrm)
   console.log(`     ${packed.segmentCount} segmentos`)
+
+  console.log('6b/9 límites municipales')
+  const aristas = aristasUnicas(municipios)
+  const limites = limitesEnu(aristas, { alturaDe, frame })
+  await writeBin(`${OUT}/limites-pos.bin`, limites)
+  console.log(`     ${aristas.length} aristas únicas → ${limites.length / 6} segmentos drapeados`)
 
   console.log('7/9  metadata de vías')
   await writeFile(`${OUT}/roads-meta.json`, JSON.stringify({
