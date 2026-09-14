@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useLayoutEffect, useState } from 'react'
 
 export type Tema = 'claro' | 'oscuro'
 
@@ -26,7 +26,14 @@ export function usarTema () {
       matchMedia('(prefers-color-scheme: dark)').matches))
 
   // El atributo en la raíz es lo que activa la paleta oscura del CSS (tema.ts).
-  useEffect(() => { document.documentElement.dataset.tema = tema }, [tema])
+  // useLayoutEffect y no useEffect: React corre los efectos de los HIJOS
+  // antes que los del padre, y MiniMapa usa un useEffect corriente para
+  // repintar su disco cuando cambia el tema (Step 6b) -- con un useEffect
+  // acá, ese repintado se disparaba antes de que este efecto llegara a poner
+  // `data-tema`, así que leía todavía la paleta vieja vía getComputedStyle.
+  // Los efectos de capa (useLayoutEffect) de TODO el árbol corren antes que
+  // los pasivos de TODO el árbol, así que esto sí le gana la carrera.
+  useLayoutEffect(() => { document.documentElement.dataset.tema = tema }, [tema])
 
   const alternar = useCallback(() => {
     setTema(t => {

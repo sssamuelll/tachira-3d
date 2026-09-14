@@ -549,13 +549,50 @@ test.describe.serial('sobre el relieve dibujado', () => {
         .filter(c => c.startsWith('rgb') && c !== 'rgba(0, 0, 0, 0)')
       return todos.join('|')
     })
+    // El minimapa (Step 6b): su lienzo es 2D, así que getImageData sí lee
+    // algo de verdad -- a diferencia del canvas WebGL del mapa grande, que
+    // sin preserveDrawingBuffer se lee vacío. Se ubica por su `title` (no
+    // tiene otro selector propio) y se suma el buffer entero en vez de
+    // apostarle a una coordenada: T.fondo llena el cuadrado ANTES de
+    // dibujarse el relieve encima, y como el bbox del estado no es cuadrado,
+    // `encajar` deja franjas de ese fondo sin tapar dentro del disco -- esas
+    // sí cambian con el tema, sin tener que adivinar dónde cae el estado
+    // dentro del círculo.
+    const SELECTOR_MINIMAPA = 'canvas[title="El estado completo. Un clic te lleva a ese punto"]'
+    const sumaMinimapa = () => page.evaluate((selector) => {
+      const cv = document.querySelector(selector) as HTMLCanvasElement
+      const { data } = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height)
+      let suma = 0
+      for (let i = 0; i < data.length; i++) suma += data[i]
+      return suma
+    }, SELECTOR_MINIMAPA)
 
     const chromeAntes = await fondoPanel()
     const datoAntes = await colorDelDato()
+    const minimapaAntes = await sumaMinimapa()
     expect(datoAntes, 'sin ficha de PCI abierta el test no mide nada').not.toBe('')
 
     await page.getByRole('button', { name: 'Tema oscuro' }).click()
     await expect.poll(fondoPanel).not.toBe(chromeAntes)
+    // El arreglo del Step 6b, medido: sin `tema` en las dependencias de
+    // dibujar(), el disco se hubiera quedado con los colores de antes hasta
+    // mover la cámara. Se comprueba con waitForFunction (corre el predicado
+    // DENTRO del navegador, vía requestAnimationFrame) y no con expect.poll:
+    // esto último repetiría el getImageData()+suma de 150x150 px desde Node
+    // en cada intento, y en una máquina cargada esa ida y vuelta puede
+    // tardar minutos en vez de milisegundos -- se vio en la práctica
+    // preparando este test. El margen es generoso por la misma razón.
+    await page.waitForFunction(
+      ({ selector, antes }) => {
+        const cv = document.querySelector(selector) as HTMLCanvasElement
+        const { data } = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height)
+        let suma = 0
+        for (let i = 0; i < data.length; i++) suma += data[i]
+        return suma !== antes
+      },
+      { selector: SELECTOR_MINIMAPA, antes: minimapaAntes },
+      { timeout: 120_000 },
+    )
 
     // Y ahora lo que el spec §4.1 prohíbe: que el dato haya cambiado con él.
     const delPci = await page.evaluate(async () => {
