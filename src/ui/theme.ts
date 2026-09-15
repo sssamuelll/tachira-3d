@@ -30,6 +30,9 @@ export const T = {
   acento: 'var(--acento)',
   acentoHover: 'var(--acentoHover)',
   acentoSuave: 'var(--acentoSuave)',
+  // Texto/icono encima de un fondo T.acento -- conmuta con él, a diferencia
+  // de un '#fff' fijo (Arreglo 2).
+  sobreAcento: 'var(--sobreAcento)',
 
   aviso: 'var(--aviso)',
   avisoFondo: 'var(--avisoFondo)',

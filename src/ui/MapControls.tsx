@@ -23,7 +23,7 @@ function Boton ({ activo, titulo, onClick, estilo, children }: {
         width: 40, height: 40, display: 'grid', placeItems: 'center', cursor: 'pointer',
         borderRadius: T.radioChico, border: 'none', boxShadow: T.sombraChica,
         background: activo ? T.acento : T.fondo,
-        color: activo ? '#fff' : T.texto2,
+        color: activo ? T.sobreAcento : T.texto2,
         ...estilo,
       }}>
       {children}

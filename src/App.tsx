@@ -677,7 +677,7 @@ function Cargando ({ titulo, detalle }: { titulo: string; detalle: string }) {
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 30, display: 'grid', placeItems: 'center',
-      background: '#eef1f4', fontFamily: T.fuente,
+      background: T.fondoSuave, fontFamily: T.fuente,
     }}>
       <div style={{ display: 'grid', gap: 6, justifyItems: 'center', textAlign: 'center', padding: 24 }}>
         <strong style={{ fontSize: 16, fontWeight: 500, color: T.texto }}>{titulo}</strong>

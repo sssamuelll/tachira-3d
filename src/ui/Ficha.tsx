@@ -199,7 +199,7 @@ export function Ficha ({ ways, seleccion, registro, onCerrar, onAplicar }: {
                   borderRadius: T.radioChico, textTransform: 'capitalize',
                   border: `1px solid ${fuente === f ? T.acento : T.lineaFuerte}`,
                   background: fuente === f ? T.acento : T.fondo,
-                  color: fuente === f ? '#fff' : T.texto,
+                  color: fuente === f ? T.sobreAcento : T.texto,
                   fontWeight: fuente === f ? 600 : 400,
                 }}>
                 {f}
@@ -246,7 +246,7 @@ export function Ficha ({ ways, seleccion, registro, onCerrar, onAplicar }: {
             marginTop: 2, padding: '10px 12px', fontSize: 14, fontWeight: 600,
             borderRadius: T.radioChico, border: 'none',
             background: puedeGuardar ? T.acento : T.fondoSuave,
-            color: puedeGuardar ? '#fff' : T.texto3,
+            color: puedeGuardar ? T.sobreAcento : T.texto3,
             cursor: puedeGuardar ? 'pointer' : 'default',
           }}>
           {n === 1 ? 'Guardar en esta vía' : `Guardar en ${nf.format(n)} vías`}

@@ -18,6 +18,11 @@ export const TOKENS_CLARO: Record<string, string> = {
   acento: '#15607a',
   acentoHover: '#0f4b60',
   acentoSuave: '#e8f1f4',
+  // Texto/icono ENCIMA de un fondo T.acento (el botón activo de un control,
+  // "Guardar"). El acento conmuta con el tema y este token tiene que conmutar
+  // con él -- un '#fff' fijo daba 2,71:1 en oscuro, por debajo del 4,5:1 de
+  // WCAG AA (Arreglo 2).
+  sobreAcento: '#ffffff',
   aviso: '#7a5200',
   avisoFondo: '#fff4dc',
   avisoLinea: '#f0dcae',
@@ -44,6 +49,9 @@ export const TOKENS_OSCURO: Record<string, string> = {
   acento: '#4aa8c9',
   acentoHover: '#68bcd9',
   acentoSuave: '#15303c',
+  // Oscuro y no blanco: sobre el acento claro de esta paleta (#4aa8c9) un
+  // '#fff' da 2,71:1. Este valor da 6,70:1 (Arreglo 2).
+  sobreAcento: '#11161c',
   aviso: '#e0b050',
   avisoFondo: '#2e2410',
   avisoLinea: '#4d3d18',
