@@ -4,6 +4,8 @@ import { useThree } from '@react-three/fiber'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
+import { ERROR_PX } from './quadtree'
+import { ALZA_MIN_M } from './roadsShader'
 
 /**
  * Los límites municipales, como línea y no como efecto de borde de una
@@ -31,6 +33,54 @@ export const OPACIDAD = { claro: 0.85, oscuro: 0.75 } as const
 export const COLOR_CLARO = '#9aa0a6'
 export const COLOR_OSCURO = '#7c828a'
 
+/** Fin del bloque `camera space` del vertex shader de LineMaterial: los dos
+ *  extremos del segmento ya están en espacio de cámara, y es el punto exacto
+ *  -- antes de cualquier rama de WORLD_UNITS -- donde hay que subirlos por la
+ *  tolerancia del LOD. Ancla propia y no una importada de roadsShader.ts: esa
+ *  vive donde vive porque la consumen varios módulos de las vías; esta la usa
+ *  solo este parche. Si three cambia esta línea en una versión futura, mejor
+ *  que reviente acá con un mensaje claro a que la frontera se entierre en
+ *  silencio. */
+const ANCLA_EJES = 'vec4 end = modelViewMatrix * vec4( instanceEnd, 1.0 );'
+
+/**
+ * Compensa, en el vertex shader de LineMaterial, el error del LOD del
+ * terreno (Arreglo 2, review de rama Task 8).
+ *
+ * La geometría sale del pipeline con una alza fija de ALZA_MIN_M sobre el DEM
+ * FINO (scripts/lib/limites.mjs), pero lo que se DIBUJA no es el DEM fino:
+ * es la simplificación del quadtree, que admite hasta ERROR_PX píxeles de
+ * error proyectado (quadtree.ts) y puede quedar decenas de metros por encima
+ * o por debajo de la superficie real -- medido hasta 36,7 m en un nodo real.
+ * Con solo la alza fija, la línea desaparece bajo el terreno de lejos y
+ * reaparece al refinar.
+ *
+ * Mismo remedio que ya usa la calzada (roadsShader.ts:122): subir cada
+ * extremo la tolerancia del LOD a SU PROPIA profundidad de cámara, nunca
+ * menos que la alza mínima de cerca -- de ahí el max(). ERROR_PX y
+ * ALZA_MIN_M se IMPORTAN, no se copian: si se afina el error del quadtree o
+ * la alza de las vías, esto se mueve con ellos.
+ *
+ * La vertical del MUNDO basta -- no hace falta la normal del terreno por
+ * vértice, que esta geometría no trae: el marco es ENU local y sobre los
+ * ~136 km del estado la normal geodésica se inclina menos de un grado.
+ */
+export function parcharLimites (material: THREE.Material) {
+  material.onBeforeCompile = (shader) => {
+    if (!shader.vertexShader.includes(ANCLA_EJES)) {
+      throw new Error('LimitesMunicipales: no se encontró el ancla de camera space en el vertex shader de LineMaterial')
+    }
+    shader.vertexShader = shader.vertexShader.replace(ANCLA_EJES, `${ANCLA_EJES}
+      vec3 arribaV = normalize( ( modelViewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz );
+      float mppInicio = max( -start.z, 1e-3 ) * 2.0 / ( projectionMatrix[1][1] * resolution.y );
+      float mppFin = max( -end.z, 1e-3 ) * 2.0 / ( projectionMatrix[1][1] * resolution.y );
+      start.xyz += arribaV * max( ${ERROR_PX.toFixed(1)} * mppInicio, ${ALZA_MIN_M.toFixed(2)} );
+      end.xyz += arribaV * max( ${ERROR_PX.toFixed(1)} * mppFin, ${ALZA_MIN_M.toFixed(2)} );
+    `)
+  }
+  material.needsUpdate = true
+}
+
 export function LimitesMunicipales ({ posiciones, oscuro = false }: {
   posiciones: Float32Array
   oscuro?: boolean
@@ -49,6 +99,10 @@ export function LimitesMunicipales ({ posiciones, oscuro = false }: {
       // tiene detrás ni pelea con el relieve por un z que comparten.
       depthWrite: false,
     })
+    // El LOD del relieve puede dejar la malla dibujada decenas de metros
+    // lejos del DEM fino sobre el que se drapeó esta línea (Arreglo 2): sin
+    // esto, de lejos la frontera queda tapada por el propio terreno.
+    parcharLimites(material)
     const linea = new LineSegments2(geometry, material)
     linea.name = 'limites'
     // Por debajo de las vías: un límite administrativo nunca puede taparle una
