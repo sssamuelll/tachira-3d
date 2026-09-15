@@ -1,5 +1,5 @@
 import { mkdir, writeFile, rename } from 'node:fs/promises'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, realpathSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
@@ -128,6 +128,6 @@ async function main () {
 // import.meta.url trae file:///D:/... con tres barras, y concatenar 'file://'
 // a mano da dos, asi que la comparacion seria false siempre y el script no
 // ejecutaria nada. Comprobado en esta maquina.
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(resolve(process.argv[1]))).href) {
   main().catch(e => { console.error(e.message); process.exit(1) })
 }
