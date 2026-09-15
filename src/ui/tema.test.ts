@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 // @ts-ignore -- igual que buildings.test.ts: vitest corre en Node, la app solo
 // tiene los tipos de vite/client. El repo no depende de @types/node.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { TOKENS_CLARO, TOKENS_OSCURO, cssDeTokens } from './tema'
 import { T } from './theme'
 
@@ -128,4 +128,48 @@ describe('index.html', () => {
       `index.html tiene un color de chrome fuera de var(--token, ...): "${colorSuelto?.[0]}"`)
       .toBeNull()
   })
+})
+
+// Arreglo 3 (review de rama, Task 8): un fondo de chrome (paneles, controles,
+// atribución) escrito a mano como rgba(255,255,255,…) o rgba(0,0,0,…) no
+// conmuta con el tema -- es exactamente el bug de <Atribucion>
+// (MapControls.tsx), que con un fondo blanco fijo daba 1,11:1 de contraste
+// sobre escena oscura y 2,19:1 sobre blanca. El token correcto ya existe
+// (etiquetaFondo, arriba) y lo usa la etiqueta flotante de los marcadores; un
+// `background` fijo en blanco o negro traslúcido es siempre una
+// reimplementación a mano de eso.
+//
+// El barrido es sobre los .tsx de src/ui/ (sin sus *.test.tsx) más
+// src/App.tsx -- ahí vive el chrome de la interfaz. tema.ts/theme.ts quedan
+// fuera a propósito: son la fuente de los tokens, y ahí SÍ tienen que vivir
+// los literales (etiquetaFondo es justamente 'rgba(255,255,255,.82)' en la
+// paleta clara).
+//
+// Tres rgba(...) del código actual NO son este bug -- de hecho ninguno de
+// los tres calza con este barrido, y se documentan igual para que quede
+// escrito por qué, no porque el regex necesite excluirlos a mano:
+//   - src/foto/Foto.tsx:129 -- rgba(31,33,36,.28) oscurece la escena 3D
+//     mientras se traza una foto, no es chrome (ya juzgado correcto y fijo
+//     en un review anterior); además vive fuera de src/ui/.
+//   - src/ui/SearchPanel.tsx:32 -- rgba(0,0,0,.12) es un boxShadow (filete
+//     interior), no un background, y decora una muestra de color que es
+//     DATO (el PCI de un resultado de búsqueda), no chrome.
+//   - src/ui/LassoOverlay.tsx -- rgba(21,96,122,.12) es el `fill` del SVG
+//     del lazo, no un background; sigue pendiente y ya está anotado como tal
+//     en el propio archivo -- no se toca en esta tanda.
+describe('ningún fondo de chrome usa blanco/negro fijo en vez de un token', () => {
+  const PROHIBIDO = /background:\s*['"]rgba\(\s*(?:255\s*,\s*255\s*,\s*255|0\s*,\s*0\s*,\s*0)\s*,/
+
+  const dir = 'src/ui'
+  const archivos: string[] = readdirSync(dir)
+    .filter((f: string) => f.endsWith('.tsx') && !f.endsWith('.test.tsx'))
+    .map((f: string) => `${dir}/${f}`)
+    .concat('src/App.tsx')
+
+  for (const ruta of archivos) {
+    it(`${ruta} no tiene un background rgba(255,255,255,…) ni rgba(0,0,0,…) fijo`, () => {
+      const texto: string = readFileSync(ruta, 'utf8')
+      expect(PROHIBIDO.test(texto), `${ruta} tiene un background blanco/negro fijo -- usa T.etiquetaFondo`).toBe(false)
+    })
+  }
 })

@@ -108,7 +108,10 @@ export function Atribucion ({ imagen }: { imagen: boolean }) {
     <div style={{
       position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 12, zIndex: 20,
       fontFamily: T.fuente, fontSize: 11, lineHeight: 1.3, color: T.texto2,
-      background: 'rgba(255,255,255,.72)', borderRadius: 4, padding: '3px 8px',
+      // Antes un blanco fijo -- 1,11:1 de contraste sobre escena oscura, y la
+      // ODbL exige que el crédito se vea. Mismo token que ya usa la etiqueta
+      // flotante de los marcadores (Arreglo 3).
+      background: T.etiquetaFondo, borderRadius: 4, padding: '3px 8px',
       pointerEvents: 'none', userSelect: 'none', textAlign: 'center',
       // Sin recorte: ODbL exige el crédito y uno cortado no cumple. En una
       // pantalla angosta la línea se parte en dos, que es feo pero legal.
