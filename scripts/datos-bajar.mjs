@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
-import { ASSET } from './datos-empaquetar.mjs'
+import { ASSET, CONTENIDO } from './datos-empaquetar.mjs'
 
 /**
  * Baja los datos base del último Release y los desempaca en public/.
@@ -55,6 +55,13 @@ export function autorizacion (entorno = process.env) {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+/** Check the archive itself, not public/: a stale local file can mask an old Release. */
+export function faltantesDelPaquete (rutas, contenido = CONTENIDO) {
+  const entradas = new Set(rutas.map(r => r.replace(/^\.\//, '').replace(/\/$/, '')))
+  return contenido.filter(rel =>
+    !entradas.has(rel) && ![...entradas].some(r => r.startsWith(`${rel}/`)))
+}
+
 /** Si el paquete que ya está en la caché sirve. Un archivo del tamaño
  *  equivocado es una descarga a medias, no un paquete: se vuelve a bajar en
  *  vez de dar por bueno que el archivo exista. */
@@ -99,6 +106,12 @@ async function main () {
     // bueno solo porque el archivo existe.
     await writeFile(`${local}.parcial`, bytes)
     await rename(`${local}.parcial`, local)
+  }
+
+  const rutas = execFileSync('tar', ['-tzf', local], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)
+  const faltantes = faltantesDelPaquete(rutas)
+  if (faltantes.length) {
+    throw new Error(`el Release ${release.tag_name} no trae los datos que exige este código: ${faltantes.join(', ')}`)
   }
 
   await mkdir('public', { recursive: true })

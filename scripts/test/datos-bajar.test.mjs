@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { elegirRelease, assetDe, sirveLoCacheado, autorizacion } from '../datos-bajar.mjs'
+import { elegirRelease, assetDe, sirveLoCacheado, autorizacion, faltantesDelPaquete } from '../datos-bajar.mjs'
 
 const rel = (tag, assets = ['datos-base.tar.gz']) => ({
   tag_name: tag,
@@ -71,5 +71,19 @@ describe('autorizacion', () => {
 
   it('GH_TOKEN sirve igual, que es el que pone la CLI de GitHub', () => {
     expect(autorizacion({ GH_TOKEN: 'xyz' })).toEqual({ Authorization: 'Bearer xyz' })
+  })
+})
+
+describe('faltantesDelPaquete', () => {
+  it('rejects an old Release that lacks municipal boundaries', () => {
+    const content = ['data/VERSION', 'data/dem', 'data/limites-pos.bin']
+    expect(faltantesDelPaquete(['data/VERSION', 'data/dem/', 'data/dem/8/1/2.png'], content))
+      .toEqual(['data/limites-pos.bin'])
+  })
+
+  it('accepts boundaries present in the archive even with ./ prefixes', () => {
+    const content = ['data/VERSION', 'data/limites-pos.bin']
+    expect(faltantesDelPaquete(['./data/VERSION', './data/limites-pos.bin'], content))
+      .toEqual([])
   })
 })
