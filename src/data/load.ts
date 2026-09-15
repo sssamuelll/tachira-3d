@@ -12,6 +12,17 @@ async function getOk (path: string) {
 const bin = async (path: string) => (await getOk(path)).arrayBuffer()
 const json = async <T>(path: string): Promise<T> => (await getOk(path)).json()
 
+// Older data Releases do not contain municipal boundaries. The map still loads.
+export async function limitesBin (path: string): Promise<ArrayBuffer> {
+  const res = await fetch(path)
+  if (res.status === 404) {
+    console.warn(`${path}: HTTP 404; map loaded without municipal boundaries`)
+    return new ArrayBuffer(0)
+  }
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`)
+  return res.arrayBuffer()
+}
+
 // Guardas baratas contra un fetch a medias o una regeneración con formato
 // distinto: json<T>() tipa sin validar, así que TypeScript no puede atrapar
 // esto solo. roads-index.bin es CSR (count+1 entradas) y roads-segid.bin
@@ -64,7 +75,7 @@ export async function loadAll () {
     bin(urlGenerado('roads-segid.bin')),
     bin(urlGenerado('roads-index.bin')),
     bin(urlGenerado('roads-nrm.bin')),
-    bin(urlGenerado('limites-pos.bin')),
+    limitesBin(urlGenerado('limites-pos.bin')),
   ])
   const positions = new Float32Array(pBuf)
   const segIds = new Float32Array(sBuf)

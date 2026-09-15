@@ -54,8 +54,8 @@ const VIGENCIA_MARCADOR_MS = 1000
 /**
  * Publica el store de la escena en `window.__escena` para que el E2E
  * (e2e/relieve.spec.ts) pueda recorrer la malla que se está dibujando y mover
- * la cámara. Solo en desarrollo: `import.meta.env.DEV` es una constante que
- * Vite reemplaza al compilar, así que en producción el bundle ni lo incluye.
+ * la cámara. En desarrollo o con `?diagnostico=1`: `import.meta.env.DEV` es una constante que
+ * Vite reemplaza al compilar. En producción el puente se activa solo con la URL de diagnóstico.
  *
  * Va con puente explícito y no leyendo `canvas.__r3f` desde el test: eso es
  * interno de react-three-fiber, no tiene contrato, y se rompe en silencio al
@@ -308,6 +308,7 @@ export default function App () {
   const [pendingHandle, setPendingHandle] = useState<FileSystemFileHandle | null>(null)
   const [avisoCarga, setAvisoCarga] = useState<AvisoCarga | null>(null)
   const [dibujado, setDibujado] = useState(false)
+  const [errorCarga, setErrorCarga] = useState<string | null>(null)
   // Cuánto terreno mide la pantalla ahora mismo, y el puente para pedirle un
   // acercamiento a la cámara desde los botones. Los dos los rellena <Vista>,
   // que vive dentro del Canvas -- ver scene/Camera.tsx.
@@ -326,7 +327,22 @@ export default function App () {
   // porque lo pinta un panel que sí vive en el DOM.
   const foto = useRef<ApiFoto | null>(null)
   const [estadoFoto, setEstadoFoto] = useState<EstadoFoto | null>(null)
-  useEffect(() => { loadAll().then(setData) }, [])
+  useEffect(() => {
+    const inicio = performance.now()
+    console.info('map.boot.start')
+    loadAll().then(resultado => {
+      console.info('map.boot.loaded', {
+        ms: Math.round(performance.now() - inicio),
+        roads: resultado.roads.count,
+        boundaries: resultado.limites.length / 6,
+      })
+      setData(resultado)
+    }).catch(error => {
+      const detalle = error instanceof Error ? error.message : String(error)
+      console.error('map.boot.failed', error)
+      setErrorCarga(detalle)
+    })
+  }, [])
 
   // Store y textura de atributos (Task 14) se crean una sola vez por carga de
   // datos: 26.712 registros viven fuera de React a propósito (ver store.ts),
@@ -524,6 +540,7 @@ export default function App () {
     setHandle(pendingHandle)
   }, [pendingHandle, store, data])
 
+  if (errorCarga) return <Cargando titulo="No se pudo cargar el mapa" detalle={errorCarga} />
   if (!data) return <Cargando titulo="Cargando la red vial" detalle="26.712 vías y el relieve del estado." />
 
   // el terreno vive en ENU local centrado en ORIGIN (bbox ~147×129 km,
@@ -553,7 +570,7 @@ export default function App () {
           Calibrable, y es lo primero que hay que medir con el A/B de siempre:
           si sobra GPU, subirlo antes que tocar cualquier otra cosa. */}
       <Canvas shadows="percentage" dpr={[1, 1.5]} camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
-        {import.meta.env.DEV && <PuenteEscena />}
+        {(import.meta.env.DEV || new URLSearchParams(location.search).get('diagnostico') === '1') && <PuenteEscena />}
         <Suspense fallback={null}>
           <Sky date={date} />
           <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen}
@@ -562,7 +579,7 @@ export default function App () {
             <CapaPuntos key={c.id} capa={c} grid={data.terrainGrid} meta={data.terrain} onFallo={anotarFallo}
               onElegir={(capa, rasgo) => setElegido({ capa, rasgo })} />
           ))}
-          {visibles.has('municipios') && (
+          {visibles.has('municipios') && data.limites.length > 0 && (
             <LimitesMunicipales posiciones={data.limites} oscuro={tema === 'oscuro'} />
           )}
           {visibles.has('edificios') && <Buildings />}
@@ -615,7 +632,7 @@ export default function App () {
 
       <MapControls
         capas={[
-          ...CAPAS_FIJAS.map(c => ({ id: c.id, nombre: c.nombre })),
+          ...CAPAS_FIJAS.map(c => ({ id: c.id, nombre: c.nombre, fallo: c.id === 'municipios' && data.limites.length === 0 ? 'Falta limites-pos.bin en el Release de datos' : undefined })),
           ...CAPAS.map(c => ({ id: c.id, nombre: c.nombre, color: c.color, fallo: fallos[c.id] })),
         ]}
         visibles={visibles}

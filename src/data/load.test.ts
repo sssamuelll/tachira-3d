@@ -1,5 +1,5 @@
 import { test, expect, vi, afterEach } from 'vitest'
-import { checkCoherence, checkOrigin, loadAll } from './load'
+import { checkCoherence, checkOrigin, loadAll, limitesBin } from './load'
 import { ORIGIN } from './constants'
 import type { RoadsMeta } from './types'
 
@@ -63,4 +63,17 @@ test('checkOrigin lanza con ambos valores si terrain.origin difiere', () => {
 test('loadAll nombra la URL y el status cuando un fetch no es ok', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })))
   await expect(loadAll()).rejects.toThrow(/\/data\/.*: HTTP 404/)
+})
+
+test('missing optional boundaries do not block the map', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })))
+  await expect(limitesBin('data/limites-pos.bin')).resolves.toHaveProperty('byteLength', 0)
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining('limites-pos.bin: HTTP 404'))
+  warn.mockRestore()
+})
+
+test('boundary fetch failures other than 404 are reported', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 })))
+  await expect(limitesBin('data/limites-pos.bin')).rejects.toThrow('data/limites-pos.bin: HTTP 503')
 })
