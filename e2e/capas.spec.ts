@@ -570,18 +570,33 @@ test.describe.serial('sobre el relieve dibujado', () => {
     const chromeAntes = await fondoPanel()
     const datoAntes = await colorDelDato()
     const minimapaAntes = await sumaMinimapa()
-    expect(datoAntes, 'sin ficha de PCI abierta el test no mide nada').not.toBe('')
 
     await page.getByRole('button', { name: 'Tema oscuro' }).click()
     await expect.poll(fondoPanel).not.toBe(chromeAntes)
-    // El arreglo del Step 6b, medido: sin `tema` en las dependencias de
-    // dibujar(), el disco se hubiera quedado con los colores de antes hasta
-    // mover la cámara. Se comprueba con waitForFunction (corre el predicado
-    // DENTRO del navegador, vía requestAnimationFrame) y no con expect.poll:
-    // esto último repetiría el getImageData()+suma de 150x150 px desde Node
-    // en cada intento, y en una máquina cargada esa ida y vuelta puede
-    // tardar minutos en vez de milisegundos -- se vio en la práctica
-    // preparando este test. El margen es generoso por la misma razón.
+    // Lo que este waitForFunction discrimina del arreglo del Step 6b (el
+    // minimapa), y lo que no -- ninguno de los dos, medido, no supuesto:
+    //
+    // SÍ atrapa el defecto original: que `tema` faltara en las dependencias de
+    // `dibujar()`. Sin eso, `dibujar` no cambia de identidad, el efecto del
+    // relieve no vuelve a correr, `pintado.current` no se anula, y el filtro
+    // de la mirilla suprime el repintado -- el disco se queda con la paleta
+    // vieja para siempre, no solo un cuadro.
+    //
+    // NO atrapa que `usarTema.ts` use `useLayoutEffect` en vez de `useEffect`.
+    // Si eso se revierte, el efecto del relieve pinta una vez con la paleta
+    // vieja pero igual deja `pintado.current = null`, y `Vista`
+    // (src/scene/Camera.tsx:253) avisa en cada cuadro sin más salida temprana
+    // que `if (!controls)`: el cuadro siguiente ya repinta con la paleta
+    // buena y este test pasa igual. El costo real de ese agujero es UN cuadro
+    // con la paleta vieja -- no alcanza para justificar meter jsdom al repo
+    // solo para medirlo.
+    //
+    // Se comprueba con waitForFunction (corre el predicado DENTRO del
+    // navegador, vía requestAnimationFrame) y no con expect.poll: esto último
+    // repetiría el getImageData()+suma de 150x150 px desde Node en cada
+    // intento, y en una máquina cargada esa ida y vuelta puede tardar minutos
+    // en vez de milisegundos -- se vio en la práctica preparando este test.
+    // El margen es generoso por la misma razón.
     await page.waitForFunction(
       ({ selector, antes }) => {
         const cv = document.querySelector(selector) as HTMLCanvasElement
@@ -600,9 +615,22 @@ test.describe.serial('sobre el relieve dibujado', () => {
       return PCI_RANGES.map((r: any) => `rgb(${r.color.map((c: number) => Math.round(c * 255)).join(', ')})`)
     })
     const datoDespues = await colorDelDato()
-    for (const color of delPci) {
-      expect(datoDespues.includes(color), `el tema se llevó por delante ${color} de la rampa del PCI`)
-        .toBe(datoAntes.includes(color))
-    }
+
+    // El conjunto de colores de la rampa que de verdad aparecen en el DOM,
+    // ANTES de conmutar -- no la lista completa de PCI_RANGES, que casi
+    // siempre trae bandas que esta única ficha no usa. Comparar contra la
+    // lista completa un `false === false` (ninguno de los dos lados la tiene)
+    // pasaba igual si una regresión borraba el color del PCI del DOM: se iba
+    // de datoAntes y datoDespues a la vez, sobre la MISMA compilación, y el
+    // test seguía en verde sin haber mirado nada.
+    const presentesAntes = delPci.filter(c => datoAntes.includes(c))
+    expect(presentesAntes.length,
+      'ningún color de la rampa del PCI apareció en el DOM: este test no está midiendo nada')
+      .toBeGreaterThan(0)
+
+    const presentesDespues = delPci.filter(c => datoDespues.includes(c))
+    expect(presentesDespues,
+      'el conjunto de colores del PCI presentes en el DOM cambió al conmutar el tema')
+      .toEqual(presentesAntes)
   })
 })
