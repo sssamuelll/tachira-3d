@@ -12,11 +12,15 @@ export function temaDe (guardado: string | null, prefiereOscuro: boolean): Tema 
 }
 
 /** localStorage lanza en una ventana privada y con las cookies bloqueadas. El
- *  mapa tiene que abrir igual, así que todo acceso va envuelto. */
-const leer = (): string | null => {
+ *  mapa tiene que abrir igual, así que todo acceso va envuelto.
+ *
+ *  Exportadas (Arreglo 5): el repo no tiene jsdom, así que la única forma de
+ *  probar el caso bloqueado es llamar a estas dos directo con un
+ *  `globalThis.localStorage` falso que lanza. */
+export const leer = (): string | null => {
   try { return localStorage.getItem(CLAVE) } catch { return null }
 }
-const guardar = (t: Tema) => {
+export const guardar = (t: Tema) => {
   try { localStorage.setItem(CLAVE, t) } catch { /* sin memoria, pero funciona */ }
 }
 
