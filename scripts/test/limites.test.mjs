@@ -86,4 +86,31 @@ describe('limitesEnu', () => {
     expect(llano.length / 6, 'sin loma que esquivar no hay nada que partir').toBe(1)
     expect(conLoma.length / 6, 'la loma tiene que obligar a partir').toBeGreaterThan(1)
   })
+
+  // Arreglo 1 (review de rama, Task 8): el defecto real vivía en
+  // build-data.mjs, no acá -- la línea que arma los límites (6b/9) usaba el
+  // muestreador de las vías (`alturaDe`, atado a `roadDem`, una copia
+  // CONGELADA del DEM tomada antes de tallarAccesos) en vez de uno atado al
+  // DEM final, que sigue mutando después de esa copia. No se puede probar esa
+  // línea sin correr el pipeline completo, así que este test no lo intenta:
+  // lo que sí se puede cerrar es el contrato del que depende el arreglo --
+  // que limitesEnu llama al muestreador que recibe EN CADA PUNTO, y no
+  // memoriza nada de una llamada a la siguiente. Si memorizara, pasarle en
+  // build-data.mjs un muestreador atado al DEM correcto no habría arreglado
+  // nada: la primera altura leída se habría quedado pegada.
+  it('llama al muestreador que recibe en cada punto -- no memoriza nada de una llamada a la siguiente', () => {
+    // Un "DEM" de mentira, mutable, igual que `dem` en build-data.mjs: el
+    // mismo objeto, con su altura cambiando por debajo entre dos llamadas.
+    const demFalso = { h: 100 }
+    const alturaDe = () => demFalso.h
+    const arista = [[[3, 2], [4, 2]]]
+    const opts = { frame, alza: 0, enu: enuPlano, pasoM: 1e9 }
+
+    const antes = limitesEnu(arista, { alturaDe, ...opts })
+    expect(antes[1]).toBeCloseTo(100, 5)
+
+    demFalso.h = 500 // el DEM se talló por debajo, como tallarAccesos hace con `dem`
+    const despues = limitesEnu(arista, { alturaDe, ...opts })
+    expect(despues[1]).toBeCloseTo(500, 5)
+  })
 })

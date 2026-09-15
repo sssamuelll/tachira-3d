@@ -206,7 +206,19 @@ async function main () {
 
   console.log('6b/9 límites municipales')
   const aristas = aristasUnicas(municipios)
-  const limites = limitesEnu(aristas, { alturaDe, frame })
+  // OJO: NO `alturaDe` (la de arriba). Esa está atada a `roadDem`, la copia
+  // CONGELADA del DEM que se tomó en la línea ~93, antes de tallarAccesos
+  // (línea ~106) -- las vías la necesitan tal cual, para que sus acuerdos no
+  // se redrapeen con un terreno que ellas mismas movieron después. Los
+  // límites no tienen esa razón para quedarse con la copia vieja: si usaran
+  // `alturaDe` quedarían drapeados contra una superficie que el tallado de
+  // accesos levantó por debajo más tarde, y se enterrarían. Entre la línea
+  // 112 y el final de main() nadie vuelve a mutar `dem`, así que acá ya es la
+  // definitiva -- de ahí `alturaFinal` y no un segundo `alturaDe` que alguien
+  // termine fusionando con el de arriba dentro de seis meses: son dos
+  // muestreadores casi iguales a propósito, no un descuido para unificar.
+  const alturaFinal = (lon, lat) => alturaTriangulo(dem, lon, lat)
+  const limites = limitesEnu(aristas, { alturaDe: alturaFinal, frame })
   await writeBin(`${OUT}/limites-pos.bin`, limites)
   console.log(`     ${aristas.length} aristas únicas → ${limites.length / 6} segmentos drapeados`)
 
