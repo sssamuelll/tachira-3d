@@ -64,6 +64,16 @@ describe('la compensación del LOD en el vertex shader de los límites', () => {
     expect(shader.vertexShader).toContain('vec4 end = modelViewMatrix * vec4( instanceEnd, 1.0 );')
   })
 
+  it('declara mpp(z) antes de void main() -- misma fórmula que mppV de roadsShader.ts', () => {
+    const material = new LineMaterial()
+    parcharLimites(material)
+    const shader = realShader(material)
+    ;(material as unknown as { onBeforeCompile: (s: unknown) => void }).onBeforeCompile(shader)
+    expect(shader.vertexShader).toContain('float mpp (float z)')
+    expect(shader.vertexShader.indexOf('float mpp (float z)'))
+      .toBeLessThan(shader.vertexShader.indexOf('void main() {'))
+  })
+
   // El corazón del arreglo: NO alcanza con que aparezca "0.25" en alguna
   // parte -- eso ya pasaba con el defecto (el alza fija sola). Lo que prueba
   // que el arreglo es el de verdad es el max(...) con el término
@@ -72,7 +82,7 @@ describe('la compensación del LOD en el vertex shader de los límites', () => {
   // alguien cambia este max(...) por la alza fija -- o sea, revierte el
   // arreglo -- las dos cadenas de abajo dejan de aparecer y esto se pone
   // rojo (demostrado mutando LimitesMunicipales.tsx a mano: ver informe).
-  it('sube cada extremo con max(ERROR_PX * mpp, ALZA_MIN_M), con los valores importados', () => {
+  it('sube cada extremo con max(ERROR_PX * mpp(z), ALZA_MIN_M), con los valores importados', () => {
     const material = new LineMaterial()
     parcharLimites(material)
     const shader = realShader(material)
@@ -80,8 +90,8 @@ describe('la compensación del LOD en el vertex shader de los límites', () => {
 
     const errorPx = ERROR_PX.toFixed(1)
     const alzaMin = ALZA_MIN_M.toFixed(2)
-    expect(shader.vertexShader).toContain(`max( ${errorPx} * mppInicio, ${alzaMin} )`)
-    expect(shader.vertexShader).toContain(`max( ${errorPx} * mppFin, ${alzaMin} )`)
+    expect(shader.vertexShader).toContain(`max( ${errorPx} * mpp( start.z ), ${alzaMin} )`)
+    expect(shader.vertexShader).toContain(`max( ${errorPx} * mpp( end.z ), ${alzaMin} )`)
   })
 
   it('sube cada extremo por la vertical del MUNDO, no por una normal por vértice', () => {

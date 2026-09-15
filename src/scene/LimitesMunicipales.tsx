@@ -5,7 +5,7 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { ERROR_PX } from './quadtree'
-import { ALZA_MIN_M } from './roadsShader'
+import { ALZA_MIN_M, ANCLA_VERT } from './roadsShader'
 
 /**
  * Los límites municipales, como línea y no como efecto de borde de una
@@ -43,6 +43,16 @@ export const COLOR_OSCURO = '#7c828a'
  *  silencio. */
 const ANCLA_EJES = 'vec4 end = modelViewMatrix * vec4( instanceEnd, 1.0 );'
 
+/** `mpp(z)`: metros por píxel a la profundidad de cámara `z`, la misma
+ *  fórmula que `mppV` en roadsShader.ts. Función aparte (y no la expresión
+ *  repetida dos veces) porque hay que evaluarla en DOS profundidades
+ *  distintas -- la de `start` y la de `end`, que no comparten z -- y así
+ *  queda una sola fórmula de la que depender en vez de dos copias que
+ *  podrían desincronizarse. Se inyecta antes de `void main() {`
+ *  (ANCLA_VERT, importada de roadsShader.ts: es la misma ancla, y ese módulo
+ *  ya la expone para que la reutilice quien la necesite). */
+const MPP_GLSL = 'float mpp (float z) { return max( -z, 1e-3 ) * 2.0 / ( projectionMatrix[1][1] * resolution.y ); }'
+
 /**
  * Compensa, en el vertex shader de LineMaterial, el error del LOD del
  * terreno (Arreglo 2, review de rama Task 8).
@@ -67,15 +77,18 @@ const ANCLA_EJES = 'vec4 end = modelViewMatrix * vec4( instanceEnd, 1.0 );'
  */
 export function parcharLimites (material: THREE.Material) {
   material.onBeforeCompile = (shader) => {
+    if (!shader.vertexShader.includes(ANCLA_VERT)) {
+      throw new Error('LimitesMunicipales: no se encontró el ancla de void main() en el vertex shader de LineMaterial')
+    }
     if (!shader.vertexShader.includes(ANCLA_EJES)) {
       throw new Error('LimitesMunicipales: no se encontró el ancla de camera space en el vertex shader de LineMaterial')
     }
-    shader.vertexShader = shader.vertexShader.replace(ANCLA_EJES, `${ANCLA_EJES}
+    shader.vertexShader = shader.vertexShader
+      .replace(ANCLA_VERT, `${MPP_GLSL}\n${ANCLA_VERT}`)
+      .replace(ANCLA_EJES, `${ANCLA_EJES}
       vec3 arribaV = normalize( ( modelViewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz );
-      float mppInicio = max( -start.z, 1e-3 ) * 2.0 / ( projectionMatrix[1][1] * resolution.y );
-      float mppFin = max( -end.z, 1e-3 ) * 2.0 / ( projectionMatrix[1][1] * resolution.y );
-      start.xyz += arribaV * max( ${ERROR_PX.toFixed(1)} * mppInicio, ${ALZA_MIN_M.toFixed(2)} );
-      end.xyz += arribaV * max( ${ERROR_PX.toFixed(1)} * mppFin, ${ALZA_MIN_M.toFixed(2)} );
+      start.xyz += arribaV * max( ${ERROR_PX.toFixed(1)} * mpp( start.z ), ${ALZA_MIN_M.toFixed(2)} );
+      end.xyz += arribaV * max( ${ERROR_PX.toFixed(1)} * mpp( end.z ), ${ALZA_MIN_M.toFixed(2)} );
     `)
   }
   material.needsUpdate = true
