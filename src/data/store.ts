@@ -55,6 +55,11 @@ export class AttrStore {
 
   get length (): number { return this.regs.length }
 
+  /** La clase OSM de la vía i. La expone el store porque `ways` es privado y
+   *  attrTexture.ts necesita clasificarla (tierLiberty) sin cargar el
+   *  catálogo entero por su cuenta. */
+  highway (i: number): string { return this.ways[i].highway }
+
   /** Cuántas veces set() cambió algo. Solo set(): ni loadJSON() ni
    * seedFromSurface() lo suben, porque lo que viene del disco o del sembrado
    * no es una edición pendiente de guardar. useAutosave (persist.ts) lo usa

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { uniformesContacto } from './buildingShadows'
-import { PCI_RANGES, SIN_EVALUAR, SELECCION, CASING, CASING_SUAVE, FUENTES } from '../data/constants'
+import { PCI_RANGES, SIN_EVALUAR, SELECCION, CASING, CASING_SUAVE, FUENTES, LIBERTY } from '../data/constants'
 import { ERROR_PX } from './quadtree'
 import {
   ASFALTO_GLSL, ASFALTO_UNIFORMS_GLSL, ASFALTO_CUERPO_GLSL, SOL_POR_DEFECTO,
@@ -195,6 +195,29 @@ export const PCI_COLOR_GLSL = `
         ? `return ${vec3Lit(r.color)}; // ${r.label} (${r.min}-${r.max})`
         : `if (pci >= ${r.min.toFixed(1)}) return ${vec3Lit(r.color)}; // ${r.label} (${r.min}-${r.max})`
     )).join('\n    ')}
+  }
+`
+
+/**
+ * La paleta de OpenFreeMap Liberty (constants.ts), que es lo que el mapa
+ * dibuja mientras la capa de PCI está apagada -- o sea, casi siempre.
+ *
+ * Se genera de la tabla por la misma razón que pciColor(): escribirla a mano
+ * dentro del shader es el duplicado que este proyecto ya vio desincronizarse.
+ * El `tier` es por VÍA y llega por el alfa de la textura de atributos, así que
+ * los tres tiers conviven en un mismo programa y en un mismo objeto: no hace
+ * falta partir la red por color como se parte por ancho.
+ */
+export const LIBERTY_GLSL = `
+  vec3 libertyRelleno (float tier) {
+    ${LIBERTY.map((t, i) => i === LIBERTY.length - 1
+      ? `return ${vec3Lit(t.relleno)};`
+      : `if (tier < ${(i + 0.5).toFixed(1)}) return ${vec3Lit(t.relleno)};`).join('\n    ')}
+  }
+  vec3 libertyContorno (float tier) {
+    ${LIBERTY.map((t, i) => i === LIBERTY.length - 1
+      ? `return ${vec3Lit(t.contorno)};`
+      : `if (tier < ${(i + 0.5).toFixed(1)}) return ${vec3Lit(t.contorno)};`).join('\n    ')}
   }
 `
 
@@ -436,6 +459,15 @@ const F_MEDIDO = FUENTES.indexOf('medido').toFixed(1)
 const SELECCION_CASING: [number, number, number] =
   SELECCION.map(v => Number((v * 0.4).toFixed(4))) as [number, number, number]
 
+/** ¿Esta clave de caché es la de un relleno de vía? Es PREFIJO, no igualdad:
+ *  la clave lleva el encuentro detrás. Vive acá, pegada a donde se arma la
+ *  clave, porque la última vez que el formato cambió (se le añadió el
+ *  encuentro, fdf2a15) el lector de foto/escena.ts se quedó comparando por
+ *  igualdad y la foto trazada salió sin una sola carretera, sin error y sin
+ *  test que lo agarrara. */
+export const esRellenoDeVia = (clave: string | undefined): boolean =>
+  !!clave?.startsWith('vias:relleno')
+
 /**
  * Inyecta en el shader de LineMaterial la lectura de la data texture de
  * atributos (Task 14) y el color por PCI/procedencia. Se ancla al inicio de
@@ -477,6 +509,11 @@ export function patchLineMaterial (
     // cámara (m/px, anchos) ya no viaja como uniform: lo calcula el vertex
     // shader por vértice (extrusionGlsl).
     shader.uniforms.uPisoPx = { value: 1 }
+    // 0 = Liberty (la cartografía), 1 = rampa ASTM (el dato). Arranca en 0
+    // porque la capa 'pci' nace apagada (capas.ts): el mapa abre pareciéndose
+    // a un mapa vial, y el estado del pavimento se enciende cuando se busca.
+    // Lo escribe Roads.tsx por cuadro, como uPisoPx.
+    shader.uniforms.uModoPci = { value: 0 }
     if (superficie) shader.uniforms.uMppFuente = { value: 0 }
 
     // Los tres mapas del asfalto (asfalto.ts). Van con `value: null` si nadie
@@ -610,6 +647,8 @@ export function patchLineMaterial (
         varying vec3 vPosW;
         ${superficie ? 'varying vec4 vZonaJunta; varying float vPresenciaFuente;' : ''}
         ${PCI_COLOR_GLSL}
+        ${LIBERTY_GLSL}
+        uniform float uModoPci;
         ${MARCAS_GLSL}
         ${casing ? '' : ASFALTO_UNIFORMS_GLSL + MOJADO_UNIFORMS_GLSL + ASFALTO_GLSL + MOJADO_GLSL + SECCION_GLSL}
         void main() {
@@ -632,6 +671,10 @@ export function patchLineMaterial (
         float pci = vAttr.r * 255.0;
         float fuente = floor(vAttr.g * 255.0 + 0.5);
         float selected = floor(mod(floor(vAttr.b * 255.0 + 0.5), 4.0) / 2.0);
+        // El tier de Liberty, en el alfa (attrTexture.ts). Mismo idiom que la
+        // fuente: el texel llega normalizado a [0,1] y hay que devolverlo a
+        // byte antes de comparar.
+        float tier = floor(vAttr.a * 255.0 + 0.5);
         // La calzada va OPACA. La procedencia modulaba esta opacidad antes
         // (1.0/0.75/0.45) y obligaba a dibujar la red entera translúcida: una
         // vía semitransparente no se lee como vía sino como mancha, se le
@@ -692,8 +735,12 @@ export function patchLineMaterial (
         // claro, blanco es el color del fondo: la selección desaparecía.
         ${casing
           ? `float confianza = fuente >= ${F_MEDIDO} ? 1.0 : (fuente >= ${F_ESTIMADO} ? 0.6 : 0.25);
-        vec3 base = mix(mix(${vec3Lit(CASING_SUAVE)}, ${vec3Lit(CASING)}, confianza), ${vec3Lit(SELECCION_CASING)}, selected);`
-          : `vec3 base = mix(pciColor(pci), ${vec3Lit(SELECCION)}, selected);
+        // Con la capa de PCI apagada el contorno es el de Liberty, por tier. Con
+        // ella encendida vuelve el oscuro por procedencia: ahí el borde dice
+        // cuánta confianza merece el dato, y sin dato no hay nada que decir.
+        vec3 porModo = mix(libertyContorno(tier), mix(${vec3Lit(CASING_SUAVE)}, ${vec3Lit(CASING)}, confianza), uModoPci);
+        vec3 base = mix(porModo, ${vec3Lit(SELECCION_CASING)}, selected);`
+          : `vec3 base = mix(mix(libertyRelleno(tier), pciColor(pci), uModoPci), ${vec3Lit(SELECCION)}, selected);
         ${ASFALTO_CUERPO_GLSL.replace(ANCLA_MOJADO, MOJADO_CUERPO_GLSL)}
         ${superficie ? '' : MARCAS_CUERPO_GLSL}
         ${MOJADO_LAMINA_GLSL}

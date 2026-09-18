@@ -1,13 +1,13 @@
 import { test, expect } from 'vitest'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import {
-  patchLineMaterial, ANCLA_VERT, ANCLA_FRAG, PCI_COLOR_GLSL,
+  patchLineMaterial, ANCLA_VERT, ANCLA_FRAG, PCI_COLOR_GLSL, LIBERTY_GLSL, esRellenoDeVia,
   ANCLA_EXTRUSION_INICIO, ANCLA_EXTRUSION_FIN, extrusionGlsl, parcharExtrusion,
   FLECHA_M, CABEZA_M, CABEZA_ANCHO_M, TALLO_M, FLECHA_CICLO_M, ALZA_MIN_M,
 } from './roadsShader'
 import { ERROR_PX } from './quadtree'
 import { patchPickMaterial } from './PickingPass'
-import { PCI_RANGES, pciColor } from '../data/constants'
+import { PCI_RANGES, pciColor, LIBERTY } from '../data/constants'
 import type { DataTexture } from 'three'
 
 type Rule =
@@ -343,4 +343,79 @@ test('lanza si el ancla de diffuseColor no aparece en el fragment shader', () =>
   const shader = realShader(material)
   shader.fragmentShader = shader.fragmentShader.replace(ANCLA_FRAG, '// ancla removida')
   expect(() => (material as any).onBeforeCompile(shader)).toThrow(/ancla del fragment shader/)
+})
+
+// --- Paleta vial de Liberty y el conmutador de modo -------------------------
+
+// Mismo criterio que parseCascade: lee la cascada que el generador REALMENTE
+// emitió y la ejecuta, en vez de reimplementarla.
+function pickTier (glsl: string, fn: string, tier: number): number[] {
+  const cuerpo = glsl.slice(glsl.indexOf(`vec3 ${fn} (float tier) {`))
+  for (const linea of cuerpo.split('\n')) {
+    const cond = linea.match(/if \(tier < ([\d.]+)\) return vec3\(([^)]+)\);/)
+    if (cond) { if (tier < Number(cond[1])) return cond[2].split(',').map(Number); continue }
+    const fin = linea.match(/^\s*return vec3\(([^)]+)\);/)
+    if (fin) return fin[1].split(',').map(Number)
+  }
+  throw new Error(`no se pudo leer ${fn} del GLSL`)
+}
+
+test('el GLSL de Liberty coincide con la tabla LIBERTY en los tres tiers', () => {
+  for (let t = 0; t < LIBERTY.length; t++) {
+    expect(pickTier(LIBERTY_GLSL, 'libertyRelleno', t)).toEqual(LIBERTY[t].relleno)
+    expect(pickTier(LIBERTY_GLSL, 'libertyContorno', t)).toEqual(LIBERTY[t].contorno)
+  }
+})
+
+// El conmutador. uModoPci a 0 dibuja Liberty (el estado normal del mapa) y a 1
+// vuelve la rampa ASTM con sus contornos por procedencia, sin tocar nada más:
+// el modo PCI tiene que seguir siendo el mapa que ya existía.
+test('el relleno lleva los dos colores y elige con uModoPci', () => {
+  const m = new LineMaterial()
+  patchLineMaterial(m, {} as DataTexture, 164)
+  const shader = realShader(m)
+  ;(m as any).onBeforeCompile(shader)
+  expect(shader.fragmentShader).toContain('libertyRelleno(tier)')
+  expect(shader.fragmentShader).toContain('pciColor(pci)')
+  expect(shader.fragmentShader).toContain('uModoPci')
+  expect(shader.uniforms.uModoPci.value).toBe(0)   // Liberty de entrada
+})
+
+test('el contorno tambien cambia de modo: Liberty es claro, el de PCI oscuro', () => {
+  const m = new LineMaterial()
+  patchLineMaterial(m, {} as DataTexture, 164, true)
+  const shader = realShader(m)
+  ;(m as any).onBeforeCompile(shader)
+  expect(shader.fragmentShader).toContain('libertyContorno(tier)')
+  expect(shader.fragmentShader).toContain('uModoPci')
+})
+
+// El tier viaja en el alfa de la textura de atributos (attrTexture.ts). Si el
+// shader lo leyera de otro canal, las vías saldrian del color del PCI o de la
+// procedencia sin que nada fallara.
+test('el tier se lee del canal alfa de la textura de atributos', () => {
+  const m = new LineMaterial()
+  patchLineMaterial(m, {} as DataTexture, 164)
+  const shader = realShader(m)
+  ;(m as any).onBeforeCompile(shader)
+  expect(shader.fragmentShader).toMatch(/float tier = floor\(vAttr\.a \* 255\.0 \+ 0\.5\)/)
+})
+
+// Este bug estuvo vivo desde fdf2a15 hasta que alguien volvió a mirar la foto:
+// foto/escena.ts comparaba la clave por IGUALDAD contra 'vias:relleno', y la
+// clave llevaba ya ':base' detrás. No casaba con ningún objeto, `vias()`
+// devolvía malla nula, y la foto trazada salía SIN UNA SOLA CARRETERA. Ni un
+// error, ni un test rojo. El discriminante vive ahora junto a donde se ARMA la
+// clave, y se prueba contra las claves que patchLineMaterial produce de verdad.
+test('el discriminante de relleno aguanta los sufijos de la clave', () => {
+  const clave = (casing: boolean, enc: 'base' | 'superficie') => {
+    const m = new LineMaterial()
+    patchLineMaterial(m, {} as DataTexture, 164, casing, undefined, enc)
+    return m.customProgramCacheKey()
+  }
+  expect(esRellenoDeVia(clave(false, 'base'))).toBe(true)
+  expect(esRellenoDeVia(clave(false, 'superficie'))).toBe(true)
+  expect(esRellenoDeVia(clave(true, 'base'))).toBe(false)
+  expect(esRellenoDeVia(clave(true, 'superficie'))).toBe(false)
+  expect(esRellenoDeVia(undefined)).toBe(false)
 })

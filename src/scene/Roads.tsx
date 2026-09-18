@@ -23,7 +23,7 @@ import type { Juntas } from './juntas'
 // decide cuánto refinar (quadtree.ts).
 
 export function Roads (
-  { positions, segIds, index, ways, attr, normals, date, lluvia, juntas }: {
+  { positions, segIds, index, ways, attr, normals, date, lluvia, juntas, pci }: {
     positions: Float32Array; segIds: Float32Array; index: Uint32Array
     ways: Way[]; attr: AttrTexture
     /** Normal del terreno en cada extremo de tramo (roads-nrm.bin). */
@@ -32,6 +32,9 @@ export function Roads (
     date: Date
     /** Calzada mojada: charcos en las huellas y en los baches (mojado.ts). */
     lluvia: boolean
+    /** Capa 'pci' encendida: la red se pinta con la rampa ASTM en vez de con
+     *  la paleta cartográfica de Liberty (roadsShader.ts, uModoPci). */
+    pci: boolean
     juntas: Juntas
   },
 ) {
@@ -241,6 +244,7 @@ export function Roads (
         const u = capa.material.userData.uniforms
         if (!u) continue
         u.uPisoPx.value = o.nivel.pisoPx
+        u.uModoPci.value = pci ? 1 : 0
         if (o.superficie) u.uMppFuente.value = mpp
         // La dirección del sol para el asfalto. uSol lo declara
         // roadsShader.ts en los dos materiales (asfalto.test.ts lo afirma);

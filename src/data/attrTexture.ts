@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { ATTR_SIZE, FUENTES } from './constants'
+import { ATTR_SIZE, FUENTES, TIER_MENOR, tierLiberty } from './constants'
 import type { Registro } from './types'
 import type { AttrStore } from './store'
 
@@ -7,8 +7,9 @@ import type { AttrStore } from './store'
 // RGBA de ATTR_SIZE² texels, uno por índice de vía, que el shader indexa por
 // id. Repintar miles de tramos es entonces escribir texels y subir una
 // textura chica — el equivalente hecho a mano del setFeatureState de MapLibre.
-export function encodeAttr (reg: Registro, enfocado: boolean, selected: boolean):
-  [number, number, number, number] {
+export function encodeAttr (
+  reg: Registro, enfocado: boolean, selected: boolean, tier: number = TIER_MENOR,
+): [number, number, number, number] {
   return [
     // 255 (no 0) marca "sin evaluar": un PCI de 0 es dato real, el peor
     // escalón de la escala ASTM (pavimento colapsado), no ausencia de dato.
@@ -24,7 +25,12 @@ export function encodeAttr (reg: Registro, enfocado: boolean, selected: boolean)
     // aplicación esconde una vía del mapa, y de eso depende que el pase de
     // picking pueda dibujarlas todas sin mentir.
     (enfocado ? 1 : 0) | (selected ? 2 : 0),
-    0,
+    // El tier de Liberty (constants.ts): qué color le toca a la vía cuando la
+    // capa de PCI está apagada, o sea en el estado normal del mapa. Este canal
+    // estaba fijo en 0 y no lo leía nadie. Va acá y no en un atributo de
+    // vértice porque es un valor POR VÍA, que es justo lo que esta textura
+    // indexa, y porque la geometría de vías ya roza el tope de atributos.
+    tier,
   ]
 }
 
@@ -60,6 +66,7 @@ export class AttrTexture {
         this.store.get(i),
         enfocado ? enfocado[i] === 1 : true,
         selected ? selected[i] === 1 : false,
+        tierLiberty(this.store.highway(i)),
       )
       const o = i * 4
       this.data[o] = r; this.data[o + 1] = g; this.data[o + 2] = b; this.data[o + 3] = a
