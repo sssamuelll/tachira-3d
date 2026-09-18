@@ -157,10 +157,13 @@ export const cortePorSegmento = (ways: Way[], index: Uint32Array): Float32Array 
 
 export interface Tanda {
   nivel: number; positions: Float32Array; segIds: Float32Array
-  /** Los `porVia` de la llamada, expandidos a un valor por SEGMENTO y
-   *  repartidos en el mismo orden que `segIds`. Van como atributos de
-   *  instancia del shader (ver Roads.tsx). */
-  extras: Float32Array[]
+  /** Los `porVia` de la llamada, expandidos a un valor por SEGMENTO,
+   *  INTERCALADOS (stride porVia.length) y repartidos en el mismo orden que
+   *  `segIds`. Un solo Float32Array y no uno por valor -- Roads.tsx los
+   *  cuelga como un único atributo vec3 (aVia, roadsShader.ts): sueltos, los
+   *  tres se sumaban a los de LineMaterial y pasaban de 16 atributos de
+   *  vértice en la GPU de referencia (GTX 980, MAX_VERTEX_ATTRIBS = 16). */
+  via: Float32Array
   /** Metros recorridos a lo largo de la vía en cada extremo del segmento. Le
    *  dan fase a las rayas discontinuas del shader. Se cuentan desde el
    *  arranque de CADA vía, no del buffer entero: el computeLineDistances() de
@@ -221,7 +224,7 @@ export function repartirPorNivel (
 
   const pos = NIVELES.map((_, n) => new Float32Array(cuenta[n] * 6))
   const ids = NIVELES.map((_, n) => new Float32Array(cuenta[n]))
-  const ext = NIVELES.map((_, n) => porVia.map(() => new Float32Array(cuenta[n])))
+  const via = NIVELES.map((_, n) => new Float32Array(cuenta[n] * porVia.length))
   const d0 = NIVELES.map((_, n) => new Float32Array(cuenta[n]))
   const d1 = NIVELES.map((_, n) => new Float32Array(cuenta[n]))
   const nrm = NIVELES.map((_, n) => new Int8Array(cuenta[n] * 6))
@@ -252,7 +255,9 @@ export function repartirPorNivel (
       if (normals) for (let c = 0; c < 6; c++) nrm[n][dst + c] = normals[src + c]
       ids[n][k[n]] = segIds[s]
       // El valor es de la VÍA: todos sus segmentos se llevan el mismo.
-      for (let e = 0; e < porVia.length; e++) ext[n][e][k[n]] = porVia[e][i]
+      // Intercalado (stride porVia.length): es el mismo atributo vec3 que
+      // cuelga Roads.tsx, no uno por valor.
+      for (let e = 0; e < porVia.length; e++) via[n][k[n] * porVia.length + e] = porVia[e][i]
       d0[n][k[n]] = desde
       d1[n][k[n]] = recorrido
       if (juntas && limites) {
@@ -271,7 +276,7 @@ export function repartirPorNivel (
 
   return NIVELES
     .map((_, n) => ({
-      nivel: n, positions: pos[n], segIds: ids[n], extras: ext[n], d0: d0[n], d1: d1[n], normales: nrm[n],
+      nivel: n, positions: pos[n], segIds: ids[n], via: via[n], d0: d0[n], d1: d1[n], normales: nrm[n],
       limites: limites?.[n], zonas: zonas?.[n], estilos: estilos?.[n],
     }))
     .filter(t => t.segIds.length > 0)

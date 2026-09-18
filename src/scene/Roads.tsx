@@ -137,9 +137,11 @@ export function Roads (
     const nrmBuf = new THREE.InstancedInterleavedBuffer(t.normales, 6, 1)
     geometry.setAttribute('instanceNormalStart', new THREE.InterleavedBufferAttribute(nrmBuf, 3, 0, true))
     geometry.setAttribute('instanceNormalEnd', new THREE.InterleavedBufferAttribute(nrmBuf, 3, 3, true))
-    geometry.setAttribute('aCalzada', new THREE.InstancedBufferAttribute(t.extras[0], 1))
-    geometry.setAttribute('aCanales', new THREE.InstancedBufferAttribute(t.extras[1], 1))
-    geometry.setAttribute('aBorde', new THREE.InstancedBufferAttribute(t.extras[2], 1))
+    // Calzada, canales y borde de cada vía, en un solo atributo vec3
+    // (roadsShader.ts, aVia): tres atributos sueltos aquí sacaban el material
+    // de vías a 17 en la variante de superficie de junta, uno más que
+    // MAX_VERTEX_ATTRIBS en la GPU de referencia (16, GTX 980).
+    geometry.setAttribute('aVia', new THREE.InstancedBufferAttribute(t.via, 3))
     geometry.setAttribute('aLimites', new THREE.InstancedBufferAttribute(t.limites!, 2))
     if (t.zonas) geometry.setAttribute('aZonaJunta', new THREE.InstancedBufferAttribute(t.zonas, 4))
     if (t.estilos) geometry.setAttribute('aEstiloJunta', new THREE.InstancedBufferAttribute(t.estilos, 3))
@@ -176,7 +178,9 @@ export function Roads (
     })
 
     let anchoMax = 0
-    if (superficie) for (const ancho of t.extras[0]) anchoMax = Math.max(anchoMax, ancho)
+    // t.via va intercalado (roadStyle.ts): la calzada es la componente 0 de
+    // cada trío.
+    if (superficie) for (let i = 0; i < t.via.length; i += 3) anchoMax = Math.max(anchoMax, t.via[i])
     return { nivel: NIVELES[t.nivel], capas, superficie, anchoMax, geometry }
   }), [positions, segIds, index, ways, attr, porVia, normals, asfalto, juntas])
 

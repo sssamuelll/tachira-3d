@@ -82,9 +82,10 @@ export const ALZA_MIN_M = 0.25
  *
  * Deja en scope `mppV`, `anchoBase` (la calzada), `bordeM` (el hombrillo o el
  * brocal a cada lado, firmado y ya fundido -- seccion.ts) y `anchoM` (lo que se
- * extruye) para que `colofon` rellene los varyings que necesite. Requiere
- * declarados `attribute float aCalzada;`, `attribute float aBorde;`,
- * `attribute vec3 instanceNormalStart;`, `attribute vec3 instanceNormalEnd;` y
+ * extruye) para que `colofon` rellene los varyings que necesite. Requiere en
+ * scope `float aCalzada` y `float aBorde` (hoy locales, desempaquetados de
+ * `attribute vec3 aVia` -- ver ATTR_VERT_GLSL), `attribute vec3
+ * instanceNormalStart;`, `attribute vec3 instanceNormalEnd;` y
  * `uniform float uPisoPx;`.
  */
 export function extrusionGlsl (casing: boolean, colofon = '', limitarTapas = false, pisoPx = 'uPisoPx'): string {
@@ -230,9 +231,17 @@ export const LIBERTY_GLSL = `
  * consultar (ver el comentario de patchPickMaterial en PickingPass.tsx). */
 export const ATTR_VERT_GLSL = `
       attribute float segId;
-      attribute float aCalzada;
-      attribute float aBorde;
-      attribute float aCanales;
+      // aCalzada, aBorde y aCanales empaquetados en un solo atributo vec3:
+      // sueltos, este material llegaba a 17 atributos de vértice en la
+      // variante de superficie de junta (los 8 de LineSegmentsGeometry /
+      // LineMaterial mas los 9 que cuelga este archivo), uno más que
+      // MAX_VERTEX_ATTRIBS en una GTX 980 -- el tope normal en D3D11, no una
+      // rareza de esa GPU. El programa no compilaba ('Too many attributes')
+      // y esa capa nunca se había dibujado en Chromium/Brave sobre esa
+      // tarjeta. Un vec3 ocupa un solo atributo igual que un float suelto,
+      // así que empaquetar estos tres baja el total a 15 sin cambiar qué se
+      // dibuja.
+      attribute vec3 aVia;
       attribute float instanceDistanceStart;
       attribute float instanceDistanceEnd;
       attribute vec3 instanceNormalStart;
@@ -263,6 +272,12 @@ export const ATTR_VERT_GLSL = `
       varying vec3 vTerrW;
       varying vec3 vPosW;
       void main() {
+        // Desempaquetados de aVia: el resto del shader (este bloque, la
+        // sección en seccion.ts y la extrusión de roadsShader.ts) los sigue
+        // leyendo por su nombre de siempre.
+        float aCalzada = aVia.x;
+        float aCanales = aVia.y;
+        float aBorde = aVia.z;
         vAttr = texture2D(uAttr, (vec2(
           mod(segId, uAttrSize), floor(segId / uAttrSize)) + 0.5) / uAttrSize);
         vCanales = aCanales;

@@ -157,8 +157,10 @@ const vec3Lit = ([r, g, b]: readonly [number, number, number] | readonly number[
  * contorno y el de ids: los tres tienen que ensanchar igual o el clic deja de
  * caer donde se ve la vía.
  *
- * Requiere `attribute float aBorde;` declarado y `anchoBase`/`mppV` en scope.
- * Deja `bordeM` (firmado, ya fundido) y `anchoTot`.
+ * Requiere `float aBorde` en scope (atributo en el pase de ids, PickingPass.tsx;
+ * local desempaquetado de `aVia.z` en el pase visible, roadsShader.ts) y
+ * `anchoBase`/`mppV` también en scope. Deja `bordeM` (firmado, ya fundido) y
+ * `anchoTot`.
  *
  * El `smoothstep` es el fundido, con el MISMO umbral de píxeles que el asfalto:
  * cuando vale 0, `anchoTot == anchoBase` y la geometría es exactamente la de

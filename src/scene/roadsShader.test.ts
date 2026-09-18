@@ -127,7 +127,7 @@ test('el vertex shader parcheado extruye en metros y ya no desplaza en píxeles'
   expect(shader.vertexShader).not.toContain(ANCLA_EXTRUSION_FIN)
   expect(shader.vertexShader).not.toContain('offset *= linewidth;')
   expect(shader.vertexShader).toContain('float mppV')
-  expect(shader.vertexShader).toContain('attribute float aCalzada;')
+  expect(shader.vertexShader).toContain('attribute vec3 aVia;')
   // Lo que el fragment necesita, calculado por vértice y no por uniform.
   for (const v of ['vCalzadaPx', 'vAnchoPx', 'vMpp']) {
     expect(shader.vertexShader).toContain(`varying float ${v};`)
@@ -136,6 +136,55 @@ test('el vertex shader parcheado extruye en metros y ya no desplaza en píxeles'
   expect(shader.uniforms.uMpp).toBeUndefined()
   expect(shader.uniforms.uBandaPx).toBeUndefined()
   expect(shader.uniforms.uPisoPx).toBeDefined()
+})
+
+// MAX_VERTEX_ATTRIBS es 16 en la GTX 980 de referencia -- el tope normal en
+// D3D11, no una rareza de esa tarjeta. Antes de empaquetar aCalzada/aCanales/
+// aBorde en aVia, la variante de superficie de junta declaraba 17 y el
+// programa no compilaba ('Too many attributes (instanceNormalStart)'): esa
+// capa nunca se había dibujado en ninguna GPU con ese tope. Este test cuenta
+// los `attribute` de verdad en el shader COMPILADO (no una lista a mano que
+// se desincroniza en silencio si three cambia lo que declara LineMaterial) y
+// fija el número, para las cuatro variantes del material de vías.
+function contarAtributos (vertexShader: string): number {
+  return (vertexShader.match(/^\s*attribute\s+\w+\s+\w+\s*;/gm) ?? []).length
+}
+
+test('ninguna variante del material de vías pasa de MAX_VERTEX_ATTRIBS (16)', () => {
+  const variantes: Array<[string, () => string]> = [
+    ['relleno, base', () => {
+      const m = new LineMaterial()
+      patchLineMaterial(m, {} as DataTexture, 164, false, undefined, 'base')
+      const s = realShader(m)
+      ;(m as any).onBeforeCompile(s)
+      return s.vertexShader
+    }],
+    ['contorno, base', () => {
+      const m = new LineMaterial()
+      patchLineMaterial(m, {} as DataTexture, 164, true, undefined, 'base')
+      const s = realShader(m)
+      ;(m as any).onBeforeCompile(s)
+      return s.vertexShader
+    }],
+    ['relleno, superficie de junta', () => {
+      const m = new LineMaterial()
+      patchLineMaterial(m, {} as DataTexture, 164, false, undefined, 'superficie')
+      const s = realShader(m)
+      ;(m as any).onBeforeCompile(s)
+      return s.vertexShader
+    }],
+    ['picking, con encuentros', () => {
+      const m = new LineMaterial()
+      patchPickMaterial(m, true)
+      const s = realShader(m)
+      ;(m as any).onBeforeCompile(s)
+      return s.vertexShader
+    }],
+  ]
+  for (const [nombre, compilar] of variantes) {
+    const n = contarAtributos(compilar())
+    expect(n, `${nombre}: ${n} atributos`).toBeLessThanOrEqual(16)
+  }
 })
 
 // El lado de la extrusión tiene que ser la DERECHA del sentido de marcha:

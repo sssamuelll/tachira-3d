@@ -123,7 +123,12 @@ test('los dos pases comparten el ensanchamiento: el clic sobre el hombrillo sele
   expect(ps.vertexShader).toContain('attribute float aBorde;')
   expect(ps.vertexShader).toContain('float anchoTot = anchoBase + 2.0 * abs( bordeM );')
   const r = relleno()
-  expect(r.vertexShader).toContain('attribute float aBorde;')
+  // El pase visible empaqueta aBorde en aVia.z (roadsShader.ts, ATTR_VERT_GLSL)
+  // y lo desempaqueta a una variable local con el mismo nombre: el bloque
+  // compartido de acá arriba (SECCION_ANCHO_GLSL) sigue viendo `aBorde`, solo
+  // que ya no es el atributo -- el de picking sí sigue siéndolo.
+  expect(r.vertexShader).toContain('attribute vec3 aVia;')
+  expect(r.vertexShader).toContain('float aBorde = aVia.z;')
   // El bloque compartido no puede ganar varyings (el pase de ids no los
   // declara): vBordeM lo rellena el colofón, que es solo del pase visible. Sin
   // comentarios, que sí lo nombran para explicar de dónde sale.
