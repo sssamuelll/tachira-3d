@@ -74,6 +74,16 @@ const GEOMETRIAS_MAX = 800
 // nivel. Calibrable.
 const TEXTURAS_MAX = 300
 
+// Cuántos nodos nuevos arma cajaDe() por cuadro. Armar uno son 1.221 vértices
+// con una conversión ENU por vértice y las normales en CPU (nodoTerreno.ts);
+// sin tope, un giro de cámara que exige veinte nodos a la vez los paga TODOS
+// dentro del mismo useFrame. Medido con la sonda de rendimiento: tareas largas
+// del hilo principal de 50 a 400 ms al orbitar y al bajar a una ciudad nueva.
+// Con este cupo, listo() (más abajo) le niega el nodo al quadtree en cuanto se
+// agota, y seleccionar() (quadtree.ts) cae al padre más grueso hasta el
+// cuadro siguiente, que trae cupo de nuevo. Calibrable: empieza en 2.
+const NODOS_POR_CUADRO = 2
+
 // Las cascadas de sombra. Tres y no cuatro: con maxFar de 8 km la tercera ya
 // cubre kilómetros por texel, y una cuarta cuesta un pase entero de sombra por
 // cuadro para ganar detalle donde el relieve ya mide menos de un píxel.
@@ -205,6 +215,20 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
   const nodosPorCaja = useMemo(() => new WeakMap<THREE.Box3, Nodo>(), [])
   const demandaEdificios = useRef(new Set<string>())
 
+  // Presupuesto de nodos por cuadro (ver NODOS_POR_CUADRO). Se reinicia al
+  // principio de cada useFrame y cajaDe lo descuenta cuando arma una malla de
+  // verdad. Probado a mano reservando cupo desde listo() (para que las dos
+  // llamadas que seleccionar() hace por hermano -- una vez sobre los cuatro
+  // juntos, otra al visitar cada uno -- coincidieran): eso podía gastar todo
+  // el cupo del cuadro en cuartetos que al final NO se recorrían (el `every`
+  // fallaba por OTRO hermano), dejando el relieve atascado para siempre en
+  // un puñado de nodos porque el cupo "reservado" nunca se traducía en una
+  // malla real. Con el descuento solo en cajaDe, un hermano que se queda sin
+  // cupo dentro del mismo cuadro dibuja un hueco de un cuadro (16 ms) en vez
+  // de al padre -- se cura solo en el cuadro siguiente, que es preferible a
+  // quedarse atascado.
+  const cupo = useRef(0)
+
   // Las cascadas. Nacen y mueren en el MISMO efecto, y con ellas todas las
   // mallas armadas: CSM.dispose() le borra onBeforeCompile a cada material
   // que le instalaron, y como materialRelieve monta su propio parche ENCIMA
@@ -317,10 +341,18 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     return imagen ? Math.max(geo, errorImagen(n)) : geo
   }
   const teselaDe = (n: Nodo) => { const w = ventana(n, meta.dem); return cache.get(w.zt, w.xt, w.yt) }
+
+  // Si la malla ya existe, usarla no cuesta nada este cuadro: siempre lista.
+  // Si no existe, hace falta tesela del DEM (si no llegó, nunca está lista,
+  // presupuesto o no) y que quede cupo -- el mismo `cupo.current` que cajaDe
+  // descuenta cuando arma una malla de verdad.
+  const listoDe = (n: Nodo): boolean =>
+    mallas.has(clave(n)) || (teselaDe(n) !== undefined && cupo.current > 0)
   const cajaDe = (n: Nodo): THREE.Box3 => {
     const k = clave(n)
     let m = mallas.get(k)
     if (!m) {
+      cupo.current--
       // Infinity es una orden de refinamiento, nunca un error de la malla:
       // usarlo para el faldón produciría vértices con Y=-Infinity.
       const errorMalla = errorMallaEdificios(n, errores.current)
@@ -368,6 +400,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
   useFrame(() => {
     const c = csm.current
     if (!grupo.current || !c) return
+    cupo.current = NODOS_POR_CUADRO
     // El color del sol de la atmósfera, copiado a las cascadas. Es luminancia,
     // no un color en [0,1]: la magnitud entera del sol vive en el color y la
     // intensity de la luz se queda en 1 (SunDirectionalLight.update() nunca la
@@ -404,7 +437,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
       mpp: d => metrosPorPixel(d, fov, size.height),
     }, {
       error: errorDe,
-      listo: n => teselaDe(n) !== undefined,
+      listo: listoDe,
       pedir: n => { const w = ventana(n, meta.dem); cache.pedir(w.zt, w.xt, w.yt) },
       caja: cajaDe,
     }, imagen ? Z_MAX_IMG : Z_MAX_RELIEVE)
