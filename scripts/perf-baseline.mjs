@@ -180,8 +180,8 @@ try {
   // así que ya pasó por sus useFrame y su render). `largas` son las long
   // tasks (>50 ms) que cayeron dentro de la ventana.
   let convergida = null
-  const sonda = async (etiqueta, durante) => {
-    const p = page.evaluate(() => new Promise(res => {
+  const sonda = async (etiqueta, durante, ventanaMs = 3000) => {
+    const p = page.evaluate(ventanaMs => new Promise(res => {
       const st = window.__escena.getState(); const gl = st.gl
       const auto = gl.info.autoReset; gl.info.autoReset = false; gl.info.reset()
       const t0 = performance.now(); let last = t0; const dts = [], calls = [], tris = [], cpu = [], largas = []
@@ -191,7 +191,7 @@ try {
       function tick (ts) {
         const now = performance.now(); dts.push(now - last); last = now; cpu.push(now - ts)
         calls.push(gl.info.render.calls); tris.push(gl.info.render.triangles); gl.info.reset()
-        if (now - t0 < 3000) { requestAnimationFrame(tick); return }
+        if (now - t0 < ventanaMs) { requestAnimationFrame(tick); return }
         gl.info.autoReset = auto; po.disconnect(); dts.shift(); calls.shift(); tris.shift(); cpu.shift()
         const terreno = st.scene.getObjectByName('terrain')
         res({
@@ -207,7 +207,7 @@ try {
         })
       }
       requestAnimationFrame(tick)
-    }))
+    }), ventanaMs)
     const [r] = await Promise.all([p, durante ? durante() : Promise.resolve()])
     Object.assign(r, await heapMB())
     r.convergida = convergida
@@ -241,6 +241,24 @@ try {
       await page.waitForTimeout(700)
     }
     return { estable: false, estado: previo }
+  }
+
+  // Una captura con la foto satelital APAGADA. Es la única comparable entre dos
+  // corridas: con la foto encendida, medido sobre el mismo commit dos veces,
+  // la vista de ciudad daba el 59 % de los píxeles distintos aunque los
+  // triángulos y los draw calls fueran idénticos -- las teselas de Esri llegan
+  // en otro orden y a otra resolución cada vez. Sin foto queda la hipsometría,
+  // que sale del DEM propio y es la misma siempre, así que una diferencia ahí
+  // sí es un cambio de dibujo.
+  const capturaSinFoto = async etiqueta => {
+    if (!capturas) return
+    const boton = page.locator('button[title="Imagen satelital"]')
+    if (!await boton.count()) return
+    await boton.click()
+    await esperarEstable(20_000)
+    await page.screenshot({ path: capturas + '/' + etiqueta.replace(/[^\w.-]+/g, '_') + '__sinfoto.png' })
+    await boton.click()
+    await esperarEstable(20_000)
   }
 
   const colocar = (lat, lon, h, dx, dy, dz) => page.evaluate(([lat, lon, h, dx, dy, dz]) => {
@@ -281,6 +299,7 @@ try {
     console.error('  estado:', JSON.stringify(convergida))
     await sonda('B1 estado quieta')
     await sonda('B2 estado quieta')
+    await capturaSinFoto('B estado')
     salida.red_estado = resumenRed('tras ~10 s en vista de estado')
     if (perfil) await perfilar('B estado quieta')
     if (sweep) await barrido('B estado')
@@ -290,6 +309,7 @@ try {
     console.error('  ciudad:', JSON.stringify(convergida))
     await sonda('C1 ciudad quieta')
     await sonda('C2 ciudad quieta')
+    await capturaSinFoto('C ciudad')
     if (perfil) await perfilar('C ciudad quieta')
     if (sweep) await barrido('C ciudad')
     if (perfil) await perfilar('D ciudad orbitando', async () => { await arrastrar(300, 0); await arrastrar(0, 150); await arrastrar(-250, 0) })
@@ -299,6 +319,7 @@ try {
     convergida = await esperarEstable()
     console.error('  calle:', JSON.stringify(convergida))
     await sonda('E1 calle quieta')
+    await capturaSinFoto('E calle')
     if (perfil) await perfilar('E calle quieta')
     if (sweep) await barrido('E calle')
     await sonda('E2 calle orbitando', () => arrastrar(200, 0))
@@ -309,6 +330,23 @@ try {
       await sonda('F calle lluvia quieta')
       await lluvia.click()
     } else salida.errores.push('sin botón de lluvia: títulos = ' + salida.botones.join(' | '))
+    // Vuelo por el estado: ocho saltos a sitios lejanos entre si, a altura de
+    // pueblo. Cada salto obliga a armar relieve nuevo entero, que es
+    // exactamente el caso que el presupuesto de nodos por cuadro dice arreglar
+    // (TerrainLod.tsx, NODOS_POR_CUADRO). Orbitar un poco no lo ejercita: los
+    // nodos ya estan armados y la LRU los devuelve.
+    const RUTA = [
+      [7.7669, -72.2250], [7.8200, -72.2200], [8.1300, -71.9800], [7.8100, -72.4400],
+      [7.7000, -72.3500], [8.0300, -72.2500], [8.0200, -71.7600], [8.2100, -72.2500],
+    ]
+    convergida = null
+    await sonda('H vuelo por el estado', async () => {
+      for (const [lat, lon] of RUTA) {
+        await colocar(lat, lon, 1000, 0, 900, 1400)
+        await page.waitForTimeout(1100)
+      }
+    }, 10_000)
+
     await colocar(8.021973, -71.901563, 0, 0, 55000, 100000)
     convergida = await esperarEstable()
     await sonda('G estado de vuelta')

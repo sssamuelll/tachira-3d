@@ -9,7 +9,7 @@
 // Si las dos corridas llevan --capturas, también compara las imágenes. Eso es
 // la otra mitad del veredicto: un cambio que acelera porque dejó de dibujar
 // algo se ve perfecto en la tabla de milisegundos.
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { PNG } from 'pngjs'
 
 const [rutaA, rutaB] = process.argv.slice(2)
@@ -57,26 +57,43 @@ console.log('peor regresión de ms_p50: ' + (peor.etiqueta ?? 'ninguna') + ' ' +
 // llegan las teselas de la foto satelital, sobre todo), no un cambio de dibujo.
 const UMBRAL = 12
 if (a.capturas && b.capturas && existsSync(a.capturas) && existsSync(b.capturas)) {
-  console.log('')
-  console.log('capturas                   píxeles distintos   diferencia media')
-  let peorImg = { etiqueta: null, pct: 0 }
-  for (const etiqueta of A.keys()) {
-    const nombre = etiqueta.replace(/[^\w.-]+/g, '_') + '.png'
-    const pa = a.capturas + '/' + nombre, pb = b.capturas + '/' + nombre
-    if (!existsSync(pa) || !existsSync(pb)) continue
-    const ia = PNG.sync.read(readFileSync(pa)), ib = PNG.sync.read(readFileSync(pb))
-    if (ia.width !== ib.width || ia.height !== ib.height) { console.log(etiqueta.padEnd(24) + '  tamaños distintos'); continue }
-    let distintos = 0, suma = 0
+  const comunes = readdirSync(a.capturas)
+    .filter(f => f.endsWith('.png') && existsSync(b.capturas + '/' + f))
+    .sort()
+  const diferencia = nombre => {
+    const ia = PNG.sync.read(readFileSync(a.capturas + '/' + nombre))
+    const ib = PNG.sync.read(readFileSync(b.capturas + '/' + nombre))
+    if (ia.width !== ib.width || ia.height !== ib.height) return null
+    let distintos = 0; let suma = 0
     for (let i = 0; i < ia.data.length; i += 4) {
       const d = Math.max(Math.abs(ia.data[i] - ib.data[i]), Math.abs(ia.data[i + 1] - ib.data[i + 1]), Math.abs(ia.data[i + 2] - ib.data[i + 2]))
       suma += d
       if (d > UMBRAL) distintos++
     }
     const total = ia.data.length / 4
-    const pct = (100 * distintos) / total
-    console.log(etiqueta.padEnd(24) + col(pct.toFixed(2), 16) + '%' + col((suma / total).toFixed(2), 16))
-    if (pct > peorImg.pct) peorImg = { etiqueta, pct }
+    return { pct: (100 * distintos) / total, media: suma / total }
   }
-  console.log('')
-  console.log('captura que más cambió: ' + (peorImg.etiqueta ?? 'ninguna') + ' ' + peorImg.pct.toFixed(2) + '% de los píxeles')
+  const tabla = (titulo, nombres, veredicto) => {
+    if (!nombres.length) return
+    console.log('')
+    console.log(titulo)
+    let peorImg = { nombre: null, pct: 0 }
+    for (const nombre of nombres) {
+      const d = diferencia(nombre)
+      const etiqueta = nombre.replace(/\.png$/, '').replace(/__sinfoto$/, '')
+      if (!d) { console.log(etiqueta.padEnd(24) + '  tamaños distintos'); continue }
+      console.log(etiqueta.padEnd(24) + col(d.pct.toFixed(2), 16) + '%' + col(d.media.toFixed(2), 16))
+      if (d.pct > peorImg.pct) peorImg = { nombre: etiqueta, pct: d.pct }
+    }
+    console.log(veredicto + ': ' + (peorImg.nombre ?? 'ninguna') + ' ' + peorImg.pct.toFixed(2) + '% de los píxeles')
+  }
+  // Las de la foto satelital encendida van primero pero valen poco: medido
+  // sobre el MISMO commit dos veces, la vista de ciudad daba 59 % de píxeles
+  // distintos con la geometría idéntica, porque las teselas de Esri llegan en
+  // otro orden cada vez. Las __sinfoto son la hipsometría del DEM propio, que
+  // es la misma siempre: ahí una diferencia sí significa algo.
+  tabla('capturas CON foto (ruidosas, la vista de ciudad varía ~59% sola)',
+    comunes.filter(f => !f.includes('__sinfoto')), 'la que más cambió')
+  tabla('capturas SIN foto (esto es lo que vale como veredicto visual)',
+    comunes.filter(f => f.includes('__sinfoto')), 'VEREDICTO VISUAL, la que más cambió')
 }
