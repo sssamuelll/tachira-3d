@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import { direccionSol } from '../scene/sol'
 import { metrosPorPixel } from '../scene/roadStyle'
+import { esRellenoDeVia } from '../scene/roadsShader'
 import type { UniformsRelieve } from '../scene/terrainShader'
-import { pciColor, SELECCION } from '../data/constants'
+import { pciColor, LIBERTY, SELECCION } from '../data/constants'
 import { hypso } from './hypso'
 import { anchoBase, alza, cuadro, enFrustum } from './cuadros'
 
@@ -161,9 +162,12 @@ function vias (
     const m = (o as THREE.Mesh).material as THREE.Material | undefined
     // El relleno se distingue del contorno por la clave de caché del programa
     // que le pone patchLineMaterial (roadsShader.ts). Es el único discriminante
-    // que ya existe y que no obliga a tocar Roads.tsx.
+    // que ya existe y que no obliga a tocar Roads.tsx. Quien decide vive en
+    // roadsShader.ts, que es quien ARMA la clave: acá había un
+    // `=== 'vias:relleno'` y la clave lleva ':base' detrás desde fdf2a15, así
+    // que no casaba con nada y la foto salía sin una sola carretera.
     if ((o as { isLineSegments2?: boolean }).isLineSegments2 && o.visible &&
-        m?.customProgramCacheKey?.() === 'vias:relleno') objetos.push(o)
+        esRellenoDeVia(m?.customProgramCacheKey?.())) objetos.push(o)
   })
   if (objetos.length === 0) return { malla: null, tramos: 0 }
 
@@ -189,6 +193,11 @@ function vias (
       calzada: g.getAttribute('aCalzada').array as Float32Array,
       segId: g.getAttribute('segId').array as Float32Array,
       pisoPx: (mat.userData.uniforms?.uPisoPx.value as number) ?? 1,
+      // De qué habla el color de la red: 0 cartografía (Liberty), 1 dato
+      // (rampa ASTM). Es el mismo uniform que lee el fragment shader, leído
+      // del mismo sitio que uPisoPx, para que la foto no pueda contar una cosa
+      // distinta de la que se ve en pantalla.
+      modoPci: ((mat.userData.uniforms?.uModoPci.value as number) ?? 0) >= 0.5,
       attr: attr.image.data as Uint8Array,
     }
   })
@@ -246,7 +255,13 @@ function vias (
       const s = t.segId[i] * 4
       const pci = t.attr[s]
       const sel = (t.attr[s + 2] >> 1) & 1
-      const c = sel ? SELECCION : pciColor(pci > 100 ? null : pci)
+      // El mismo reparto que el fragment shader: con la capa de PCI apagada
+      // manda el tier de Liberty (el alfa del texel), y con ella encendida la
+      // rampa ASTM.
+      const tier = t.attr[s + 3]
+      const c = sel ? SELECCION
+        : t.modoPci ? pciColor(pci > 100 ? null : pci)
+        : (LIBERTY[tier] ?? LIBERTY[LIBERTY.length - 1]).relleno
       for (let v = 0; v < 4; v++) {
         col[q * 12 + v * 3] = c[0]
         col[q * 12 + v * 3 + 1] = c[1]

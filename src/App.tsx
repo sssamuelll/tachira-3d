@@ -589,7 +589,7 @@ export default function App () {
             <Roads
               positions={data.positions} segIds={data.segIds} index={data.index}
               ways={data.roads.ways} attr={attr} normals={data.normals} date={date}
-              lluvia={lluvia} juntas={data.juntas}
+              lluvia={lluvia} juntas={data.juntas} pci={visibles.has('pci')}
             />
           )}
           <Picker

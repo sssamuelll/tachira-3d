@@ -351,3 +351,14 @@ describe('el archivo de cada capa del catálogo', () => {
     })
   }
 })
+
+// La capa que conmuta el color de la red entre la cartografía (Liberty) y el
+// dato (la rampa ASTM). Apagada de fábrica a propósito: el mapa abre
+// pareciéndose a un mapa vial, que es lo que alguien espera de un mapa, y el
+// estado del pavimento se enciende cuando se va a buscar. Encenderla de oficio
+// cambiaría lo que ve todo el que abre un enlace sin `?capas=`.
+it('la capa de PCI existe y nace apagada', () => {
+  const pci = CAPAS_FIJAS.find(c => c.id === 'pci')
+  expect(pci).toBeDefined()
+  expect(pci!.porDefecto).toBe(false)
+})

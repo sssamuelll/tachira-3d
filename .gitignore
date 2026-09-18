@@ -10,5 +10,6 @@ datos-base.tar.gz
 e2e/salida/
 e2e/salida-rojo/
 e2e/salida-capas/
+e2e/salida-vias/
 test-results/
 playwright-report/

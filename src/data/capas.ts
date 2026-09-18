@@ -9,10 +9,14 @@ import { BBOX } from './constants'
  * límites municipales dibujados en el shader del relieve -- y están acá solo
  * para que el panel pueda listarlas junto a las demás. Las del catálogo de
  * archivo llegan en la tanda de hospitales.
+ *
+ * `pci` es fija pero de otra especie: no dibuja nada, conmuta de qué habla el
+ * color de la red vial. Vive acá igual porque lo que el panel ofrece es "qué
+ * enseña el mapa", y eso es exactamente lo que hace.
  */
 
 export interface CapaFija {
-  id: 'edificios' | 'municipios'
+  id: 'edificios' | 'municipios' | 'pci'
   nombre: string
   /** Visible sin ?capas= en la URL. */
   porDefecto: boolean
@@ -27,6 +31,16 @@ export interface CapaFija {
 export const CAPAS_FIJAS: readonly CapaFija[] = [
   { id: 'edificios', nombre: 'Edificaciones', porDefecto: true },
   { id: 'municipios', nombre: 'Municipios', porDefecto: false },
+  // No dibuja nada nuevo: conmuta de qué habla el COLOR de la red vial. Con
+  // ella apagada manda la cartografía (la paleta de Liberty por clase de vía,
+  // constants.ts); encendida manda el dato (la rampa ASTM por PCI, con los
+  // contornos por procedencia). Los dos quieren el mismo canal -- el tono --
+  // y por eso es un conmutador y no dos cosas que se suman.
+  //
+  // Apagada de fábrica: el mapa abre pareciéndose a un mapa vial, y el estado
+  // del pavimento se enciende cuando se va a buscar. Además, encenderla de
+  // oficio cambiaría lo que ve quien abre un enlace sin `?capas=`.
+  { id: 'pci', nombre: 'Estado del pavimento', porDefecto: false },
 ]
 
 export type Geometria = 'punto' | 'linea' | 'poligono'

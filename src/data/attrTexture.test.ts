@@ -6,10 +6,10 @@ import type { Registro, Way } from './types'
 const reg = (p: Partial<Registro> = {}): Registro =>
   ({ pci: null, fuente: 'sin', tipo: 'sin_definir', fecha: '', nota: '', ...p })
 
-const ways: Way[] = [
-  { osmId: 1, ref: null, name: null, highway: 'residential', surface: null, tipo: 'sin_definir', municipio: null, km: 1, km3d: 1 },
-  { osmId: 2, ref: null, name: null, highway: 'residential', surface: null, tipo: 'sin_definir', municipio: null, km: 1, km3d: 1 },
-]
+const via = (osmId: number, highway: string): Way =>
+  ({ osmId, ref: null, name: null, highway, surface: null, tipo: 'sin_definir', municipio: null, km: 1, km3d: 1 })
+
+const ways: Way[] = [via(1, 'residential'), via(2, 'residential')]
 
 test('sin evaluar se codifica como 255 en R', () => {
   expect(encodeAttr(reg(), true, false)[0]).toBe(255)
@@ -57,4 +57,34 @@ test('refresh marca needsUpdate', () => {
   const before = attr.texture.version
   attr.refresh()
   expect(attr.texture.version).toBeGreaterThan(before)
+})
+
+// El tier de Liberty (constants.ts) es lo que decide el color de la vía cuando
+// la capa de PCI está apagada, o sea en el estado normal del mapa. Viaja en el
+// canal ALFA de esta textura, que estaba fijo en 0 y sin leer por nadie: es un
+// valor por vía y este es el único canal por vía que ya llega al shader, así
+// que ponerlo acá no cuesta ni un atributo de vértice -- y el presupuesto de
+// atributos de la geometría de vías ya está al límite (LineSegments2 más las
+// juntas dan 'Too many attributes' bajo WebGL por software).
+test('el tier de Liberty va en el canal alfa', () => {
+  expect(encodeAttr(reg(), true, false, 0)[3]).toBe(0)
+  expect(encodeAttr(reg(), true, false, 1)[3]).toBe(1)
+  expect(encodeAttr(reg(), true, false, 2)[3]).toBe(2)
+})
+
+test('la textura saca el tier de la clase OSM de cada via', () => {
+  const store = new AttrStore([via(1, 'motorway'), via(2, 'trunk'), via(3, 'residential')])
+  const attr = new AttrTexture(store)
+  const data = attr.texture.image.data as Uint8Array
+  expect([data[3], data[7], data[11]]).toEqual([0, 1, 2])
+})
+
+// El alfa no puede perderse al repintar por foco o seleccion: refresh() reescribe
+// los cuatro canales de cada texel en cada llamada.
+test('el tier sobrevive a un refresh con mascaras', () => {
+  const store = new AttrStore([via(1, 'motorway'), via(2, 'residential')])
+  const attr = new AttrTexture(store)
+  attr.refresh(new Uint8Array([0, 1]), new Uint8Array([1, 0]))
+  const data = attr.texture.image.data as Uint8Array
+  expect([data[3], data[7]]).toEqual([0, 2])
 })
