@@ -1,7 +1,7 @@
 // Sonda de rendimiento. Solo lectura sobre el repo: abre el mapa publicado (o
 // la URL que le pases) en un Chromium con GPU real, mide la carga y muestrea
 // cuadros en varias vistas.
-//   node scripts/perf-baseline.mjs [url] [--preview] [--headed] [--brave] [--sweep] [--perfil]
+//   node scripts/perf-baseline.mjs [url] [--preview] [--capturas <dir>] [--headed] [--brave] [--sweep] [--perfil]
 //
 // --preview es la forma de comparar un cambio contra su antes: hornea el build
 // de producción, lo sirve con `vite preview` y mide contra eso. Medir en el
@@ -11,17 +11,24 @@
 // vías, edificios e imagen y cambia el dpr, para ver qué cuesta cada cosa.
 import { chromium } from '@playwright/test'
 import { spawn } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 
 const args = process.argv.slice(2)
 const preview = args.includes('--preview')
+// Una captura por muestra. No es cosmético: un cambio de rendimiento que
+// acelera porque dejó de dibujar algo se ve idéntico en la tabla de fps y
+// distinto en la imagen. perf-comparar.mjs las compara píxel a píxel.
+const capturas = args.includes('--capturas') ? args[args.indexOf('--capturas') + 1] : null
 const PUERTO_PREVIEW = 4173
 const target = args.find(a => !a.startsWith('--'))
   ?? (preview ? `http://localhost:${PUERTO_PREVIEW}/` : 'https://sssamuelll.github.io/tachira-3d/')
 const url = new URL(target); url.searchParams.set('diagnostico', '1')
 
 // Levanta el build horneado. Devuelve el proceso para matarlo al final.
+// La salida de los hijos va a stderr y no a stdout: en stdout va el JSON de la
+// medición, y el resumen de vite en medio lo dejaría sin parsear.
 const correr = (cmd, espera) => new Promise((ok, mal) => {
-  const p = spawn(cmd, { shell: true, stdio: 'inherit' })
+  const p = spawn(cmd, { shell: true, stdio: ['ignore', process.stderr, process.stderr] })
   if (!espera) return ok(p)
   p.on('exit', c => (c === 0 ? ok(p) : mal(new Error(cmd + ' salió con ' + c))))
 })
@@ -59,7 +66,8 @@ const browser = await chromium.launch({
   executablePath: brave ? 'C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe' : undefined,
   args: flags,
 })
-const salida = { url: url.href, headed, brave, sweep, preview, boot: {}, hitos: {}, errores: [], muestras: [], perfiles: [] }
+if (capturas) mkdirSync(capturas, { recursive: true })
+const salida = { url: url.href, headed, brave, sweep, preview, capturas, boot: {}, hitos: {}, errores: [], muestras: [], perfiles: [] }
 try {
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1 })
   const page = await ctx.newPage()
@@ -188,6 +196,12 @@ try {
     }))
     const [r] = await Promise.all([p, durante ? durante() : Promise.resolve()])
     Object.assign(r, await heapMB())
+    // La captura va DESPUÉS de la muestra y con la cámara ya quieta, para que
+    // dos corridas encuadren lo mismo. Las de orbitar no se capturan: la
+    // cámara termina donde la deje el arrastre y no serían comparables.
+    if (capturas && !/orbitando/.test(etiqueta)) {
+      await page.screenshot({ path: capturas + '/' + etiqueta.replace(/[^\w.-]+/g, '_') + '.png' })
+    }
     salida.muestras.push({ etiqueta, ...r })
     process.stderr.write('  ' + etiqueta + ': ' + r.fps + ' fps, ' + r.ms_p50 + ' ms, cpu ' + r.cpu_p50 + ' ms, ' + r.calls + ' calls, ' + r.tris_k + 'k tris, nodos ' + r.nodos + (r.largas.length ? ', largas ' + r.largas.join('/') : '') + '\n')
   }
