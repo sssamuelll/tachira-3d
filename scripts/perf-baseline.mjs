@@ -158,12 +158,19 @@ try {
     const inicio = Date.now()
     const bootAntes = salida.boot['map.boot.loaded']?.at_ms ?? null
     while (Date.now() - inicio < 180_000) {
-      const s = await page.evaluate(() => ({
-        escena: !!window.__escena,
-        cargando: document.body.innerText.includes('Cargando la red vial'),
-        armando: document.body.innerText.includes('Armando el relieve'),
-        error: document.body.innerText.includes('No se pudo cargar el mapa'),
-      }))
+      // Los textos de los carteles, no uno solo: el primero se llamó "Cargando
+      // la red vial" hasta que la carga se partió en dos y pasó a ser "Cargando
+      // el relieve". Buscar solo el viejo dejaba cargando_fuera_ms midiendo
+      // otra cosa sin que nada avisara.
+      const s = await page.evaluate(() => {
+        const texto = document.body.innerText
+        return {
+          escena: !!window.__escena,
+          cargando: /Cargando (la red vial|el relieve)/.test(texto),
+          armando: texto.includes('Armando el relieve'),
+          error: texto.includes('No se pudo cargar el mapa'),
+        }
+      })
       const t = Date.now() - desde
       if (s.cargando) vistoCargando = true
       if (!s.cargando && (vistoCargando || s.armando || s.escena) && h.cargando_fuera_ms == null) h.cargando_fuera_ms = t
