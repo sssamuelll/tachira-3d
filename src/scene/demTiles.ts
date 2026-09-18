@@ -101,7 +101,16 @@ export class CacheTeselas {
   private readonly teselas = new Map<string, Tesela>()
   private readonly enVuelo = new Set<string>()
 
-  constructor (private readonly base = urlGenerado('dem'), private readonly max = 400) {}
+  constructor (
+    private readonly base = urlGenerado('dem'), private readonly max = 400,
+    /** Mismo patrón y mismo número que CacheImagenes (imagenTeselas.ts): sin
+     *  tope, la vista de estado pide sus 169 teselas de golpe y las 169
+     *  terminan decodificando el PNG a mano (pixelesDelPng) en ráfaga en el
+     *  hilo principal -- una de las fuentes medidas de tareas largas de 50 a
+     *  400 ms. Con el tope, lo que no cupo se vuelve a pedir en el cuadro
+     *  siguiente; la cola es el propio bucle de render. */
+    private readonly enVueloMax = 8,
+  ) {}
 
   get (z: number, x: number, y: number): Tesela | undefined {
     const k = `${z}/${x}/${y}`
@@ -111,6 +120,7 @@ export class CacheTeselas {
   }
 
   pedir (z: number, x: number, y: number): void {
+    if (this.enVuelo.size >= this.enVueloMax) return
     const k = `${z}/${x}/${y}`
     if (this.teselas.has(k) || this.enVuelo.has(k)) return
     this.enVuelo.add(k)
