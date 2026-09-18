@@ -394,6 +394,20 @@ describe('repartirPorNivel', () => {
       expect([...troncal[0].caja!]).toEqual([...ESQUINA_A, ...ESQUINA_B])
     })
 
+    it('peatonal se desvanece pero no se parte por celda: son pocos tramos para repartir', () => {
+      // roadStyle.ts: partir peatonal no ahorra triángulos que se noten (3%
+      // de la red) y a vista de calle sumaba draw calls de sobra (E calle
+      // quieta del informe de la tarea). Se queda en una sola tanda con su
+      // caja real, igual que la red estructurante.
+      const conPeatonal = [{ highway: 'footway' }, { highway: 'motorway' }] as Way[]
+      const tandas = repartirPorNivel(positions, segIds, index, conPeatonal)
+      const peatonal = tandas.filter(t => t.nivel === 0)
+      expect(peatonal).toHaveLength(1)
+      expect([...peatonal[0].segIds].sort()).toEqual([100, 101])
+      expect([...peatonal[0].caja!]).toEqual([...ESQUINA_A, ...ESQUINA_B])
+      expect(NIVELES[0].desvanece).not.toBeNull()   // sigue desvaneciéndose
+    })
+
     it('la superficie de junta no se parte por celda', () => {
       // soloJuntas sigue con una clave por nivel, como antes de la rejilla:
       // es la pasada chica de asfalto extra en los encuentros, no la red

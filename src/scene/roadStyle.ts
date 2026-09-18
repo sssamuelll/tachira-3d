@@ -202,14 +202,26 @@ export interface Tanda {
 // calles. Partir cada nivel en celdas con caja real deja que three descarte
 // las que no se ven.
 //
-// Solo se parten los niveles que se DESVANECEN (peatonal, rústica, local,
-// terciaria: 91% de los tramos, y los únicos que de cerca dejan casi todas
-// sus celdas fuera del frustum). Los tres que no (secundaria, principal,
-// troncal: 8% de los tramos) están encendidos siempre, así que a vista de
-// estado se ve la rejilla entera de todos modos -- partirlos multiplicaría
-// sus draw calls sin recortar nada. Se quedan en un solo objeto por nivel,
-// igual que antes de este cambio (Roads.tsx no les da caja real).
-//
+// Se parten rústica, local y terciaria (88,6% de los tramos): de cerca dejan
+// casi todas sus celdas fuera del frustum, y a vista de calle su recorte de
+// triángulos sigue pesando más que los draw calls que suma la rejilla.
+// Peatonal desvanece igual (presencia(), más abajo) pero NO se parte aunque
+// sea otro nivel que se apaga con la distancia: sus 24.143 tramos (3% de la
+// red) son pocos para repartir en celdas -- partirla no ahorra triángulos
+// que se noten, y a vista de calle (250 m, con la cámara casi al ras del
+// suelo) SUMA celdas de sobra porque el barrido de la sonda midió que ahí los
+// draw calls de más pesan más que el triángulo que se ahorra (E calle quieta,
+// ver el informe de la tarea: partirla también dejaba 550 draw calls contra
+// 410 antes de la rejilla, +34%, más de lo que bajaban los triángulos).
+// Peatonal se apaga del todo a 4,3 km (su `tenue`, más abajo) y la vista de
+// ciudad mide a 4,7 km, así que dejarla sin partir no le cuesta un solo
+// triángulo a esa vista -- ya está descartada por completo antes de que la
+// rejilla entre en juego. Los tres que nunca se apagan (secundaria,
+// principal, troncal: 8% de los tramos) siguen igual de sin partir, con el
+// mismo motivo de siempre: están encendidos a cualquier acercamiento, así que
+// partirlos multiplicaría draw calls sin recortar nada.
+const seParticiona = (n: Nivel): boolean => !!n.desvanece && n.clave !== 'peatonal'
+
 // El tamaño de celda es un compromiso medible: chica recorta más pero
 // multiplica los draw calls, y a vista de estado se ven TODAS las celdas de
 // la rejilla porque nada sale del frustum. 14 km da ~11 x 10 celdas sobre la
@@ -245,13 +257,13 @@ const celdaDe = (x: number, z: number): number =>
 // empieza el rango de claves del nivel n; claveDe() las arma y nivelDeClave()
 // las deshace para reconstruir `nivel` en el Tanda de salida.
 const NCELDAS = COLS * ROWS
-const CLAVES_POR_NIVEL = NIVELES.map(n => n.desvanece ? NCELDAS : 1)
+const CLAVES_POR_NIVEL = NIVELES.map(n => seParticiona(n) ? NCELDAS : 1)
 const OFFSET_NIVEL: number[] = []
 for (let n = 0, acc = 0; n < CLAVES_POR_NIVEL.length; n++) { OFFSET_NIVEL.push(acc); acc += CLAVES_POR_NIVEL[n] }
 const TOTAL_CLAVES = OFFSET_NIVEL[OFFSET_NIVEL.length - 1] + CLAVES_POR_NIVEL[CLAVES_POR_NIVEL.length - 1]
 
 const claveDe = (n: number, x: number, z: number): number =>
-  NIVELES[n].desvanece ? OFFSET_NIVEL[n] + celdaDe(x, z) : OFFSET_NIVEL[n]
+  seParticiona(NIVELES[n]) ? OFFSET_NIVEL[n] + celdaDe(x, z) : OFFSET_NIVEL[n]
 
 const nivelDeClave = (clave: number): number => {
   let n = 0
