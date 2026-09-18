@@ -4,14 +4,15 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { useThree, useFrame } from '@react-three/fiber'
-import { patchLineMaterial, SOMBRA_VACIA } from './roadsShader'
+import { patchLineMaterial, SOMBRA_VACIA, CASING_REL, ALZA_MIN_M } from './roadsShader'
 import { TEXTURAS, TEXTURAS_BASE, ASFALTO_DESDE_PX, type Asfalto } from './asfalto'
 import { direccionSol, CASCADA_CERCA } from './sol'
 import { avanzarMojado } from './mojado'
-import { NIVELES, repartirPorNivel, metrosPorPixel, presencia, ordenCapa } from './roadStyle'
+import { NIVELES, repartirPorNivel, metrosPorPixel, presencia, ordenCapa, type Nivel } from './roadStyle'
 import { distanciaVista } from './distanciaVista'
 import { anchoCalzada, carrilesDe, sentidoUnico, marcasPermitidas } from './calzada'
-import { bordeDe } from './seccion'
+import { bordeDe, HOMBRILLO_TRONCAL_M } from './seccion'
+import { ERROR_PX } from './quadtree'
 import { ATTR_SIZE } from '../data/constants'
 import type { AttrTexture } from '../data/attrTexture'
 import type { Way } from '../data/types'
@@ -21,6 +22,34 @@ import type { Juntas } from './juntas'
 // en el vertex shader, por vértice, y se inclina con la normal del terreno
 // (roadsShader.ts, extrusionGlsl). Es la misma cifra con la que el relieve
 // decide cuánto refinar (quadtree.ts).
+
+/**
+ * Cuánto hay que inflar la caja REAL de una celda (roadStyle.ts) para que una
+ * vía de su borde no desaparezca cuando la celda sale del frustum pero su
+ * trazo ensanchado todavía se ve. El vertex shader (extrusionGlsl,
+ * roadsShader.ts) mueve cada vértice hasta `hw = 0.5·anchoM` a los lados y
+ * hasta `max(ERROR_PX·mpp, ALZA_MIN_M)` a lo largo de la normal del terreno;
+ * acá se acotan los dos por el peor caso DEL NIVEL, y se suman a las tres
+ * coordenadas por igual -- más simple que separar cuánto de cada
+ * desplazamiento cae en X, Y o Z, y nunca de menos.
+ *
+ * El peor `mpp` de un nivel que se desvanece es su propio `tenue`: más allá,
+ * `presencia()` ya apagó el nivel entero y no hay nada que inflar. Con ese
+ * mpp, `anchoBase = max(nivel.metros, nivel.pisoPx·mpp)` y el borde más ancho
+ * de seccion.ts es HOMBRILLO_TRONCAL_M a cada lado; el contorno (el más ancho
+ * de los dos pases) añade como mucho CASING_REL·anchoTot -- una FRACCIÓN, así
+ * que no hace falta acotarla otra vez por mpp.
+ *
+ * Medido con estos números: 13 m para peatonal, 18 para rústica, 24 para
+ * local, 34 para terciaria -- insignificante contra CELDA_M (roadStyle.ts).
+ */
+function margenCelda (n: Nivel): number {
+  const tenue = n.desvanece!.tenue
+  const anchoBase = Math.max(n.metros, n.pisoPx * tenue)
+  const anchoTot = anchoBase + 2 * HOMBRILLO_TRONCAL_M
+  const hw = 0.5 * anchoTot * (1 + CASING_REL)
+  return hw + Math.max(ERROR_PX * tenue, ALZA_MIN_M)
+}
 
 export function Roads (
   { positions, segIds, index, ways, attr, normals, date, lluvia, juntas, pci }: {
@@ -152,6 +181,23 @@ export function Roads (
     geometry.setAttribute('instanceDistanceStart', new THREE.InstancedBufferAttribute(t.d0, 1))
     geometry.setAttribute('instanceDistanceEnd', new THREE.InstancedBufferAttribute(t.d1, 1))
 
+    // Esta tanda es una CELDA de un nivel que se desvanece (roadStyle.ts): la
+    // única con caja real, así que la única a la que le sirve frustumCulled.
+    // La red estructurante (secundaria/principal/troncal) y la superficie de
+    // junta se quedan sin caja, igual que antes de la rejilla -- están
+    // encendidas siempre o son chicas, y partirlas no recortaría nada
+    // (roadStyle.ts, el bloque de la rejilla).
+    const partida = !superficie && !!t.caja && !!NIVELES[t.nivel].desvanece
+    if (partida) {
+      const m = margenCelda(NIVELES[t.nivel])
+      const c = t.caja!
+      geometry.boundingBox = new THREE.Box3(
+        new THREE.Vector3(c[0] - m, c[1] - m, c[2] - m),
+        new THREE.Vector3(c[3] + m, c[4] + m, c[5] + m),
+      )
+      geometry.boundingSphere = geometry.boundingBox.getBoundingSphere(new THREE.Sphere())
+    }
+
     // Contorno y relleno comparten la MISMA geometría (no una copia): son el
     // mismo trazo dibujado dos veces con otro ancho y otro color.
     const capas = (superficie ? [false] : [true, false]).map(casing => {
@@ -171,9 +217,12 @@ export function Roads (
       // esto, three ordena los transparentes por distancia a la cámara y el
       // orden cambia solo al orbitar.
       linea.renderOrder = ordenCapa(t.nivel, superficie ? 'union' : casing ? 'contorno' : 'relleno')
-      // El bbox de una geometría instanciada no es fiable, y esto cubre el
-      // estado entero de todos modos (mismo criterio que Terrain.tsx).
-      linea.frustumCulled = false
+      // El bbox de una geometría instanciada no es fiable (se calcula de
+      // instanceStart/instanceEnd), así que solo se activa donde la caja de
+      // arriba es real: la celda de un nivel que se desvanece. Los demás
+      // objetos cubren el estado entero de todos modos (mismo criterio que
+      // Terrain.tsx con la red completa de antes de esta rejilla).
+      linea.frustumCulled = partida
       return { material, linea }
     })
 
@@ -275,8 +324,12 @@ export function Roads (
 
   return (
     <group>
-      {objetos.map(o => (
-        <group key={o.nivel.clave + (o.superficie ? '-juntas' : '')}>
+      {objetos.map((o, i) => (
+        // La rejilla parte un nivel que se desvanece en varias celdas
+        // (roadStyle.ts): ya no hay un solo objeto por nivel, así que el
+        // índice del arreglo entra en la key -- o.nivel.clave se repite una
+        // vez por celda.
+        <group key={o.nivel.clave + (o.superficie ? '-juntas' : '') + '-' + i}>
           {o.capas.map((c, i) => <primitive key={i} object={c.linea} />)}
         </group>
       ))}

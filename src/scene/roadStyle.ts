@@ -1,6 +1,8 @@
 import type { Way } from '../data/types'
 import type { Juntas } from './juntas'
 import { marcasPermitidas } from './calzada'
+import { BBOX, ORIGIN } from '../data/constants'
+import { makeEnuFrame, geodeticToEnu } from '../data/enu'
 
 // Jerarquía de dibujo de la red vial. Todo lo que decide cuánto se ve una vía
 // vive acá: en qué nivel cae cada clase de OSM, qué piso en píxeles tiene a
@@ -183,6 +185,87 @@ export interface Tanda {
   zonas?: Float32Array
   /** Piso en px y límites lleno/tenue del brazo original, no del receptor. */
   estilos?: Float32Array
+  /** Caja real de la celda (min x,y,z, max x,y,z), calculada de los extremos
+   *  de SUS tramos -- no la de la geometría instanciada, que no es fiable
+   *  (Roads.tsx). Solo la lleva una tanda partida por celda (nivel que se
+   *  desvanece, pase base); Roads.tsx la usa para darle a esa tanda una caja y
+   *  frustumCulled = true de verdad. */
+  caja?: Float32Array
+}
+
+// --- Rejilla espacial para el frustum culling de las vías ------------------
+//
+// Las vías se dibujaban con frustumCulled = false y una caja que cubría el
+// estado entero (147 x 129 km): medido, ocultarlas de golpe lleva la vista de
+// ciudad de 19,7 ms a 5,1 ms por cuadro con 811.664 tramos en pantalla, así
+// que la GPU procesaba la red completa aunque en pantalla cupieran cuatro
+// calles. Partir cada nivel en celdas con caja real deja que three descarte
+// las que no se ven.
+//
+// Solo se parten los niveles que se DESVANECEN (peatonal, rústica, local,
+// terciaria: 91% de los tramos, y los únicos que de cerca dejan casi todas
+// sus celdas fuera del frustum). Los tres que no (secundaria, principal,
+// troncal: 8% de los tramos) están encendidos siempre, así que a vista de
+// estado se ve la rejilla entera de todos modos -- partirlos multiplicaría
+// sus draw calls sin recortar nada. Se quedan en un solo objeto por nivel,
+// igual que antes de este cambio (Roads.tsx no les da caja real).
+//
+// El tamaño de celda es un compromiso medible: chica recorta más pero
+// multiplica los draw calls, y a vista de estado se ven TODAS las celdas de
+// la rejilla porque nada sale del frustum. 14 km da ~11 x 10 celdas sobre la
+// BBOX del estado (constants.ts) -- del orden de la sugerencia de partida
+// (10 x 9) y sin medir peor que la vara de perf-baseline.mjs en la vista de
+// ciudad (comparado antes/después de esta rejilla, ver el informe de la
+// tarea). Calibrable si un perfil real pide otra cosa.
+export const CELDA_M = 14_000
+
+const marcoBbox = makeEnuFrame(ORIGIN.lat, ORIGIN.lon, ORIGIN.h)
+const esquinasBbox = [
+  geodeticToEnu(marcoBbox, BBOX.s, BBOX.w), geodeticToEnu(marcoBbox, BBOX.s, BBOX.e),
+  geodeticToEnu(marcoBbox, BBOX.n, BBOX.w), geodeticToEnu(marcoBbox, BBOX.n, BBOX.e),
+]
+// pack.mjs (pipeline) guarda X = este, Z = -norte: mismo eje que roads-pos.bin.
+const MIN_X = Math.min(...esquinasBbox.map(p => p[0]))
+const MAX_X = Math.max(...esquinasBbox.map(p => p[0]))
+const MIN_Z = Math.min(...esquinasBbox.map(p => -p[1]))
+const MAX_Z = Math.max(...esquinasBbox.map(p => -p[1]))
+const COLS = Math.max(1, Math.ceil((MAX_X - MIN_X) / CELDA_M))
+const ROWS = Math.max(1, Math.ceil((MAX_Z - MIN_Z) / CELDA_M))
+
+/** Índice de celda de la rejilla que cubre `x, z` (posiciones de roads-pos.bin,
+ *  en metros). Se recorta al rango de la rejilla en vez de fallar: un punto
+ *  fuera de la BBOX (un tramo que cruza al estado vecino) cae en el borde y no
+ *  se pierde. */
+const celdaDe = (x: number, z: number): number =>
+  Math.min(ROWS - 1, Math.max(0, Math.floor((z - MIN_Z) / CELDA_M))) * COLS +
+  Math.min(COLS - 1, Math.max(0, Math.floor((x - MIN_X) / CELDA_M)))
+
+// Cuántas claves de reparto le tocan a cada nivel: NCELDAS a los que se
+// desvanecen, una sola a la red estructurante. OFFSET_NIVEL[n] es dónde
+// empieza el rango de claves del nivel n; claveDe() las arma y nivelDeClave()
+// las deshace para reconstruir `nivel` en el Tanda de salida.
+const NCELDAS = COLS * ROWS
+const CLAVES_POR_NIVEL = NIVELES.map(n => n.desvanece ? NCELDAS : 1)
+const OFFSET_NIVEL: number[] = []
+for (let n = 0, acc = 0; n < CLAVES_POR_NIVEL.length; n++) { OFFSET_NIVEL.push(acc); acc += CLAVES_POR_NIVEL[n] }
+const TOTAL_CLAVES = OFFSET_NIVEL[OFFSET_NIVEL.length - 1] + CLAVES_POR_NIVEL[CLAVES_POR_NIVEL.length - 1]
+
+const claveDe = (n: number, x: number, z: number): number =>
+  NIVELES[n].desvanece ? OFFSET_NIVEL[n] + celdaDe(x, z) : OFFSET_NIVEL[n]
+
+const nivelDeClave = (clave: number): number => {
+  let n = 0
+  for (let i = 1; i < OFFSET_NIVEL.length; i++) if (OFFSET_NIVEL[i] <= clave) n = i
+  return n
+}
+
+const CAJA_VACIA = (): Float32Array =>
+  new Float32Array([Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity])
+
+/** Extiende `caja` (min xyz, max xyz) para que cubra el punto `x, y, z`. */
+const extenderCaja = (caja: Float32Array, x: number, y: number, z: number) => {
+  if (x < caja[0]) caja[0] = x; if (y < caja[1]) caja[1] = y; if (z < caja[2]) caja[2] = z
+  if (x > caja[3]) caja[3] = x; if (y > caja[4]) caja[4] = y; if (z > caja[5]) caja[5] = z
 }
 
 /**
@@ -192,7 +275,7 @@ export interface Tanda {
  *
  * `index` es CSR sobre segmentos (los de la vía i van de index[i] a
  * index[i+1], seis floats cada uno: los dos extremos). Se cuenta primero y se
- * reserva exacto -- con 450.261 segmentos, ir empujando a arrays que crecen
+ * reserva exacto -- con 811.664 segmentos, ir empujando a arrays que crecen
  * solos duplica la memoria pico sin necesidad.
  *
  * Los niveles sin ninguna vía salen de la lista: LineSegmentsGeometry no
@@ -200,7 +283,7 @@ export interface Tanda {
  *
  * `porVia` son valores de UNA por vía (ancho de calzada, canales) que hay que
  * llevar al shader por segmento. Se expanden y reparten en el mismo recorrido
- * que ya hace falta para las posiciones -- recorrer 450.261 segmentos una vez
+ * que ya hace falta para las posiciones -- recorrer 811.664 segmentos una vez
  * más, por separado, para copiar un float sería recorrerlos por gusto.
  */
 export function repartirPorNivel (
@@ -208,30 +291,57 @@ export function repartirPorNivel (
   porVia: Float32Array[] = [], normals?: Int8Array,
   juntas?: Juntas, soloJuntas = false,
 ): Tanda[] {
+  // La superficie de junta (soloJuntas) no se parte por celda: es la pasada
+  // chica de asfalto extra en los encuentros, no los 811.664 tramos de la red,
+  // así que sigue teniendo una clave por nivel, igual que antes de la rejilla.
+  const tamano = soloJuntas ? NIVELES.length : TOTAL_CLAVES
   const nivel = new Uint8Array(ways.length)
-  const cuenta = new Uint32Array(NIVELES.length)
+  const cuenta = new Uint32Array(tamano)
   const incluida = (s: number) => !soloJuntas || !!juntas &&
     (juntas.zonas[s * 4 + 1] > 0 || juntas.zonas[s * 4 + 3] > 0)
   const nivelUnion = (s: number, n: number) => Math.max(n, juntas!.niveles[s])
+  // La clave de un segmento: su nivel a secas para la superficie de junta (sin
+  // partir), nivel × celda para el pase base -- claveDe() ya resuelve sola el
+  // caso sin desvanecer (una única clave por nivel, ver el bloque de la
+  // rejilla). El punto que decide la celda es el punto MEDIO del segmento: 12
+  // a 16 km de celda son miles de veces el largo de un tramo entre dos nodos
+  // de OSM, así que a qué lado del corte caiga un extremo no importa.
+  const claveSeg = (s: number, n: number): number => {
+    if (soloJuntas) return nivelUnion(s, n)
+    const src = s * 6
+    return claveDe(n, (positions[src] + positions[src + 3]) * 0.5, (positions[src + 2] + positions[src + 5]) * 0.5)
+  }
   for (let i = 0; i < ways.length; i++) {
     const n = nivelDe(ways[i].highway)
     nivel[i] = n
-    if (!soloJuntas) cuenta[n] += index[i + 1] - index[i]
-    else if (marcasPermitidas(ways[i])) {
-      for (let s = index[i]; s < index[i + 1]; s++) if (incluida(s)) cuenta[nivelUnion(s, n)]++
+    if (!soloJuntas) {
+      if (!NIVELES[n].desvanece) { cuenta[claveDe(n, 0, 0)] += index[i + 1] - index[i]; continue }
+      // Se desvanece: cada segmento puede caer en una celda distinta, así que
+      // hace falta mirarlos uno a uno también para contar -- el mismo
+      // recorrido por segmento que ya hacía el reparto de juntas de abajo, no
+      // una pasada nueva sobre los 811.664 tramos.
+      for (let s = index[i]; s < index[i + 1]; s++) cuenta[claveSeg(s, n)]++
+    } else if (marcasPermitidas(ways[i])) {
+      for (let s = index[i]; s < index[i + 1]; s++) if (incluida(s)) cuenta[claveSeg(s, n)]++
     }
   }
 
-  const pos = NIVELES.map((_, n) => new Float32Array(cuenta[n] * 6))
-  const ids = NIVELES.map((_, n) => new Float32Array(cuenta[n]))
-  const via = NIVELES.map((_, n) => new Float32Array(cuenta[n] * porVia.length))
-  const d0 = NIVELES.map((_, n) => new Float32Array(cuenta[n]))
-  const d1 = NIVELES.map((_, n) => new Float32Array(cuenta[n]))
-  const nrm = NIVELES.map((_, n) => new Int8Array(cuenta[n] * 6))
-  const limites = juntas ? NIVELES.map((_, n) => new Float32Array(cuenta[n] * 2)) : undefined
-  const zonas = soloJuntas ? NIVELES.map((_, n) => new Float32Array(cuenta[n] * 4)) : undefined
-  const estilos = soloJuntas ? NIVELES.map((_, n) => new Float32Array(cuenta[n] * 3)) : undefined
-  const k = new Uint32Array(NIVELES.length)
+  const pos = Array.from({ length: tamano }, (_, c) => new Float32Array(cuenta[c] * 6))
+  const ids = Array.from({ length: tamano }, (_, c) => new Float32Array(cuenta[c]))
+  const via = Array.from({ length: tamano }, (_, c) => new Float32Array(cuenta[c] * porVia.length))
+  const d0 = Array.from({ length: tamano }, (_, c) => new Float32Array(cuenta[c]))
+  const d1 = Array.from({ length: tamano }, (_, c) => new Float32Array(cuenta[c]))
+  const nrm = Array.from({ length: tamano }, (_, c) => new Int8Array(cuenta[c] * 6))
+  const limites = juntas ? Array.from({ length: tamano }, (_, c) => new Float32Array(cuenta[c] * 2)) : undefined
+  const zonas = soloJuntas ? Array.from({ length: tamano }, (_, c) => new Float32Array(cuenta[c] * 4)) : undefined
+  const estilos = soloJuntas ? Array.from({ length: tamano }, (_, c) => new Float32Array(cuenta[c] * 3)) : undefined
+  // La caja real de cada celda (min y max xyz de SUS tramos, no la de la
+  // celda nominal): sale gratis del mismo recorrido, y es la única fiable --
+  // la de una geometría instanciada no lo es (LineSegmentsGeometry la calcula
+  // de instanceStart/instanceEnd). Solo hace falta en el pase base: la
+  // superficie de junta sigue sin caja propia, igual que antes.
+  const caja = soloJuntas ? undefined : Array.from({ length: tamano }, CAJA_VACIA)
+  const k = new Uint32Array(tamano)
   // Dentro de una unión manda el asfalto de la receptora sobre el del brazo
   // menor, igual que en las bases. La fase sigue reiniciándose por vía.
   const orden = soloJuntas ? Array.from(ways.keys()).sort((a, b) => nivel[a] - nivel[b]) : undefined
@@ -248,36 +358,40 @@ export function repartirPorNivel (
         positions[src + 5] - positions[src + 2],
       )
       if (!incluida(s)) continue
-      const n = soloJuntas ? nivelUnion(s, nivel[i]) : nivel[i]
-      const p = pos[n]
-      const dst = k[n] * 6
+      const clave = claveSeg(s, nivel[i])
+      const p = pos[clave]
+      const dst = k[clave] * 6
       for (let c = 0; c < 6; c++) p[dst + c] = positions[src + c]
-      if (normals) for (let c = 0; c < 6; c++) nrm[n][dst + c] = normals[src + c]
-      ids[n][k[n]] = segIds[s]
+      if (normals) for (let c = 0; c < 6; c++) nrm[clave][dst + c] = normals[src + c]
+      ids[clave][k[clave]] = segIds[s]
       // El valor es de la VÍA: todos sus segmentos se llevan el mismo.
       // Intercalado (stride porVia.length): es el mismo atributo vec3 que
       // cuelga Roads.tsx, no uno por valor.
-      for (let e = 0; e < porVia.length; e++) via[n][k[n] * porVia.length + e] = porVia[e][i]
-      d0[n][k[n]] = desde
-      d1[n][k[n]] = recorrido
+      for (let e = 0; e < porVia.length; e++) via[clave][k[clave] * porVia.length + e] = porVia[e][i]
+      d0[clave][k[clave]] = desde
+      d1[clave][k[clave]] = recorrido
       if (juntas && limites) {
-        for (let c = 0; c < 2; c++) limites[n][k[n] * 2 + c] = juntas.limites[s * 2 + c]
-        if (zonas) for (let c = 0; c < 4; c++) zonas[n][k[n] * 4 + c] = juntas.zonas[s * 4 + c]
+        for (let c = 0; c < 2; c++) limites[clave][k[clave] * 2 + c] = juntas.limites[s * 2 + c]
+        if (zonas) for (let c = 0; c < 4; c++) zonas[clave][k[clave] * 4 + c] = juntas.zonas[s * 4 + c]
       }
       if (estilos) {
         const fuente = NIVELES[nivel[i]]
-        estilos[n][k[n] * 3] = fuente.pisoPx
-        estilos[n][k[n] * 3 + 1] = fuente.desvanece?.lleno ?? 0
-        estilos[n][k[n] * 3 + 2] = fuente.desvanece?.tenue ?? 0
+        estilos[clave][k[clave] * 3] = fuente.pisoPx
+        estilos[clave][k[clave] * 3 + 1] = fuente.desvanece?.lleno ?? 0
+        estilos[clave][k[clave] * 3 + 2] = fuente.desvanece?.tenue ?? 0
       }
-      k[n]++
+      if (caja) {
+        extenderCaja(caja[clave], positions[src], positions[src + 1], positions[src + 2])
+        extenderCaja(caja[clave], positions[src + 3], positions[src + 4], positions[src + 5])
+      }
+      k[clave]++
     }
   }
 
-  return NIVELES
-    .map((_, n) => ({
-      nivel: n, positions: pos[n], segIds: ids[n], via: via[n], d0: d0[n], d1: d1[n], normales: nrm[n],
-      limites: limites?.[n], zonas: zonas?.[n], estilos: estilos?.[n],
-    }))
+  return Array.from({ length: tamano }, (_, clave) => ({
+    nivel: soloJuntas ? clave : nivelDeClave(clave),
+    positions: pos[clave], segIds: ids[clave], via: via[clave], d0: d0[clave], d1: d1[clave], normales: nrm[clave],
+    limites: limites?.[clave], zonas: zonas?.[clave], estilos: estilos?.[clave], caja: caja?.[clave],
+  }))
     .filter(t => t.segIds.length > 0)
 }

@@ -47,7 +47,11 @@ export const ANCLA_EXTRUSION_FIN = 'clip.xy += offset;'
 // vía deja de parecer un brochazo; con 10 de tope, una troncal de 50 px no se
 // queda sin color.
 const CASING_MAX = 10
-const CASING_REL = 0.6
+// Exportada: Roads.tsx la usa para acotar cuánto ensancha el contorno al
+// inflar la caja de una celda partida (margenCelda). Es una FRACCIÓN de
+// anchoTot, no depende de mpp -- por eso sirve de cota sin tener que fijar
+// primero a qué distancia se mira la vía.
+export const CASING_REL = 0.6
 
 // Alza mínima de la calzada sobre el relieve, en metros. A lo lejos manda la
 // tolerancia del LOD en píxeles (ERROR_PX, quadtree.ts); de cerca, esto: es

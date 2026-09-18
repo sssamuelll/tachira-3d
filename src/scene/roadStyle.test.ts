@@ -347,4 +347,65 @@ describe('repartirPorNivel', () => {
     expect(tandas.reduce((a, t) => a + t.segIds.length, 0)).toBe(n)
     expect(new Set(tandas.flatMap(t => [...t.segIds])).size).toBe(n)
   })
+
+  describe('rejilla espacial (FASE 1: frustum culling)', () => {
+    // Dos puntos en esquinas opuestas, bien lejos de cualquier tamaño de celda
+    // razonable: caen en celdas distintas de la rejilla pase lo que pase (la
+    // rejilla se recorta al rango de la BBOX, así que ni hace falta conocer
+    // sus límites exactos -- basta con que estén de los dos lados).
+    const ESQUINA_A: [number, number, number] = [-200_000, 0, -200_000]
+    const ESQUINA_B: [number, number, number] = [200_000, 0, 200_000]
+    // Dos vías con dos segmentos cada una: el primero pegado a ESQUINA_A, el
+    // segundo a ESQUINA_B. 'residential' se desvanece (nivel local); 'motorway'
+    // no (nivel troncal).
+    const red = [{ highway: 'residential' }, { highway: 'motorway' }] as Way[]
+    const index = new Uint32Array([0, 2, 4])
+    const positions = new Float32Array(24)
+    const ponerSegmento = (s: number, p: readonly [number, number, number]) => {
+      for (let c = 0; c < 3; c++) { positions[s * 6 + c] = p[c]; positions[s * 6 + 3 + c] = p[c] }
+    }
+    ponerSegmento(0, ESQUINA_A)   // residential, primer tramo
+    ponerSegmento(1, ESQUINA_B)   // residential, segundo tramo
+    ponerSegmento(2, ESQUINA_A)   // motorway, primer tramo
+    ponerSegmento(3, ESQUINA_B)   // motorway, segundo tramo
+    const segIds = new Float32Array([100, 101, 200, 201])
+
+    it('un nivel que se desvanece se parte en una tanda por celda', () => {
+      const tandas = repartirPorNivel(positions, segIds, index, red)
+      const local = tandas.filter(t => t.nivel === 2)   // 'residential' -> local
+      expect(local).toHaveLength(2)
+      expect(local.flatMap(t => [...t.segIds]).sort()).toEqual([100, 101])
+      // La caja de cada tanda es la de SUS tramos, no la nominal de la celda.
+      for (const t of local) {
+        const idx = t.segIds[0] === 100 ? 0 : 1
+        const esquina = idx === 0 ? ESQUINA_A : ESQUINA_B
+        expect([...t.caja!]).toEqual([...esquina, ...esquina])
+      }
+    })
+
+    it('la red estructurante se queda en una sola tanda aunque sus tramos estén lejos', () => {
+      // secundaria/principal/troncal están encendidas siempre: partirlas no
+      // recorta nada (roadStyle.ts), así que 'motorway' no se parte por celda
+      // aunque sus dos segmentos caigan en esquinas opuestas.
+      const tandas = repartirPorNivel(positions, segIds, index, red)
+      const troncal = tandas.filter(t => t.nivel === 6)
+      expect(troncal).toHaveLength(1)
+      expect([...troncal[0].segIds].sort()).toEqual([200, 201])
+      expect([...troncal[0].caja!]).toEqual([...ESQUINA_A, ...ESQUINA_B])
+    })
+
+    it('la superficie de junta no se parte por celda', () => {
+      // soloJuntas sigue con una clave por nivel, como antes de la rejilla:
+      // es la pasada chica de asfalto extra en los encuentros, no la red
+      // completa.
+      const juntas = {
+        limites: new Float32Array(8).fill(1e9), zonas: new Float32Array(16), niveles: new Uint8Array(4), nodos: 1,
+      }
+      juntas.zonas.set([0, 10, 0, 0], 0)   // primer segmento de 'residential'
+      juntas.zonas.set([0, 10, 0, 0], 4)   // segundo segmento de 'residential'
+      const union = repartirPorNivel(positions, segIds, index, red, [], undefined, juntas, true)
+      expect(union).toHaveLength(1)
+      expect(union[0].caja).toBeUndefined()
+    })
+  })
 })
