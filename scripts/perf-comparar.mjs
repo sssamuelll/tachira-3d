@@ -29,9 +29,20 @@ const shaders = r => r.errores.filter(e => e.includes('VALIDATE_STATUS') || e.in
 console.log('antes:   ' + rutaA + '  (' + a.url + ')')
 console.log('después: ' + rutaB + '  (' + b.url + ')')
 console.log('')
-console.log('carga      primer cuadro ' + col(a.hitos.armando_fuera_ms) + ' -> ' + col(b.hitos.armando_fuera_ms) + ' ms  ' + rel(a.hitos.armando_fuera_ms, b.hitos.armando_fuera_ms))
-console.log('           MB al arrancar ' + col(a.red_arranque?.MB) + ' -> ' + col(b.red_arranque?.MB) + ' MB  ' + rel(a.red_arranque?.MB, b.red_arranque?.MB))
-console.log('           peticiones     ' + col(a.red_arranque?.peticiones) + ' -> ' + col(b.red_arranque?.peticiones) + '     ' + rel(a.red_arranque?.peticiones, b.red_arranque?.peticiones))
+// `armando_fuera_ms` es como se llamaba `primer_cuadro_ms` en las corridas
+// viejas; se mira también para poder comparar contra una de entonces.
+const hito = k => [a.hitos?.[k] ?? (k === 'primer_cuadro_ms' ? a.hitos?.armando_fuera_ms : undefined),
+  b.hitos?.[k] ?? (k === 'primer_cuadro_ms' ? b.hitos?.armando_fuera_ms : undefined)]
+const linea = (etiqueta, x, y, unidad) => console.log(etiqueta.padEnd(26) + col(x ?? '-') + ' -> ' + col(y ?? '-') + ' ' + unidad + '  ' + (x != null && y != null ? rel(x, y) : ''))
+linea('carga  primer cuadro', ...hito('primer_cuadro_ms'), 'ms')
+linea('       vías montadas', ...hito('vias_listas_ms'), 'ms')
+linea('       MB al arrancar', a.red_arranque?.MB, b.red_arranque?.MB, 'MB')
+linea('       peticiones', a.red_arranque?.peticiones, b.red_arranque?.peticiones, '  ')
+if (a.red_recarga || b.red_recarga) {
+  linea('recarga  primer cuadro', ...hito('recarga_primer_cuadro_ms'), 'ms')
+  linea('         MB', a.red_recarga?.MB, b.red_recarga?.MB, 'MB')
+  linea('         peticiones a la red', a.red_recarga?.peticiones, b.red_recarga?.peticiones, '  ')
+}
 console.log('errores de shader         ' + col(shaders(a)) + ' -> ' + col(shaders(b)))
 console.log('')
 console.log('muestra                     ms p50            ms p95            draw calls        k triángulos')

@@ -1,7 +1,7 @@
 // Sonda de rendimiento. Solo lectura sobre el repo: abre el mapa publicado (o
 // la URL que le pases) en un Chromium con GPU real, mide la carga y muestrea
 // cuadros en varias vistas.
-//   node scripts/perf-baseline.mjs [url] [--preview] [--capturas <dir>] [--headed] [--brave] [--sweep] [--perfil]
+//   node scripts/perf-baseline.mjs [url] [--preview] [--capturas <dir>] [--recarga] [--headed] [--brave] [--sweep] [--perfil]
 //
 // --preview es la forma de comparar un cambio contra su antes: hornea el build
 // de producción, lo sirve con `vite preview` y mide contra eso. Medir en el
@@ -144,27 +144,46 @@ try {
   })
   page.on('pageerror', e => salida.errores.push('pageerror: ' + (e.message ?? e)))
 
-  await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 120_000 })
-
-  // Línea de tiempo de los carteles de carga.
-  let vistoCargando = false
-  const inicio = Date.now()
-  while (Date.now() - inicio < 180_000) {
-    const s = await page.evaluate(() => ({
-      escena: !!window.__escena,
-      cargando: document.body.innerText.includes('Cargando la red vial'),
-      armando: document.body.innerText.includes('Armando el relieve'),
-      error: document.body.innerText.includes('No se pudo cargar el mapa'),
-    }))
-    const t = Date.now() - t0
-    if (s.cargando) vistoCargando = true
-    if (!s.cargando && (vistoCargando || s.armando || s.escena) && salida.hitos.cargando_fuera_ms == null) salida.hitos.cargando_fuera_ms = t
-    if (s.escena && salida.hitos.escena_ms == null) salida.hitos.escena_ms = t
-    if (s.escena && !s.armando && salida.hitos.armando_fuera_ms == null) { salida.hitos.armando_fuera_ms = t; break }
-    if (s.error) { salida.hitos.error_ms = t; break }
-    await page.waitForTimeout(250)
+  // La línea de tiempo de la carga, desde `desde` (0 en el arranque, el momento
+  // de la recarga en la segunda vuelta). Devuelve los hitos en vez de
+  // escribirlos: la recarga los quiere aparte.
+  //
+  // `vias_ms` sale del evento de consola map.boot.loaded, no de un cartel. Es
+  // el único hito que sobrevive a partir la carga en dos: el día que el relieve
+  // se dibuje sin esperar a la red vial, el cartel se irá antes y las vías
+  // llegarán después, y muestrear en medio compararía dos mapas a medio montar.
+  const medirCarga = async desde => {
+    const h = {}
+    let vistoCargando = false
+    const inicio = Date.now()
+    const bootAntes = salida.boot['map.boot.loaded']?.at_ms ?? null
+    while (Date.now() - inicio < 180_000) {
+      const s = await page.evaluate(() => ({
+        escena: !!window.__escena,
+        cargando: document.body.innerText.includes('Cargando la red vial'),
+        armando: document.body.innerText.includes('Armando el relieve'),
+        error: document.body.innerText.includes('No se pudo cargar el mapa'),
+      }))
+      const t = Date.now() - desde
+      if (s.cargando) vistoCargando = true
+      if (!s.cargando && (vistoCargando || s.armando || s.escena) && h.cargando_fuera_ms == null) h.cargando_fuera_ms = t
+      if (s.escena && h.escena_ms == null) h.escena_ms = t
+      if (s.escena && !s.armando && h.primer_cuadro_ms == null) h.primer_cuadro_ms = t
+      if (s.error) { h.error_ms = t; break }
+      // No basta con el primer cuadro: hay que esperar a que las vías estén
+      // montadas, o las capturas comparan mapas a medio armar.
+      const boot = salida.boot['map.boot.loaded']?.at_ms ?? null
+      if (boot != null && boot !== bootAntes) { h.vias_listas_ms = boot - (desde - t0); if (h.primer_cuadro_ms != null) break }
+      await page.waitForTimeout(250)
+    }
+    return h
   }
-  salida.red_arranque = resumenRed('al desaparecer "Armando el relieve"')
+
+  await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 120_000 })
+  Object.assign(salida.hitos, await medirCarga(t0))
+  // Compatibilidad con las corridas viejas, que lo llamaban así.
+  salida.hitos.armando_fuera_ms = salida.hitos.primer_cuadro_ms
+  salida.red_arranque = resumenRed('hasta el primer cuadro con las vías montadas')
 
   salida.maquina = await page.evaluate(() => {
     const c = document.createElement('canvas').getContext('webgl2')
@@ -350,6 +369,26 @@ try {
     await colocar(8.021973, -71.901563, 0, 0, 55000, 100000)
     convergida = await esperarEstable()
     await sonda('G estado de vuelta')
+
+    // La segunda visita. GitHub Pages sirve el sitio con max-age=600, así que
+    // a los diez minutos volver al mapa rebaja los megabytes enteros. Lo único
+    // que dice si una caché sirve es cuántas peticiones llegan de verdad a la
+    // red tras un F5 en la misma pestaña.
+    if (args.includes('--recarga')) {
+      const yaVistas = new Set(red.keys())
+      const desde = Date.now()
+      salida.boot = {}
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 120_000 })
+      const h = await medirCarga(desde)
+      for (const [k, v] of Object.entries(h)) salida.hitos['recarga_' + k] = v
+      const nuevas = [...red.entries()].filter(([k, r]) => !yaVistas.has(k) && r.fin != null)
+      salida.red_recarga = {
+        peticiones: nuevas.length,
+        MB: +(nuevas.reduce((s, [, r]) => s + r.bytes, 0) / 1048576).toFixed(2),
+        deCache: nuevas.filter(([, r]) => r.cache).length,
+      }
+      console.error('  recarga:', JSON.stringify(salida.red_recarga), JSON.stringify(h))
+    }
   }
   salida.red_total = resumenRed('al final')
 } finally {
