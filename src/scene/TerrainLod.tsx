@@ -81,7 +81,27 @@ const TEXTURAS_MAX = 300
 // del hilo principal de 50 a 400 ms al orbitar y al bajar a una ciudad nueva.
 // Con este cupo, listo() (más abajo) le niega el nodo al quadtree en cuanto se
 // agota, y seleccionar() (quadtree.ts) cae al padre más grueso hasta el
-// cuadro siguiente, que trae cupo de nuevo. Calibrable: empieza en 2.
+// cuadro siguiente, que trae cupo de nuevo.
+//
+// Medido con la muestra "vuelo por el estado" de scripts/perf-baseline.mjs:
+// ocho saltos a sitios lejanos entre sí, a altura de pueblo, que es lo que
+// obliga a armar relieve nuevo de verdad. Orbitar no lo ejercita -- los nodos
+// ya están armados y la LRU los devuelve, que es por qué esto parecía no
+// servir hasta que hubo una muestra que lo tocara. Contra una corrida idéntica
+// con el cupo puesto en 100.000, o sea desactivado:
+//
+//                        sin cupo    con cupo (dos corridas)
+//     ms_p50 del vuelo       6,3       6,9    5,8
+//     ms_p95 del vuelo      19,7      14,5   17,9
+//     tareas largas           18         3     12
+//     draw calls             461       263    276
+//     triángulos          4.240k    3.239k 3.154k
+//
+// O sea: mientras la cámara vuela, el relieve se queda más grueso, y eso baja
+// el percentil 95 y el número de tirones a cambio de una mediana un pelo peor.
+// Lo que NO se puede afirmar con esto es que baje el tirón MÁS largo: 452 ms
+// sin cupo contra 515 y 459 con él, que es ruido. Calibrable: 2 es el valor
+// medido, no un valor de partida.
 const NODOS_POR_CUADRO = 2
 
 // Las cascadas de sombra. Tres y no cuatro: con maxFar de 8 km la tercera ya
