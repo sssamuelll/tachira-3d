@@ -179,6 +179,7 @@ try {
   // dentro del cuadro cuando corre este rAF (r3f registra el suyo primero,
   // así que ya pasó por sus useFrame y su render). `largas` son las long
   // tasks (>50 ms) que cayeron dentro de la ventana.
+  let convergida = null
   const sonda = async (etiqueta, durante) => {
     const p = page.evaluate(() => new Promise(res => {
       const st = window.__escena.getState(); const gl = st.gl
@@ -209,6 +210,7 @@ try {
     }))
     const [r] = await Promise.all([p, durante ? durante() : Promise.resolve()])
     Object.assign(r, await heapMB())
+    r.convergida = convergida
     // La captura va DESPUÉS de la muestra y con la cámara ya quieta, para que
     // dos corridas encuadren lo mismo. Las de orbitar no se capturan: la
     // cámara termina donde la deje el arrastre y no serían comparables.
@@ -218,6 +220,29 @@ try {
     salida.muestras.push({ etiqueta, ...r })
     process.stderr.write('  ' + etiqueta + ': ' + r.fps + ' fps, ' + r.ms_p50 + ' ms, cpu ' + r.cpu_p50 + ' ms, ' + r.calls + ' calls, ' + r.tris_k + 'k tris, nodos ' + r.nodos + (r.largas.length ? ', largas ' + r.largas.join('/') : '') + '\n')
   }
+  // Espera a que la escena deje de cambiar antes de medir. No es cortesía: el
+  // relieve refina por niveles y la foto satelital llega tesela a tesela, así
+  // que muestrear "tres segundos después de colocar la cámara" mide un momento
+  // distinto en cada corrida. Medido: en la primera muestra de vista de estado
+  // había 95 texturas vivas en una corrida y 178 en la siguiente, con el mismo
+  // commit -- y las capturas salían con el 90 % de los píxeles distintos. La
+  // muestra del final, ya convergida, salía idéntica al píxel.
+  const esperarEstable = async (maxMs = 30_000, iguales = 3) => {
+    let previo = null; let repetidos = 0
+    const hasta = Date.now() + maxMs
+    while (Date.now() < hasta) {
+      const ahora = await page.evaluate(() => {
+        const st = window.__escena.getState(); const gl = st.gl
+        const t = st.scene.getObjectByName('terrain')
+        return [gl.info.memory.textures, gl.info.memory.geometries,
+          t ? t.children.filter(c => c.visible).length : 0].join('/')
+      })
+      if (ahora === previo) { if (++repetidos >= iguales) return { estable: true, estado: ahora } } else { repetidos = 0; previo = ahora }
+      await page.waitForTimeout(700)
+    }
+    return { estable: false, estado: previo }
+  }
+
   const colocar = (lat, lon, h, dx, dy, dz) => page.evaluate(([lat, lon, h, dx, dy, dz]) => {
     const st = window.__escena.getState(); const t = window.__enu(lat, lon, h)
     st.controls.target.copy(t); st.camera.position.set(t.x + dx, t.y + dy, t.z + dz); st.controls.update()
@@ -252,7 +277,8 @@ try {
   }
 
   if (salida.hitos.armando_fuera_ms != null) {
-    await page.waitForTimeout(3000)
+    convergida = await esperarEstable()
+    console.error('  estado:', JSON.stringify(convergida))
     await sonda('B1 estado quieta')
     await sonda('B2 estado quieta')
     salida.red_estado = resumenRed('tras ~10 s en vista de estado')
@@ -260,9 +286,9 @@ try {
     if (sweep) await barrido('B estado')
     await sonda('B3 estado orbitando', () => arrastrar(300, 0))
     await colocar(...SAN_CRISTOBAL, 0, 2500, 4000)
-    await page.waitForTimeout(8000)
+    convergida = await esperarEstable()
+    console.error('  ciudad:', JSON.stringify(convergida))
     await sonda('C1 ciudad quieta')
-    await page.waitForTimeout(5000)
     await sonda('C2 ciudad quieta')
     if (perfil) await perfilar('C ciudad quieta')
     if (sweep) await barrido('C ciudad')
@@ -270,19 +296,21 @@ try {
     await sonda('D1 ciudad orbitando', () => arrastrar(300, 0))
     await sonda('D2 ciudad orbitando', () => arrastrar(0, 200))
     await colocar(...SAN_CRISTOBAL, 0, 120, 220)
-    await page.waitForTimeout(10000)
+    convergida = await esperarEstable()
+    console.error('  calle:', JSON.stringify(convergida))
     await sonda('E1 calle quieta')
     if (perfil) await perfilar('E calle quieta')
     if (sweep) await barrido('E calle')
     await sonda('E2 calle orbitando', () => arrastrar(200, 0))
     const lluvia = page.locator('button[title="Lluvia"]')
     if (await lluvia.count()) {
-      await lluvia.click(); await page.waitForTimeout(3000)
+      await lluvia.click(); await page.waitForTimeout(2500)
+      convergida = await esperarEstable(10_000)
       await sonda('F calle lluvia quieta')
       await lluvia.click()
     } else salida.errores.push('sin botón de lluvia: títulos = ' + salida.botones.join(' | '))
     await colocar(8.021973, -71.901563, 0, 0, 55000, 100000)
-    await page.waitForTimeout(4000)
+    convergida = await esperarEstable()
     await sonda('G estado de vuelta')
   }
   salida.red_total = resumenRed('al final')
