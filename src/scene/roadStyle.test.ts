@@ -251,7 +251,7 @@ describe('metrosPorPixel', () => {
 
 describe('repartirPorNivel', () => {
   // Red mínima con una vía por nivel de interés y varios segmentos cada una,
-  // para comprobar el reparto sin depender de los 450.261 segmentos reales.
+  // para comprobar el reparto sin depender de los 811.664 segmentos reales.
   const via = (osmId: number, highway: string): Way => ({
     osmId, ref: null, name: null, highway, surface: null,
     tipo: 'sin_definir', municipio: null, km: 1, km3d: 1,

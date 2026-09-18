@@ -127,7 +127,7 @@ export function Roads (
 
   // Un objeto por nivel de jerarquía y no uno solo para toda la red: el piso
   // en píxeles y la presencia son del nivel, y el orden de dibujo también. El
-  // reparto recorre los 450.261 segmentos una vez por carga (roadStyle.ts).
+  // reparto recorre los 811.664 segmentos una vez por carga (roadStyle.ts).
   // Ancho de calzada y canales de cada vía: el ancho es lo que el vertex
   // shader extruye en metros (roadsShader.ts), y los canales dicen cuántas
   // separaciones pintar, si lleva eje de doble sentido y si lleva flechas. El
@@ -153,10 +153,17 @@ export function Roads (
     return [anchos, canales, bordes]
   }, [ways])
 
-  const objetos = useMemo(() => [
-    ...repartirPorNivel(positions, segIds, index, ways, porVia, normals, juntas),
-    ...repartirPorNivel(positions, segIds, index, ways, porVia, normals, juntas, true),
-  ].map(t => {
+  const { objetos, materiales } = useMemo(() => {
+    // Un LineMaterial por (nivel, casing, superficie), no uno por CELDA: la
+    // rejilla de roadStyle.ts parte un nivel que se desvanece en cientos de
+    // celdas, pero todas comparten piso en píxeles, presencia y orden de
+    // dibujo -- son del NIVEL, no de la celda. La primera celda de la
+    // combinación crea el material; el resto lo reusa.
+    const materiales = new Map<string, { material: LineMaterial; nivel: Nivel; superficie: boolean }>()
+    const objetos = [
+      ...repartirPorNivel(positions, segIds, index, ways, porVia, normals, juntas),
+      ...repartirPorNivel(positions, segIds, index, ways, porVia, normals, juntas, true),
+    ].map(t => {
     const superficie = !!t.zonas
     const geometry = new LineSegmentsGeometry()
     geometry.setPositions(t.positions)
@@ -181,12 +188,14 @@ export function Roads (
     geometry.setAttribute('instanceDistanceStart', new THREE.InstancedBufferAttribute(t.d0, 1))
     geometry.setAttribute('instanceDistanceEnd', new THREE.InstancedBufferAttribute(t.d1, 1))
 
-    // Esta tanda es una CELDA de un nivel que se desvanece (roadStyle.ts): la
-    // única con caja real, así que la única a la que le sirve frustumCulled.
-    // La red estructurante (secundaria/principal/troncal) y la superficie de
-    // junta se quedan sin caja, igual que antes de la rejilla -- están
-    // encendidas siempre o son chicas, y partirlas no recortaría nada
-    // (roadStyle.ts, el bloque de la rejilla).
+    // Esta tanda es una CELDA de un nivel que se desvanece (roadStyle.ts):
+    // frustumCulled solo le sirve a ella. La red estructurante (secundaria/
+    // principal/troncal) también trae `caja` real -- roadStyle.ts la calcula
+    // para toda tanda del pase base, partida o no --, pero sigue en una sola
+    // tanda para todo el estado (roadStyle.test.ts, "la red estructurante se
+    // queda en una sola tanda"): como está encendida siempre, acotarle esa
+    // caja no recortaría nada. La que de verdad se queda sin caja es la
+    // superficie de junta (roadStyle.ts, soloJuntas).
     const partida = !superficie && !!t.caja && !!NIVELES[t.nivel].desvanece
     if (partida) {
       const m = margenCelda(NIVELES[t.nivel])
@@ -201,16 +210,26 @@ export function Roads (
     // Contorno y relleno comparten la MISMA geometría (no una copia): son el
     // mismo trazo dibujado dos veces con otro ancho y otro color.
     const capas = (superficie ? [false] : [true, false]).map(casing => {
-      // worldUnits: false a propósito, aunque el ancho vaya en metros: el
-      // parche sustituye el bloque de pantalla de three, no activa su modo de
-      // mundo (roadsShader.ts, extrusionGlsl).
-      const material = new LineMaterial({ worldUnits: false, transparent: true, depthWrite: false })
-      // El asfalto solo va al relleno: el contorno es un borde oscuro de unos
-      // píxeles, no una superficie, y texturizarlo serían tres samplers y un
-      // Voronoi por fragmento para pintar el mismo gris.
-      patchLineMaterial(material, attr.texture, ATTR_SIZE, casing, casing ? undefined : asfalto,
-        superficie ? 'superficie' : 'base')
-      const linea = new LineSegments2(geometry, material)
+      // Todas las celdas de este (nivel, casing, superficie) comparten el
+      // mismo LineMaterial: la primera lo crea, las siguientes lo encuentran
+      // acá y no vuelven a pagar el patch del shader ni el cambio de estado
+      // de three al dibujar.
+      const clave = `${t.nivel}|${superficie}|${casing}`
+      let entry = materiales.get(clave)
+      if (!entry) {
+        // worldUnits: false a propósito, aunque el ancho vaya en metros: el
+        // parche sustituye el bloque de pantalla de three, no activa su modo de
+        // mundo (roadsShader.ts, extrusionGlsl).
+        const material = new LineMaterial({ worldUnits: false, transparent: true, depthWrite: false })
+        // El asfalto solo va al relleno: el contorno es un borde oscuro de unos
+        // píxeles, no una superficie, y texturizarlo serían tres samplers y un
+        // Voronoi por fragmento para pintar el mismo gris.
+        patchLineMaterial(material, attr.texture, ATTR_SIZE, casing, casing ? undefined : asfalto,
+          superficie ? 'superficie' : 'base')
+        entry = { material, nivel: NIVELES[t.nivel], superficie }
+        materiales.set(clave, entry)
+      }
+      const linea = new LineSegments2(geometry, entry.material)
       // Todos los contornos de un nivel van antes que sus rellenos, y un nivel
       // entero antes que el siguiente: así una troncal cruza una calle con su
       // propio borde limpio, en vez de que la calle le pise el color. Sin
@@ -223,7 +242,7 @@ export function Roads (
       // objetos cubren el estado entero de todos modos (mismo criterio que
       // Terrain.tsx con la red completa de antes de esta rejilla).
       linea.frustumCulled = partida
-      return { material, linea }
+      return { linea }
     })
 
     let anchoMax = 0
@@ -231,22 +250,20 @@ export function Roads (
     // cada trío.
     if (superficie) for (let i = 0; i < t.via.length; i += 3) anchoMax = Math.max(anchoMax, t.via[i])
     return { nivel: NIVELES[t.nivel], capas, superficie, anchoMax, geometry }
-  }), [positions, segIds, index, ways, attr, porVia, normals, asfalto, juntas])
+    })
+    return { objetos, materiales: [...materiales.values()] }
+  }, [positions, segIds, index, ways, attr, porVia, normals, asfalto, juntas])
 
   useEffect(() => () => {
-    for (const o of objetos) {
-      o.geometry.dispose()
-      for (const c of o.capas) c.material.dispose()
-    }
-  }, [objetos])
+    for (const o of objetos) o.geometry.dispose()
+    for (const m of materiales) m.material.dispose()
+  }, [objetos, materiales])
 
   // El vertex shader necesita el alto del lienzo para convertir el piso en
   // píxeles a metros en cada vértice (roadsShader.ts).
   useEffect(() => {
-    for (const o of objetos) {
-      for (const c of o.capas) c.material.resolution.set(size.width, size.height)
-    }
-  }, [objetos, size])
+    for (const m of materiales) m.material.resolution.set(size.width, size.height)
+  }, [materiales, size])
 
   // La presencia de cada nivel depende de cuánto terreno cabe en un píxel, así
   // que se recalcula mientras la cámara se mueve. Son unas pocas asignaciones
@@ -274,8 +291,53 @@ export function Roads (
     const sombra = cascada.current?.shadow
     const mapaSombra = sombra?.map?.depthTexture ?? null
 
+    // presencia() es del NIVEL, no de la celda: se evalúa una vez por nivel
+    // (siete cuentas) y no una vez por cada una de las cientos de celdas que
+    // comparten ese nivel. NIVELES es el mismo array de objetos que usan las
+    // tandas (o.nivel), así que sirve de clave directa sin mapear índices.
+    const alpha = new Map(NIVELES.map(n => [n, presencia(n, mpp)]))
+
+    // Los uniforms son del MATERIAL, no de la celda: se escriben una vez por
+    // material -- antes se escribían una vez por celda, y todas las celdas de
+    // un nivel recibían exactamente los mismos valores.
+    for (const m of materiales) {
+      // La opacidad del material es la base que el shader multiplica por el
+      // foco y la selección (roadsShader.ts), así que el desvanecimiento por
+      // acercamiento se compone con los otros dos sin tocar el GLSL.
+      m.material.opacity = alpha.get(m.nivel)!
+      const u = m.material.userData.uniforms
+      if (!u) continue
+      // El ancho ya no se fija acá: lo extruye el vertex shader en metros, con
+      // el piso en píxeles del nivel evaluado en cada vértice (roadsShader.ts).
+      // Solo hay que decirle el piso; `resolution` ya la pone el efecto de
+      // arriba.
+      u.uPisoPx.value = m.nivel.pisoPx
+      u.uModoPci.value = pci ? 1 : 0
+      if (m.superficie) u.uMppFuente.value = mpp
+      // La dirección del sol para el asfalto. uSol lo declara
+      // roadsShader.ts en los dos materiales (asfalto.test.ts lo afirma);
+      // alimentarlo desde acá y no desde el parche del shader es a
+      // propósito: el sol es de la escena, no del asfalto.
+      u.uSol.value.copy(sol)
+      // También en el contorno, que no lo usa: el uniform existe en los dos
+      // materiales (roadsShader.ts) justo para no tener que averiguar acá
+      // cuál es cuál.
+      u.uMojado.value = mojado.current
+      // Mientras no hay mapa se deja el texel de relleno ligado y uSombraOn
+      // en 0: un sampler2DShadow apuntando a nada -- o a la textura vacía de
+      // three -- descarta la llamada de dibujo entera (ver SOMBRA_VACIA).
+      u.uSombraMapa.value = mapaSombra ?? SOMBRA_VACIA
+      u.uSombraOn.value = mapaSombra ? 1 : 0
+      if (sombra) {
+        u.uSombraMat.value = sombra.matrix
+        u.uSombraNormalBias.value = sombra.normalBias
+        u.uSombraSesgo.value = sombra.bias
+      }
+    }
+
+    // .visible sí es por celda: cada celda es su propio LineSegments2.
     for (const o of objetos) {
-      const alpha = presencia(o.nivel, mpp)
+      const a = alpha.get(o.nivel)!
       // Un nivel apagado no se dibuja en absoluto, en vez de dibujarse con
       // opacidad 0: son dos draw calls de decenas de miles de segmentos que a
       // vista de estado no aportan un solo píxel. El pase de ids descarta los
@@ -283,42 +345,8 @@ export function Roads (
       // La pasada adicional no se envía a la GPU a vista de estado. Margen
       // ×4 sobre el umbral de detalle para la parte cercana de una vista
       // oblicua; el descarte por fragmento resuelve la transición exacta.
-      const visible = alpha > 0 && (!o.superficie || mpp < 4 * o.anchoMax / ASFALTO_DESDE_PX)
-      // La opacidad del material es la base que el shader multiplica por el
-      // foco y la selección (roadsShader.ts), así que el desvanecimiento por
-      // acercamiento se compone con los otros dos sin tocar el GLSL.
-      // El ancho ya no se fija acá: lo extruye el vertex shader en metros, con
-      // el piso en píxeles del nivel evaluado en cada vértice (roadsShader.ts).
-      // Solo hay que decirle el piso; `resolution` ya la pone el efecto de
-      // arriba.
-      for (const capa of o.capas) {
-        capa.linea.visible = visible
-        capa.material.opacity = alpha
-        const u = capa.material.userData.uniforms
-        if (!u) continue
-        u.uPisoPx.value = o.nivel.pisoPx
-        u.uModoPci.value = pci ? 1 : 0
-        if (o.superficie) u.uMppFuente.value = mpp
-        // La dirección del sol para el asfalto. uSol lo declara
-        // roadsShader.ts en los dos materiales (asfalto.test.ts lo afirma);
-        // alimentarlo desde acá y no desde el parche del shader es a
-        // propósito: el sol es de la escena, no del asfalto.
-        u.uSol.value.copy(sol)
-        // También en el contorno, que no lo usa: el uniform existe en los dos
-        // materiales (roadsShader.ts) justo para no tener que averiguar acá
-        // cuál es cuál.
-        u.uMojado.value = mojado.current
-        // Mientras no hay mapa se deja el texel de relleno ligado y uSombraOn
-        // en 0: un sampler2DShadow apuntando a nada -- o a la textura vacía de
-        // three -- descarta la llamada de dibujo entera (ver SOMBRA_VACIA).
-        u.uSombraMapa.value = mapaSombra ?? SOMBRA_VACIA
-        u.uSombraOn.value = mapaSombra ? 1 : 0
-        if (sombra) {
-          u.uSombraMat.value = sombra.matrix
-          u.uSombraNormalBias.value = sombra.normalBias
-          u.uSombraSesgo.value = sombra.bias
-        }
-      }
+      const visible = a > 0 && (!o.superficie || mpp < 4 * o.anchoMax / ASFALTO_DESDE_PX)
+      for (const capa of o.capas) capa.linea.visible = visible
     }
   })
 

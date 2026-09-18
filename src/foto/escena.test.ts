@@ -50,8 +50,12 @@ function viaDeMentira (): THREE.Object3D {
     uModoPci: { value: 0 },
   }
 
-  const objeto = new THREE.Mesh(geometry, material) as THREE.Mesh & { isLineSegments2: boolean }
-  objeto.isLineSegments2 = true
+  // `isLineSegments2` es la bandera que three le pone a LineSegments2 y por la
+  // que escena.ts filtra. Se cuelga a mano y por `unknown` porque los tipos de
+  // Mesh no la declaran: armar un LineSegments2 de verdad obligaría a traerse
+  // LineSegmentsGeometry entera para probar lo mismo.
+  const objeto = new THREE.Mesh(geometry, material)
+  ;(objeto as unknown as { isLineSegments2: boolean }).isLineSegments2 = true
   return objeto
 }
 
