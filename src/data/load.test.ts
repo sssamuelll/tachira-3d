@@ -1,5 +1,5 @@
 import { test, expect, vi, afterEach } from 'vitest'
-import { checkCoherence, checkOrigin, loadAll, limitesBin } from './load'
+import { checkCoherence, checkOrigin, loadRelieve, limitesBin } from './load'
 import { ORIGIN } from './constants'
 import type { RoadsMeta } from './types'
 
@@ -60,9 +60,12 @@ test('checkOrigin lanza con ambos valores si terrain.origin difiere', () => {
   expect(() => checkOrigin(distinto, ORIGIN)).toThrow(new RegExp(`${distinto.lat}.*${ORIGIN.lat}`))
 })
 
-test('loadAll nombra la URL y el status cuando un fetch no es ok', async () => {
+test('loadRelieve nombra la URL y el status cuando un fetch no es ok', async () => {
+  // loadRelieve (terrain.json + municipios.json) es la primera carga del
+  // arranque desde la Fase 4: partir loadAll() en loadRelieve/loadVias
+  // movió esta guarda, antes probada contra loadAll() entero.
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })))
-  await expect(loadAll()).rejects.toThrow(/\/data\/.*: HTTP 404/)
+  await expect(loadRelieve()).rejects.toThrow(/\/data\/.*: HTTP 404/)
 })
 
 test('missing optional boundaries do not block the map', async () => {

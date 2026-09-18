@@ -65,31 +65,42 @@ export function checkOrigin (terrainOrigin: TerrainMeta['origin'], expected: typ
   }
 }
 
-export async function loadAll () {
-  const [terrain, roads, municipios, tBuf, pBuf, sBuf, iBuf, nBuf, lBuf] = await Promise.all([
+// El relieve solo necesita terrain.json (malla + origen) y municipios.json
+// (los nombres que TerrainLod dibuja): ~1 MB de los 13,7 MB que pesaba la
+// carga entera. Todo lo demás -- vías, minimapa, límites -- se pide aparte
+// (loadVias, loadLimites) para que el primer cuadro no los espere.
+export async function loadRelieve () {
+  const [terrain, municipios] = await Promise.all([
     json<TerrainMeta>(urlGenerado('terrain.json')),
-    json<RoadsMeta>(urlGenerado('roads-meta.json')),
     json<Municipio[]>(urlGenerado('municipios.json')),
+  ])
+  checkOrigin(terrain.origin, ORIGIN)
+  return { terrain, municipios }
+}
+
+// La red vial (unos 10 MB) más terrain.bin (la rejilla 1024² del minimapa y
+// de CapaPuntos, 1,36 MB): nada de esto lo necesita el relieve, así que llega
+// después, sin bloquear el primer cuadro.
+export async function loadVias () {
+  const [roads, tBuf, pBuf, sBuf, iBuf, nBuf] = await Promise.all([
+    json<RoadsMeta>(urlGenerado('roads-meta.json')),
     bin(urlGenerado('terrain.bin')),
     bin(urlGenerado('roads-pos.bin')),
     bin(urlGenerado('roads-segid.bin')),
     bin(urlGenerado('roads-index.bin')),
     bin(urlGenerado('roads-nrm.bin')),
-    limitesBin(urlGenerado('limites-pos.bin')),
   ])
   const positions = new Float32Array(pBuf)
   const segIds = new Float32Array(sBuf)
   const index = new Uint32Array(iBuf)
   const normals = new Int8Array(nBuf)
   checkCoherence(roads, positions, segIds, index, normals)
-  checkOrigin(terrain.origin, ORIGIN)
   // Las posiciones llegan apoyadas desde el pipeline sobre la triangulación
   // del DEM completo (scripts/lib/drape.mjs), que es exactamente la
   // superficie que el nivel fino del relieve dibuja (nodoTerreno.ts). Ya no
   // hay que redrapearlas acá contra otra malla: la malla de 1024² que sigue
   // llegando en terrain.bin es solo la del minimapa.
   return {
-    terrain,
     terrainGrid: new Int16Array(tBuf),
     roads,
     positions,
@@ -97,7 +108,11 @@ export async function loadAll () {
     index,
     normals,
     juntas: prepararJuntas(positions, index, roads.ways),
-    municipios,
-    limites: new Float32Array(lBuf),
   }
+}
+
+// 1,66 MB que solo hace falta si el visitante prende la capa "Municipios"
+// (apagada por defecto, capas.ts): se pide al encenderla, no en el arranque.
+export async function loadLimites (): Promise<Float32Array> {
+  return new Float32Array(await limitesBin(urlGenerado('limites-pos.bin')))
 }

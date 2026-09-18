@@ -25,7 +25,7 @@ import { usarTema } from './ui/usarTema'
 import { T, nf } from './ui/theme'
 import type { Escala } from './ui/escala'
 import type { Mirilla } from './ui/disco'
-import { loadAll } from './data/load'
+import { loadRelieve, loadVias, loadLimites } from './data/load'
 import { CAPAS_FIJAS, CAPAS, type Capa, type Rasgo } from './data/capas'
 import { BBOX } from './data/constants'
 import { AttrStore } from './data/store'
@@ -33,7 +33,8 @@ import { AttrTexture } from './data/attrTexture'
 import { isFsAccessSupported, pickFile, checkHandle, reconnectHandle, readJSON, downloadJSON, useAutosave } from './data/persist'
 import type { Registro, Way } from './data/types'
 
-type Data = Awaited<ReturnType<typeof loadAll>>
+type Relieve = Awaited<ReturnType<typeof loadRelieve>>
+type Vias = Awaited<ReturnType<typeof loadVias>>
 // Forma real de lo que devuelve usePicking (Task 16): pickAt para el clic,
 // pickRegion para el lazo. Derivado del propio hook -- retiparlo a mano se
 // desincroniza en silencio si PickingPass.tsx cambia la forma del retorno.
@@ -220,7 +221,11 @@ function textoAviso (a: AvisoCarga | null): string | null {
 const DISPONIBLES = [...CAPAS_FIJAS, ...CAPAS]
 
 export default function App () {
-  const [data, setData] = useState<Data | null>(null)
+  const [relieve, setRelieve] = useState<Relieve | null>(null)
+  const [vias, setVias] = useState<Vias | null>(null)
+  // Solo se pide al encender la capa "Municipios" (loadLimites, 1,66 MB) --
+  // ver el efecto más abajo. null = todavía no se pidió.
+  const [limites, setLimites] = useState<Float32Array | null>(null)
   // La fecha de la escena: de ella salen el sol, el cielo y las sombras. Se
   // puede pisar con ?hora= para mirar el mapa a otra altura de sol (sol.ts,
   // fechaDeEscena).
@@ -329,31 +334,52 @@ export default function App () {
   const [estadoFoto, setEstadoFoto] = useState<EstadoFoto | null>(null)
   useEffect(() => {
     const inicio = performance.now()
-    console.info('map.boot.start')
-    loadAll().then(resultado => {
-      console.info('map.boot.loaded', {
-        ms: Math.round(performance.now() - inicio),
-        roads: resultado.roads.count,
-        boundaries: resultado.limites.length / 6,
-      })
-      setData(resultado)
-    }).catch(error => {
+    const falla = (error: unknown) => {
       const detalle = error instanceof Error ? error.message : String(error)
       console.error('map.boot.failed', error)
       setErrorCarga(detalle)
-    })
+    }
+    console.info('map.boot.start')
+    loadRelieve().then(resultado => {
+      console.info('map.boot.relieve', { ms: Math.round(performance.now() - inicio) })
+      setRelieve(resultado)
+    }).catch(falla)
+    loadVias().then(resultado => {
+      // `boundaries` sale en 0 salvo que la capa "Municipios" ya estuviera
+      // encendida por la URL: limites-pos.bin se pide aparte (ver el efecto
+      // de `limites` más abajo) y normalmente no ha llegado todavía acá.
+      console.info('map.boot.loaded', {
+        ms: Math.round(performance.now() - inicio),
+        roads: resultado.roads.count,
+        boundaries: limites ? limites.length / 6 : 0,
+      })
+      setVias(resultado)
+    }).catch(falla)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // limites-pos.bin (1,66 MB) ya no viaja con la carga inicial: solo hace
+  // falta si se enciende "Municipios" (capas.ts, porDefecto: false), así que
+  // se pide la primera vez que la capa está prendida -- por defecto de la URL
+  // o por un clic -- y se queda en memoria para no repetir el fetch.
+  useEffect(() => {
+    if (!visibles.has('municipios') || limites) return
+    let vivo = true
+    loadLimites().then(l => { if (vivo) setLimites(l) })
+      .catch(error => console.error('no se pudo cargar limites-pos.bin', error))
+    return () => { vivo = false }
+  }, [visibles, limites])
 
   // Store y textura de atributos (Task 14) se crean una sola vez por carga de
   // datos: 26.712 registros viven fuera de React a propósito (ver store.ts),
   // la escena los relee vía onChange, no por re-render de componentes.
   const { store, attr } = useMemo(() => {
-    if (!data) return { store: null, attr: null }
-    const s = new AttrStore(data.roads.ways)
+    if (!vias) return { store: null, attr: null }
+    const s = new AttrStore(vias.roads.ways)
     const sembradas = s.seedFromSurface()
     console.log(`${sembradas} vías con tipo sembrado desde surface`)
     return { store: s, attr: new AttrTexture(s) }
-  }, [data])
+  }, [vias])
 
   useEffect(() => {
     if (!store) return
@@ -375,32 +401,32 @@ export default function App () {
   // real, que es justo el "se guardó solo por abrir la app" que el debounce
   // existe para evitar.
   useEffect(() => {
-    if (!store || !data) return
+    if (!store || !vias) return
     checkHandle().then(async res => {
       if (!res) return
       if (!res.granted) { setPendingHandle(res.handle); return }
-      const aviso = await cargarDesdeArchivo(res.handle, store, data.roads.ways)
+      const aviso = await cargarDesdeArchivo(res.handle, store, vias.roads.ways)
       setAvisoCarga(aviso)
       if (aviso?.tipo === 'ilegible') return   // no conectar: el autoguardado lo sobrescribiría
       setHandle(res.handle)
     })
-  }, [store, data])
+  }, [store, vias])
 
   const estadoGuardado = useAutosave(store, handle, storeVersion)
 
   // El índice del buscador se arma una vez por carga de datos: agrupa las
   // 26.712 vías en 29 municipios, unos miles de nombres y 6 rodaduras, y a
   // partir de ahí cada tecla compara contra esa lista corta.
-  const indice = useMemo(() => (data ? indexar(data.roads.ways) : null), [data])
+  const indice = useMemo(() => (vias ? indexar(vias.roads.ways) : null), [vias])
 
   const grupos = useMemo(() => {
-    if (!data || !store || !indice) return []
-    return buscar(q, indice, data.roads.ways, store)
+    if (!vias || !store || !indice) return []
+    return buscar(q, indice, vias.roads.ways, store)
     // storeVersion entra en las dependencias porque los grupos de condición y
     // de procedencia se calculan contra el store: una edición cambia lo que
     // devuelve la misma consulta, sin que la consulta cambie.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, indice, data, store, storeVersion])
+  }, [q, indice, vias, store, storeVersion])
 
   // La selección y el foco son máscaras aparte, no datos de la vía: se
   // repintan sin pasar por store.set() (eso marcaría fecha/procedencia como si
@@ -463,15 +489,15 @@ export default function App () {
   // búsqueda en un lote editable, sin tener que redibujar con el lazo una
   // forma que acabas de nombrar -- que es el trabajo de esta aplicación.
   const onElegir = useCallback((r: Resultado) => {
-    if (!store || !data) return
+    if (!store || !vias) return
     const m = new Uint8Array(store.length)
     for (const i of r.ids) m[i] = 1
     setEnfoque(m)
     setActiva(r.clave)
     setSelected(new Set(r.ids))
-    const e = idsCenterAndSpan(data.positions, data.index, r.ids)
+    const e = idsCenterAndSpan(vias.positions, vias.index, r.ids)
     if (e) setObjetivo(e)
-  }, [store, data])
+  }, [store, vias])
 
   const onQ = useCallback((s: string) => {
     setQ(s)
@@ -500,7 +526,7 @@ export default function App () {
   }, [store, seleccion])
 
   const onPickFile = useCallback(async () => {
-    if (!store || !data) return
+    if (!store || !vias) return
     // Firefox no implementa la File System Access API (spec §9): ahí la app no
     // se rompe, solo pierde el autoguardado directo a disco y cae a descargar
     // el archivo para reemplazarlo a mano.
@@ -513,12 +539,12 @@ export default function App () {
       if ((e as any)?.name !== 'AbortError') console.error('no se pudo elegir el archivo', e)
     }
     if (!h) return
-    const aviso = await cargarDesdeArchivo(h, store, data.roads.ways)
+    const aviso = await cargarDesdeArchivo(h, store, vias.roads.ways)
     setAvisoCarga(aviso)
     setPendingHandle(null)
     if (aviso?.tipo === 'ilegible') return   // no conectar: el autoguardado lo sobrescribiría
     setHandle(h)
-  }, [store, data])
+  }, [store, vias])
 
   // Único llamador de reconnectHandle() -- vive detrás de un clic real, que es
   // el único lugar donde requestPermission() de verdad le pregunta algo al
@@ -526,22 +552,22 @@ export default function App () {
   // igual: insistir con el mismo handle no cambiaría nada, y el botón de
   // archivo sigue disponible para elegir de cero.
   const onReconectar = useCallback(async () => {
-    if (!pendingHandle || !store || !data) return
+    if (!pendingHandle || !store || !vias) return
     const ok = await reconnectHandle(pendingHandle)
     if (!ok) {
       console.warn('permiso denegado para el archivo recordado -- elige el archivo de nuevo')
       setPendingHandle(null)
       return
     }
-    const aviso = await cargarDesdeArchivo(pendingHandle, store, data.roads.ways)
+    const aviso = await cargarDesdeArchivo(pendingHandle, store, vias.roads.ways)
     setAvisoCarga(aviso)
     setPendingHandle(null)
     if (aviso?.tipo === 'ilegible') return
     setHandle(pendingHandle)
-  }, [pendingHandle, store, data])
+  }, [pendingHandle, store, vias])
 
   if (errorCarga) return <Cargando titulo="No se pudo cargar el mapa" detalle={errorCarga} />
-  if (!data) return <Cargando titulo="Cargando la red vial" detalle="26.712 vías y el relieve del estado." />
+  if (!relieve) return <Cargando titulo="Cargando el relieve" detalle="terrain.json y municipios.json: menos de 1 MB." />
 
   // el terreno vive en ENU local centrado en ORIGIN (bbox ~147×129 km,
   // Task 11): [0, 55000, 100000] queda a ~114 km del centroide, ~29° sobre el
@@ -573,31 +599,38 @@ export default function App () {
         {(import.meta.env.DEV || new URLSearchParams(location.search).get('diagnostico') === '1') && <PuenteEscena />}
         <Suspense fallback={null}>
           <Sky date={date} />
-          <TerrainLod meta={data.terrain} municipios={data.municipios} imagen={imagen}
+          <TerrainLod meta={relieve.terrain} municipios={relieve.municipios} imagen={imagen}
             date={date} />
-          {CAPAS.filter(c => visibles.has(c.id) && c.geometria === 'punto').map(c => (
-            <CapaPuntos key={c.id} capa={c} grid={data.terrainGrid} meta={data.terrain} onFallo={anotarFallo}
-              onElegir={(capa, rasgo) => setElegido({ capa, rasgo })} />
-          ))}
-          {visibles.has('municipios') && data.limites.length > 0 && (
-            <LimitesMunicipales posiciones={data.limites} oscuro={tema === 'oscuro'} />
+          {visibles.has('municipios') && limites && limites.length > 0 && (
+            <LimitesMunicipales posiciones={limites} oscuro={tema === 'oscuro'} />
           )}
-          {visibles.has('edificios') && <Buildings />}
-          {visibles.has('edificios') && <Piezas />}
-          {visibles.has('edificios') && <SombrasEdificios date={date} />}
-          {attr && (
-            <Roads
-              positions={data.positions} segIds={data.segIds} index={data.index}
-              ways={data.roads.ways} attr={attr} normals={data.normals} date={date}
-              lluvia={lluvia} juntas={data.juntas} pci={visibles.has('pci')}
-            />
+          {/* Todo lo de acá abajo quiere la red vial (vias.*): sin ella no hay
+              nada que dibujar, pickear o buscar, así que espera a la segunda
+              carga en vez de romperse contra un vias == null. */}
+          {vias && (
+            <>
+              {CAPAS.filter(c => visibles.has(c.id) && c.geometria === 'punto').map(c => (
+                <CapaPuntos key={c.id} capa={c} grid={vias.terrainGrid} meta={relieve.terrain} onFallo={anotarFallo}
+                  onElegir={(capa, rasgo) => setElegido({ capa, rasgo })} />
+              ))}
+              {visibles.has('edificios') && <Buildings />}
+              {visibles.has('edificios') && <Piezas />}
+              {visibles.has('edificios') && <SombrasEdificios date={date} />}
+              {attr && (
+                <Roads
+                  positions={vias.positions} segIds={vias.segIds} index={vias.index}
+                  ways={vias.roads.ways} attr={attr} normals={vias.normals} date={date}
+                  lluvia={lluvia} juntas={vias.juntas} pci={visibles.has('pci')}
+                />
+              )}
+              <Picker
+                positions={vias.positions} segIds={vias.segIds}
+                ways={vias.roads.ways} index={vias.index} normals={vias.normals}
+                limites={vias.juntas.limites}
+                onPick={onPick} pickerRef={pickerRef}
+              />
+            </>
           )}
-          <Picker
-            positions={data.positions} segIds={data.segIds}
-            ways={data.roads.ways} index={data.index} normals={data.normals}
-            limites={data.juntas.limites}
-            onPick={onPick} pickerRef={pickerRef}
-          />
           {/* enabled=false mientras el lazo está activo: arrastrar para dibujar
               y arrastrar para orbitar son el mismo gesto -- si OrbitControls
               también escucha, el lazo sale torcido y la vista se mueve sola. */}
@@ -612,27 +645,34 @@ export default function App () {
       </Canvas>
 
       {!dibujado && (
+        // Ya no menciona tramos de vía: a esta altura la red vial puede ni
+        // haber llegado (loadVias corre aparte de loadRelieve) -- lo único
+        // que de verdad tarda acá es la malla del relieve.
         <Cargando titulo="Armando el relieve"
-          detalle="Un millón de puntos de elevación y 450.261 tramos de vía. Tarda unos segundos." />
+          detalle="Un millón de puntos de elevación. Tarda unos segundos." />
       )}
 
       <LassoOverlay active={lassoOn} onFinish={onLassoFinish} />
 
-      <SearchPanel
-        q={q} onQ={onQ} grupos={grupos} activa={activa} onElegir={onElegir}
-        ficha={seleccion.length > 0
-          ? (
-            <Ficha
-              ways={data.roads.ways} seleccion={seleccion} registro={registro}
-              onCerrar={() => setSelected(new Set())} onAplicar={onAplicar}
-            />
-          )
-          : null}
-      />
+      {/* El buscador trabaja sobre la red vial (indice, grupos, la ficha): sin
+          vias no tiene qué mostrar, así que aparece con ella. */}
+      {vias && (
+        <SearchPanel
+          q={q} onQ={onQ} grupos={grupos} activa={activa} onElegir={onElegir}
+          ficha={seleccion.length > 0
+            ? (
+              <Ficha
+                ways={vias.roads.ways} seleccion={seleccion} registro={registro}
+                onCerrar={() => setSelected(new Set())} onAplicar={onAplicar}
+              />
+            )
+            : null}
+        />
+      )}
 
       <MapControls
         capas={[
-          ...CAPAS_FIJAS.map(c => ({ id: c.id, nombre: c.nombre, fallo: c.id === 'municipios' && data.limites.length === 0 ? 'Falta limites-pos.bin en el Release de datos' : undefined })),
+          ...CAPAS_FIJAS.map(c => ({ id: c.id, nombre: c.nombre, fallo: c.id === 'municipios' && limites !== null && limites.length === 0 ? 'Falta limites-pos.bin en el Release de datos' : undefined })),
           ...CAPAS.map(c => ({ id: c.id, nombre: c.nombre, color: c.color, fallo: fallos[c.id] })),
         ]}
         visibles={visibles}
@@ -669,10 +709,14 @@ export default function App () {
         setEstadoFoto(null)
       }} />
 
-      <MiniMapa
-        grid={data.terrainGrid} meta={data.terrain} municipios={data.municipios}
-        mirilla={mirilla} onIr={p => vista.current?.irA(p)} tema={tema}
-      />
+      {/* Se monta cuando tiene su rejilla (terrain.bin llega con vias):
+          mientras tanto no dibuja nada, así que ni se monta. */}
+      {vias && (
+        <MiniMapa
+          grid={vias.terrainGrid} meta={relieve.terrain} municipios={relieve.municipios}
+          mirilla={mirilla} onIr={p => vista.current?.irA(p)} tema={tema}
+        />
+      )}
 
       <BarraEscala escala={escala} />
 
