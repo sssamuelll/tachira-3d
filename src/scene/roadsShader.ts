@@ -62,6 +62,21 @@ export const CASING_REL = 0.6
 export const ALZA_MIN_M = 0.25
 
 /**
+ * El atributo donde viajan juntos calzada, canales y borde de cada vía, y
+ * cuántos floats ocupa cada tramo dentro de él. Vive acá, en el único archivo
+ * que lo DECLARA en GLSL, y de acá lo leen quien lo cuelga (Roads.tsx) y quien
+ * lo consume fuera de la escena (foto/escena.ts).
+ *
+ * Que sea una constante y no tres literales sueltos no es aseo: al empaquetar
+ * estos tres atributos, `foto/escena.ts` se quedó pidiendo un `aCalzada` que ya
+ * no existía y la foto trazada reventaba con un TypeError en cualquier vista
+ * con vías -- un camino que ninguna prueba recorría. Con un solo sitio que
+ * decida el nombre, renombrarlo vuelve a ser un cambio de una línea.
+ */
+export const ATTR_VIA = 'aVia'
+export const ATTR_VIA_ITEMS = 3
+
+/**
  * Extrusión de cada tramo a su ancho REAL en metros, sobre el plano horizontal
  * del mundo, con el piso en píxeles del nivel calculado a la profundidad de
  * cada vértice. Es lo que hace que a 30 m de vista el tramo cercano salga más
@@ -245,7 +260,7 @@ export const ATTR_VERT_GLSL = `
       // tarjeta. Un vec3 ocupa un solo atributo igual que un float suelto,
       // así que empaquetar estos tres baja el total a 15 sin cambiar qué se
       // dibuja.
-      attribute vec3 aVia;
+      attribute vec3 ${ATTR_VIA};
       attribute float instanceDistanceStart;
       attribute float instanceDistanceEnd;
       attribute vec3 instanceNormalStart;

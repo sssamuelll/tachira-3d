@@ -4,7 +4,7 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { useThree, useFrame } from '@react-three/fiber'
-import { patchLineMaterial, SOMBRA_VACIA, CASING_REL, ALZA_MIN_M } from './roadsShader'
+import { patchLineMaterial, SOMBRA_VACIA, CASING_REL, ALZA_MIN_M, ATTR_VIA, ATTR_VIA_ITEMS } from './roadsShader'
 import { TEXTURAS, TEXTURAS_BASE, ASFALTO_DESDE_PX, type Asfalto } from './asfalto'
 import { direccionSol, CASCADA_CERCA } from './sol'
 import { avanzarMojado } from './mojado'
@@ -170,7 +170,7 @@ export function Roads (
     // (roadsShader.ts, aVia): tres atributos sueltos aquí sacaban el material
     // de vías a 17 en la variante de superficie de junta, uno más que
     // MAX_VERTEX_ATTRIBS en la GPU de referencia (16, GTX 980).
-    geometry.setAttribute('aVia', new THREE.InstancedBufferAttribute(t.via, 3))
+    geometry.setAttribute(ATTR_VIA, new THREE.InstancedBufferAttribute(t.via, ATTR_VIA_ITEMS))
     geometry.setAttribute('aLimites', new THREE.InstancedBufferAttribute(t.limites!, 2))
     if (t.zonas) geometry.setAttribute('aZonaJunta', new THREE.InstancedBufferAttribute(t.zonas, 4))
     if (t.estilos) geometry.setAttribute('aEstiloJunta', new THREE.InstancedBufferAttribute(t.estilos, 3))

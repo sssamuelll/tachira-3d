@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { direccionSol } from '../scene/sol'
 import { metrosPorPixel } from '../scene/roadStyle'
-import { esRellenoDeVia } from '../scene/roadsShader'
+import { esRellenoDeVia, ATTR_VIA, ATTR_VIA_ITEMS } from '../scene/roadsShader'
 import type { UniformsRelieve } from '../scene/terrainShader'
 import { pciColor, LIBERTY, SELECCION } from '../data/constants'
 import { hypso } from './hypso'
@@ -190,7 +190,12 @@ function vias (
       n: inicio.count,
       xyz: inicio.data.array as Float32Array,
       nrm: nrm.data.array as Int8Array,
-      calzada: g.getAttribute('aCalzada').array as Float32Array,
+      // Calzada, canales y borde viajan juntos en un vec3 (roadsShader.ts,
+      // ATTR_VIA). Acá solo hace falta la calzada, que es la componente x, así
+      // que se guarda el buffer entero y se indexa con el paso -- copiarlo a un
+      // Float32Array propio serían cientos de miles de floats duplicados para
+      // leer uno de cada tres.
+      via: g.getAttribute(ATTR_VIA).array as Float32Array,
       segId: g.getAttribute('segId').array as Float32Array,
       pisoPx: (mat.userData.uniforms?.uPisoPx.value as number) ?? 1,
       // De qué habla el color de la red: 0 cartografía (Liberty), 1 dato
@@ -217,7 +222,7 @@ function vias (
       const mpp = Math.max(
         metrosPorPixel(profundidad(ve, a3.x, a3.y, a3.z), fov, altoPx),
         metrosPorPixel(profundidad(ve, b3.x, b3.y, b3.z), fov, altoPx))
-      const margen = 0.5 * anchoBase(t.calzada[i], t.pisoPx, mpp) + alza(mpp)
+      const margen = 0.5 * anchoBase(t.via[i * ATTR_VIA_ITEMS], t.pisoPx, mpp) + alza(mpp)
       if (!enFrustum(frustum, a3, b3, margen)) continue
       marcas[k][i] = 1
       total++
@@ -241,7 +246,7 @@ function vias (
       na3.set(t.nrm[o] / 127, t.nrm[o + 1] / 127, t.nrm[o + 2] / 127)
       nb3.set(t.nrm[o + 3] / 127, t.nrm[o + 4] / 127, t.nrm[o + 5] / 127)
       cuadro(
-        a3, b3, na3, nb3, t.calzada[i], t.pisoPx,
+        a3, b3, na3, nb3, t.via[i * ATTR_VIA_ITEMS], t.pisoPx,
         metrosPorPixel(profundidad(ve, a3.x, a3.y, a3.z), fov, altoPx),
         metrosPorPixel(profundidad(ve, b3.x, b3.y, b3.z), fov, altoPx),
         pos, nrm, q * 12,

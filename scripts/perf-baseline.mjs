@@ -14,13 +14,23 @@ import { spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 
 const args = process.argv.slice(2)
+// Las opciones que llevan valor: su valor NO es la URL. Sin esta lista, el
+// `find` de más abajo tomaba `.cache/perf/f0` (el valor de --capturas) por la
+// dirección a visitar y la sonda reventaba con "Invalid URL" en cuanto alguien
+// usaba el comando documentado sin URL explícita.
+const CON_VALOR = new Set(['--capturas'])
+const valorDe = nombre => {
+  const i = args.indexOf(nombre)
+  return i >= 0 ? args[i + 1] : null
+}
+const posicionales = args.filter((a, i) => !a.startsWith('--') && !CON_VALOR.has(args[i - 1]))
 const preview = args.includes('--preview')
 // Una captura por muestra. No es cosmético: un cambio de rendimiento que
 // acelera porque dejó de dibujar algo se ve idéntico en la tabla de fps y
 // distinto en la imagen. perf-comparar.mjs las compara píxel a píxel.
-const capturas = args.includes('--capturas') ? args[args.indexOf('--capturas') + 1] : null
+const capturas = valorDe('--capturas')
 const PUERTO_PREVIEW = 4173
-const target = args.find(a => !a.startsWith('--'))
+const target = posicionales[0]
   ?? (preview ? `http://localhost:${PUERTO_PREVIEW}/` : 'https://sssamuelll.github.io/tachira-3d/')
 const url = new URL(target); url.searchParams.set('diagnostico', '1')
 
@@ -60,7 +70,10 @@ const W = 1400, H = 900
 const SAN_CRISTOBAL = [7.7669, -72.2250, 830]
 
 const flags = ['--use-gl=angle', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--window-size=' + W + ',' + H]
-if (sweep) flags.push('--disable-frame-rate-limit', '--disable-gpu-vsync')
+// Sin quitar el vsync, TODO sale a 16,6 ms y dos ramas distintas se ven
+// iguales: el tope las esconde a las dos. Va aparte de --sweep para poder
+// medir una comparación sensible sin pagar las seis variantes del barrido.
+if (sweep || args.includes('--sinvsync')) flags.push('--disable-frame-rate-limit', '--disable-gpu-vsync')
 const browser = await chromium.launch({
   headless: !headed,
   executablePath: brave ? 'C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe' : undefined,
