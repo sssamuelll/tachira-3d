@@ -8,6 +8,11 @@ import react from '@vitejs/plugin-react'
 // y no hay nada más que cambiar.
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
+  // Sello del build. Va en la query con la que se registra el service worker
+  // (public/sw.js), y de ahí sale el nombre de su caché: cada despliegue
+  // estrena caché y el worker borra la anterior. Sin esto, data/ -- que no
+  // lleva hash en el nombre -- quedaría servida desde el disco para siempre.
+  define: { __BUILD__: JSON.stringify(Date.now().toString(36)) },
   plugins: [react()],
   test: {
     // e2e/ es de Playwright, no de vitest: llamar a su test() fuera del corredor

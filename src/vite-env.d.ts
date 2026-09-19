@@ -6,3 +6,7 @@ interface ImportMetaEnv {
    *  de despliegue; en local no se pone. */
   readonly VITE_DATOS?: string
 }
+
+/** Sello del build, lo inyecta `define` en vite.config.ts. Nombra la caché
+ *  del service worker. */
+declare const __BUILD__: string
