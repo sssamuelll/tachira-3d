@@ -290,6 +290,10 @@ try {
   const colocar = (lat, lon, h, dx, dy, dz) => page.evaluate(([lat, lon, h, dx, dy, dz]) => {
     const st = window.__escena.getState(); const t = window.__enu(lat, lon, h)
     st.controls.target.copy(t); st.camera.position.set(t.x + dx, t.y + dy, t.z + dz); st.controls.update()
+    // El bucle va por demanda: controls.update() ya emite su 'change' y drei
+    // pide el cuadro, pero esto es una sonda y no debe depender de eso para
+    // no medir un cuadro viejo si algún día cambia.
+    st.invalidate()
   }, [lat, lon, h, dx, dy, dz])
   const arrastrar = async (dx, dy) => {
     const cx = W / 2, cy = H / 2, n = 25
@@ -305,6 +309,9 @@ try {
     if (nombre === 'sinEdificios') { const g = scene.getObjectByName('edificios'); if (g) g.visible = !on }
     if (nombre === 'dpr0.5') st.setDpr(on ? 0.5 : 1)
     if (nombre === 'dpr1.5') st.setDpr(on ? 1.5 : 1)
+    // Ninguna de estas cinco pasa por React ni por los controles, así que con
+    // el bucle por demanda no se dibujarían nunca.
+    st.invalidate()
   }, [nombre, on])
   const barrido = async vista => {
     for (const v of ['sinSombras', 'sinVias', 'sinEdificios', 'dpr0.5', 'dpr1.5']) {

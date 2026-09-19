@@ -201,17 +201,28 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
   /** Foto satelital de albedo en vez de hipsometría. */
   imagen?: boolean
 }) {
-  const { camera, size, scene } = useThree()
+  const { camera, size, scene, invalidate } = useThree()
   const grupo = useRef<THREE.Group>(null)
   const frame = useMemo(() => makeEnuFrame(meta.origin.lat, meta.origin.lon, meta.origin.h), [meta])
   const cache = useMemo(() => new CacheTeselas(), [])
   const imgs = useMemo(() => new CacheImagenes(TEXTURAS_MAX), [])
+  // El bucle de render va por demanda (App.tsx, frameloop="demand"), así que
+  // una tesela que llega mientras la cámara está quieta no se dibuja sola:
+  // hay que pedir el cuadro. Es el enganche que hace que el relieve siga
+  // refinando sin que nadie toque el ratón.
+  useEffect(() => { cache.alLlegar = invalidate; imgs.alLlegar = invalidate }, [cache, imgs, invalidate])
   useEffect(() => () => imgs.dispose(), [imgs])
   const errores = useRef<Record<string, number> | null>(null)
   useEffect(() => {
-    fetch(urlGenerado('dem/errores.json')).then(r => r.json()).then(e => { errores.current = e })
-      .catch(e => console.error('dem/errores.json', e))
-  }, [])
+    fetch(urlGenerado('dem/errores.json')).then(r => r.json()).then(e => {
+      errores.current = e
+      // Un ref no re-renderiza, y hasta que este archivo llega errorDe()
+      // devuelve null para todo: no se pide una tesela ni se arma un nodo.
+      // Con el bucle por demanda (App.tsx) eso era el mapa congelado para
+      // siempre -- nadie volvia a pedir cuadro. Lo cazo el e2e de arranque.
+      invalidate()
+    }).catch(e => console.error('dem/errores.json', e))
+  }, [invalidate])
 
   // La máscara del estado como textura de un canal: el fragment descarta
   // fuera de ella con filtro lineal, a media celda del contorno real.
@@ -505,6 +516,19 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
       ;(m.mesh.material as THREE.Material).dispose()
       mallas.delete(k)
     }
+
+    // El presupuesto se gastó entero: el quadtree quiso más nodos de los que
+    // cupieron y quedó relieve a medio refinar. Con el bucle por demanda hay
+    // que pedir el cuadro siguiente a mano, o el cupo nunca se renueva y el
+    // terreno se queda en el nivel grueso hasta que alguien mueva la cámara.
+    // Sobreestima -- si cupieron justo los que hacían falta, pide un cuadro de
+    // más -- y eso es lo correcto: el error barato es dibujar una vez de más.
+    //
+    // Probado y descartado: pedir cuadro también cuando la selección cambia
+    // respecto al anterior. No mueve nada -- mismos 412 nodos, misma altura de
+    // cámara al milímetro en el experimento de vista de calle -- porque el
+    // cupo ya cubre todo el refinamiento. Eran cuadros de más y nada a cambio.
+    if (cupo.current <= 0) invalidate()
   }, -0.75) // controles (-1) → animación (-0.9) → LOD → tope (-0.5) → vías (0)
 
   return <group ref={grupo} name="terrain" userData={{ alturaMaxima: techoInicial }} />

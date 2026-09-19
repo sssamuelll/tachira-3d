@@ -9,7 +9,11 @@ import type { Escala } from '../ui/escala'
 
 // Solo se sustituye el puente de r3f: cámara, controles, mallas y el cuadro
 // de Vista son reales. No hace falta WebGL para medir la escala que publica.
-let estado: { camera: THREE.PerspectiveCamera; controls: OrbitControls; scene: THREE.Scene; size: { width: number; height: number }; clock: { elapsedTime: number } }
+let estado: { camera: THREE.PerspectiveCamera; controls: OrbitControls; scene: THREE.Scene; size: { width: number; height: number }; clock: { elapsedTime: number }; invalidate: () => void }
+// Cuántos cuadros pidió Vista. Con frameloop="demand" (App.tsx) un cuadro que
+// nadie pide no se dibuja, así que una animación que no llama a invalidate se
+// congela a medias. Contarlos es la única forma de que un test lo note.
+let pedidos = 0
 let cuadro: (state: unknown, dt: number) => void
 const cuadros: { f: typeof cuadro; prioridad: number }[] = []
 const efectos: (() => void | (() => void))[] = []
@@ -66,7 +70,7 @@ function vistaSobreSuelo (altura = 125, enterrado = false) {
     return mesh
   }
   agregarSuelo(0)
-  estado = { camera, controls, scene, size: { width: 1600, height: 870 }, clock: { elapsedTime: 0 } }
+  estado = { camera, controls, scene, size: { width: 1600, height: 870 }, clock: { elapsedTime: 0 }, invalidate: () => { pedidos++ } }
   const api: { current: ApiVista | null } = { current: null }
   efectos.length = 0
   cuadros.length = 0
@@ -80,7 +84,8 @@ function vistaSobreSuelo (altura = 125, enterrado = false) {
       cuadro(null, 1 / 60)
     }
   }
-  return { camera, controls, scene, terreno, agregarSuelo, api, avanzar }
+  pedidos = 0
+  return { camera, controls, scene, terreno, agregarSuelo, api, avanzar, pedidos: () => pedidos }
 }
 
 /** Solo el destino DOM es sintético; los gestos pasan por OrbitControls. */
@@ -382,7 +387,7 @@ test('la escala sigue el suelo al acercarse aunque el paneo haya enterrado el ta
   terreno.add(suelo)
   scene.add(terreno)
   scene.updateMatrixWorld(true)
-  estado = { camera, controls, scene, size: { width: 1600, height: 870 }, clock: { elapsedTime: 0 } }
+  estado = { camera, controls, scene, size: { width: 1600, height: 870 }, clock: { elapsedTime: 0 }, invalidate: () => { pedidos++ } }
   const publicadas: Escala[] = []
   renderToString(createElement(Vista, {
     api: { current: null }, mirilla: { current: null }, onEscala: e => publicadas.push(e),
@@ -473,4 +478,26 @@ test('un conjunto vacio o sin segmentos no pide encuadre', () => {
   expect(idsCenterAndSpan(positions, index, [])).toBeNull()
   // via con rango vacio (index[i] === index[i+1]): existe pero no dibuja nada
   expect(idsCenterAndSpan(positions, new Uint32Array([0, 0]), [0])).toBeNull()
+})
+
+// El bucle de render va por demanda (App.tsx, frameloop="demand"): un cuadro
+// que nadie pide no se dibuja. OrbitControls pide el suyo mientras el ratón
+// está apretado, pero el zoom amortiguado sigue corriendo DESPUÉS de soltar, y
+// nadie más lo empujaría. Si se quita el invalidate de Vista, un clic en
+// "acercar" mueve la cámara en el modelo y la pantalla se queda en el cuadro
+// anterior hasta que alguien vuelva a tocar algo.
+test('el acercamiento pide cuadro mientras se mueve y deja de pedirlos al llegar', () => {
+  const { api, avanzar, pedidos } = vistaSobreSuelo()
+  expect(pedidos()).toBe(0)
+  api.current!.acercar()
+  avanzar(10)
+  const enMarcha = pedidos()
+  expect(enMarcha).toBeGreaterThan(0)
+  // Hasta que la animación termina. A partir de ahí no se pide ni uno más:
+  // eso es lo que deja la CPU y la GPU en cero con el mapa quieto.
+  avanzar(600)
+  const alFinal = pedidos()
+  expect(alFinal).toBeGreaterThan(enMarcha)
+  avanzar(120)
+  expect(pedidos()).toBe(alFinal)
 })

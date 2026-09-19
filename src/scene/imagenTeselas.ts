@@ -66,6 +66,12 @@ export function ancestroCargado (n: Nodo, tiene: (z: number, x: number, y: numbe
 export class CacheImagenes {
   private readonly texturas = new Map<string, THREE.Texture>()
   private readonly enVuelo = new Set<string>()
+
+  /** Aviso de que una petición terminó (llegó o falló). Mismo papel que el de
+   *  CacheTeselas (demTiles.ts): con frameloop="demand" nadie vuelve a mirar
+   *  esta caché si no se pide un cuadro, y la foto que llegó se quedaría sin
+   *  dibujar. Quien la construye engancha aquí su invalidate(). */
+  alLlegar: () => void = () => {}
   // Cuántas veces falló cada tesela. A los INTENTOS fallos se deja de pedir en
   // toda la sesión: sin red se cae a la tesela viva más gruesa, o a la
   // hipsometría, y reintentar en cada cuadro serían cientos de peticiones por
@@ -155,7 +161,9 @@ export class CacheImagenes {
         this.fallos.set(k, n)
         if (n >= INTENTOS) console.warn(`imagen ${k}: ${e}`)
       })
-      .finally(() => this.enVuelo.delete(k))
+      // En el finally y no en el then: un fallo también libera un hueco de
+      // enVuelo, y hace falta un cuadro más para que se pida lo que no cupo.
+      .finally(() => { this.enVuelo.delete(k); this.alLlegar() })
   }
 
   dispose (): void {

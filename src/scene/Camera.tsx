@@ -161,7 +161,7 @@ export function Vista ({ api, onEscala, mirilla }: {
    *  porque cambia sesenta veces por segundo mientras arrastras. */
   mirilla: RefObject<((m: Mirilla) => void) | null>
 }) {
-  const { camera, controls: rawControls, size, scene } = useThree()
+  const { camera, controls: rawControls, size, scene, invalidate } = useThree()
   const controls = rawControls as any
   // Distancia a la que va la cámara, o null si no hay acercamiento en curso.
   const destino = useRef<number | null>(null)
@@ -247,7 +247,12 @@ export function Vista ({ api, onEscala, mirilla }: {
       movio = true
     }
     // No repetir controls.update(): consumiría dos veces el damping del pan.
-    if (movio) camera.lookAt(target)
+    // El invalidate es lo que mantiene viva la animación con el bucle por
+    // demanda (App.tsx): OrbitControls pide cuadro mientras el ratón está
+    // apretado, pero el paneo y el zoom siguen amortiguando después de
+    // soltarlo, y nadie más los empujaría hasta el final. `movio` ya es
+    // exactamente "esta animación todavía se está moviendo".
+    if (movio) { camera.lookAt(target); invalidate() }
   }, -0.9) // movimiento antes de que el LOD seleccione el suelo bajo la cámara
 
   useFrame((state) => {
@@ -264,7 +269,10 @@ export function Vista ({ api, onEscala, mirilla }: {
     const subir = Math.max(0, ALTURA_MINIMA - altura)
     camera.position.y += subir
     target.y += subir // traslación rígida: el tope no cambia la inclinación
-    if (subir > 0) camera.lookAt(target)
+    // Sube contra el suelo que acaba de llegar, no contra un gesto: sin pedir
+    // cuadro, el empujón se calcularía y no se vería hasta que alguien tocara
+    // el ratón.
+    if (subir > 0) { camera.lookAt(target); invalidate() }
 
     const suelo = distanciaTerreno(camera, scene, state.clock.elapsedTime)
     brazo.subVectors(target, camera.position)

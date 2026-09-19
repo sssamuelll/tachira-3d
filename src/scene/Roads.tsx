@@ -67,7 +67,7 @@ export function Roads (
     juntas: Juntas
   },
 ) {
-  const { size, camera, controls, gl, scene } = useThree()
+  const { size, camera, controls, gl, scene, invalidate } = useThree()
   // Dirección HACIA el sol en ejes del mundo, la misma que ilumina el relieve.
   // La fecha no cambia mientras la app corre, así que se calcula una vez.
   const sol = useMemo(() => direccionSol(date), [date])
@@ -103,7 +103,10 @@ export function Roads (
     let faltan = 3
     const cargador = new THREE.TextureLoader()
     const carga = (archivo: string, srgb: boolean) => {
-      const t = cargador.load(TEXTURAS_BASE + archivo, () => { if (--faltan === 0) listo.value = 1 })
+      // El invalidate: `listo` es un uniform, no estado de React, así que con
+      // el bucle por demanda (App.tsx) la calzada se quedaría sin árido hasta
+      // que alguien moviera la cámara.
+      const t = cargador.load(TEXTURAS_BASE + archivo, () => { if (--faltan === 0) { listo.value = 1; invalidate() } })
       t.wrapS = t.wrapT = THREE.RepeatWrapping
       if (srgb) t.colorSpace = THREE.SRGBColorSpace
       // La calzada se ve casi de canto en cuanto la cámara baja: sin
@@ -271,7 +274,13 @@ export function Roads (
   useFrame((state, dt) => {
     // La lluvia no cae de un cuadro al otro: un salto de seco a mojado se lee
     // como un cambio de material y no como que empezó a llover (mojado.ts).
-    mojado.current = avanzarMojado(mojado.current, lluvia ? 1 : 0, dt)
+    const destinoMojado = lluvia ? 1 : 0
+    mojado.current = avanzarMojado(mojado.current, destinoMojado, dt)
+    // avanzarMojado devuelve EXACTAMENTE el objetivo cuando llega (rampa
+    // lineal, no exponencial), así que la desigualdad es un "todavía está en
+    // camino" sin epsilon. Con el bucle por demanda (App.tsx) es lo que hace
+    // que la transición de seco a mojado siga corriendo con la cámara quieta.
+    if (mojado.current !== destinoMojado) invalidate()
     // La misma superficie que mide la barra, aunque el pivote de la órbita
     // haya quedado bajo el terreno al panear.
     const objetivo = (controls as { target?: THREE.Vector3 } | null)?.target

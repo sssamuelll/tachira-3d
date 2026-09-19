@@ -78,7 +78,7 @@ function liberarModelo (modelo: THREE.Group) {
 }
 
 export function Piezas ({ piezas = PIEZAS }: { piezas?: readonly Pieza[] } = {}) {
-  const { scene, camera, controls, size } = useThree()
+  const { scene, camera, controls, size, invalidate } = useThree()
   const group = useRef<THREE.Group>(null)
   const state = useRef<{ piezas: Instancia[]; dem: Set<string>; active: boolean } | null>(null)
 
@@ -126,6 +126,9 @@ export function Piezas ({ piezas = PIEZAS }: { piezas?: readonly Pieza[] } = {})
           pieza.originales.set(mesh, mesh.material)
         })
         anchor.add(gltf.scene)
+        // El GLB entra al grafo sin pasar por React: con el bucle por demanda
+        // (App.tsx) la pieza no se vería hasta que alguien tocara la cámara.
+        invalidate()
       }).catch((error: unknown) => {
         if (controller.signal.aborted) return
         anchor.userData.error = String(error)

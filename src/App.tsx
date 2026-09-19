@@ -595,7 +595,19 @@ export default function App () {
           quedado con el default.
           Calibrable, y es lo primero que hay que medir con el A/B de siempre:
           si sobra GPU, subirlo antes que tocar cualquier otra cosa. */}
-      <Canvas shadows="percentage" dpr={[1, 1.5]} camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
+      {/* frameloop="demand": no se dibuja un cuadro si nadie lo pide. Un mapa
+          pasa la mayor parte del tiempo quieto, y quieto este dibujaba igual
+          sus 150 a 618 draw calls sesenta veces por segundo -- medido con la
+          sonda, 3,6 a 5,3 ms de CPU por cuadro sin que cambiara un píxel. Eso
+          es ventilador, batería y una GPU que otras pestañas no tienen.
+          Lo que sí pide cuadro, y es donde está el riesgo de que algo se
+          congele: OrbitControls (solo, en su evento change), cualquier
+          re-render de React dentro del Canvas, la animación de vuelo y el tope
+          de altura (Camera.tsx), la transición de lluvia (Roads.tsx), y cada
+          tesela de relieve o de foto que llega, más el presupuesto de nodos
+          cuando se gasta entero (TerrainLod.tsx). El trazador de Foto lleva su
+          propio rAF y no depende de este bucle. */}
+      <Canvas frameloop="demand" shadows="percentage" dpr={[1, 1.5]} camera={{ position: [0, 55000, 100000], near: 10, far: 2_000_000, fov: 45 }}>
         {(import.meta.env.DEV || new URLSearchParams(location.search).get('diagnostico') === '1') && <PuenteEscena />}
         <Suspense fallback={null}>
           <Sky date={date} />
