@@ -3,8 +3,16 @@ import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import * as THREE from 'three'
 import { OrbitControls } from 'three-stdlib'
-import { enuOf, bboxCenterAndSpan, idsCenterAndSpan, Vista, FlyTo, type ApiVista } from './Camera'
+import { enuOf, bboxCenterAndSpan, idsCenterAndSpan, Vista, FlyTo, PIVOTE_MAX, type ApiVista } from './Camera'
 import { ORIGIN, BBOX } from '../data/constants'
+
+// La altura mínima sobre el terreno, con el epsilon de la doble precisión. Se
+// toca EXACTO desde que el freno de descenso deja de devolver el radio entero
+// a ras de suelo (Camera.tsx, `alivio`): antes la cámara quedaba siempre un
+// pelo por encima y la comparación cruda pasaba de casualidad. 15 sumado y
+// restado da 14,999999999999996, o sea cuatro femtómetros por debajo.
+const EPS = 1e-6
+const PISO = 15 - EPS
 import type { Escala } from '../ui/escala'
 
 // Solo se sustituye el puente de r3f: cámara, controles, mallas y el cuadro
@@ -188,7 +196,7 @@ test('el piso radial permite inspeccionar hacia abajo con un radio cercano a 15 
   camera.position.set(0, 125, 0)
   avanzar()
   for (let i = 0; i < 1200; i++) { controls.dollyIn(); avanzar() }
-  expect(camera.position.y).toBeGreaterThanOrEqual(15)
+  expect(camera.position.y).toBeGreaterThanOrEqual(PISO)
   expect(controls.getDistance()).toBeLessThan(16)
 })
 
@@ -202,7 +210,7 @@ test('el target enterrado deja de llevar la rueda bajo el suelo, sin cambiar la 
   controls.dollyIn()
   avanzar()
   // Sin el arreglo: target=-11.380, radio=19.175; 0,95 deja Y=-450,25 m.
-  expect(camera.position.y).toBeGreaterThanOrEqual(15)
+  expect(camera.position.y).toBeGreaterThanOrEqual(PISO)
   expect(camera.position.y).toBeLessThan(125)
   expect(pivote.y).toBeCloseTo(0, 6)
   expect(alturaAntes).toBeCloseTo(125, 6)
@@ -218,7 +226,7 @@ test('seguir acercando llega a inspección de pavimento y nunca atraviesa el pis
     avanzar()
     minima = Math.min(minima, camera.position.y)
   }
-  expect(minima).toBeGreaterThanOrEqual(15)
+  expect(minima).toBeGreaterThanOrEqual(PISO)
   expect(camera.position.y).toBeLessThan(30)
   const alturaMinima = camera.position.y
   controls.dollyOut()
@@ -251,7 +259,7 @@ test('corrige un cerro bajo la cámara aunque el centro de pantalla vea suelo m�
   avanzar()
   // El rayo oblicuo todavía ve Y=0. El vertical debe detectar Y=200 incluso
   // si el paneo ya dejó la cámara por debajo de esa superficie.
-  expect(camera.position.y).toBeGreaterThanOrEqual(215)
+  expect(camera.position.y).toBeGreaterThanOrEqual(215 - EPS)
 })
 
 test('un padre LOD oculto no empuja la cámara sobre una superficie que no se dibuja', () => {
@@ -305,7 +313,7 @@ test('perder cobertura a baja altura espera el relieve sin saltar a la cota máx
   controls.dollyIn()
   avanzar()
   expect(camera.position.y).toBeLessThan(30)
-  expect(camera.position.y).toBeGreaterThanOrEqual(15)
+  expect(camera.position.y).toBeGreaterThanOrEqual(PISO)
 })
 
 test('el error del LOD reserva altura y el detalle nuevo permite bajar sin saltos de cámara', () => {
@@ -330,7 +338,7 @@ test('el error del LOD reserva altura y el detalle nuevo permite bajar sin salto
   avanzar()
   expect(camera.position.distanceTo(sobreHijo)).toBeLessThan(1e-6)
   for (let i = 0; i < 240; i++) { controls.dollyIn(); avanzar() }
-  expect(camera.position.y - 2626.956543).toBeGreaterThanOrEqual(15)
+  expect(camera.position.y - 2626.956543).toBeGreaterThanOrEqual(PISO)
   expect(camera.position.y - 2626.956543).toBeLessThan(30)
 })
 
@@ -343,11 +351,11 @@ test('el destino de los botones sigue animando al corregir el target y respeta e
     avanzar()
     minima = Math.min(minima, camera.position.y)
   }
-  expect(minima).toBeGreaterThanOrEqual(15)
+  expect(minima).toBeGreaterThanOrEqual(PISO)
   expect(camera.position.y).toBeGreaterThan(30)
   expect(camera.position.y).toBeLessThan(125)
   for (let i = 0; i < 8; i++) { api.current!.acercar(); avanzar(120) }
-  expect(camera.position.y).toBeGreaterThanOrEqual(15)
+  expect(camera.position.y).toBeGreaterThanOrEqual(PISO)
   expect(camera.position.y).toBeLessThan(30)
   const alturaMinima = camera.position.y
   api.current!.alejar()
@@ -369,7 +377,7 @@ test('FlyTo conserva el encuadre de búsqueda y el acercamiento posterior respet
   expect(camera.position.y).toBeCloseTo(1040, 6)
   expect(camera.position.z).toBeCloseTo(2080, 6)
   for (let i = 0; i < 10; i++) { api.current!.acercar(); avanzar(120) }
-  expect(camera.position.y).toBeGreaterThanOrEqual(215)
+  expect(camera.position.y).toBeGreaterThanOrEqual(215 - EPS)
   expect(camera.position.y).toBeLessThan(230)
 })
 
@@ -500,4 +508,40 @@ test('el acercamiento pide cuadro mientras se mueve y deja de pedirlos al llegar
   expect(alFinal).toBeGreaterThan(enMarcha)
   avanzar(120)
   expect(pedidos()).toBe(alFinal)
+})
+
+// Medido en el mapa real (San Cristóbal, 500 m sobre el suelo): el radio de la
+// órbita pasaba de 624 m mirando a 40° a 8.059 m mirando al horizonte, porque
+// el pivote es donde el rayo del centro de pantalla pega en el suelo y a vista
+// rasante ese rayo viaja kilómetros. Como el diente de rueda es una fracción
+// del radio, el MISMO gesto movía 31 m mirando abajo y 403 m mirando al
+// horizonte. Eso es lo que se siente como que el zoom no es logarítmico: el
+// paso no es una fracción de tu altura, es una fracción de lo que el rayo
+// viajó por casualidad.
+test('el pivote no se va al horizonte: el radio queda acotado por la altura', () => {
+  const { camera, controls, avanzar } = vistaSobreSuelo(500)
+  camera.position.set(0, 500, 0)
+  // Casi rasante: el rayo central recorre ~28 km hasta tocar el plano.
+  controls.target.set(0, 500 - 500, -28_636)
+  avanzar(4)
+  const radio = controls.getDistance()
+  const altura = camera.position.y
+  expect(radio).toBeLessThanOrEqual(altura * PIVOTE_MAX + 1)
+})
+
+// El otro filo del mismo problema. Con la cámara posada en su altura mínima
+// sobre el terreno, `holgura` vale 0 y minDistance quedaba EXACTAMENTE igual al
+// radio: la rueda no hacía absolutamente nada. Medido en el mapa real a siete
+// inclinaciones distintas, las siete con minDistance == radio.
+test('pegado al suelo la rueda sigue sirviendo: minDistance no se come el radio', () => {
+  const { camera, controls, avanzar } = vistaSobreSuelo()
+  // Posada en el piso: el efecto vertical de Vista la deja a ALTURA_MINIMA.
+  camera.position.set(0, 0, 0)
+  controls.target.set(0, 0, -400)
+  avanzar(4)
+  expect(controls.minDistance).toBeLessThan(controls.getDistance())
+  const radio = controls.getDistance()
+  controls.dollyIn()
+  avanzar(2)
+  expect(controls.getDistance()).toBeLessThan(radio)
 })
