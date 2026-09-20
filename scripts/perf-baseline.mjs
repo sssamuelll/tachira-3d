@@ -1,7 +1,7 @@
 // Sonda de rendimiento. Solo lectura sobre el repo: abre el mapa publicado (o
 // la URL que le pases) en un Chromium con GPU real, mide la carga y muestrea
 // cuadros en varias vistas.
-//   node scripts/perf-baseline.mjs [url] [--preview] [--capturas <dir>] [--recarga] [--headed] [--brave] [--sweep] [--perfil]
+//   node scripts/perf-baseline.mjs [url] [--preview] [--capturas <dir>] [--recarga] [--recargas N] [--headed] [--brave] [--sweep] [--perfil]
 //
 // --preview es la forma de comparar un cambio contra su antes: hornea el build
 // de producción, lo sirve con `vite preview` y mide contra eso. Medir en el
@@ -18,7 +18,7 @@ const args = process.argv.slice(2)
 // `find` de más abajo tomaba `.cache/perf/f0` (el valor de --capturas) por la
 // dirección a visitar y la sonda reventaba con "Invalid URL" en cuanto alguien
 // usaba el comando documentado sin URL explícita.
-const CON_VALOR = new Set(['--capturas'])
+const CON_VALOR = new Set(['--capturas', '--recargas'])
 const valorDe = nombre => {
   const i = args.indexOf(nombre)
   return i >= 0 ? args[i + 1] : null
@@ -290,6 +290,10 @@ try {
   const colocar = (lat, lon, h, dx, dy, dz) => page.evaluate(([lat, lon, h, dx, dy, dz]) => {
     const st = window.__escena.getState(); const t = window.__enu(lat, lon, h)
     st.controls.target.copy(t); st.camera.position.set(t.x + dx, t.y + dy, t.z + dz); st.controls.update()
+    // El bucle va por demanda: controls.update() ya emite su 'change' y drei
+    // pide el cuadro, pero esto es una sonda y no debe depender de eso para
+    // no medir un cuadro viejo si algún día cambia.
+    st.invalidate()
   }, [lat, lon, h, dx, dy, dz])
   const arrastrar = async (dx, dy) => {
     const cx = W / 2, cy = H / 2, n = 25
@@ -305,6 +309,9 @@ try {
     if (nombre === 'sinEdificios') { const g = scene.getObjectByName('edificios'); if (g) g.visible = !on }
     if (nombre === 'dpr0.5') st.setDpr(on ? 0.5 : 1)
     if (nombre === 'dpr1.5') st.setDpr(on ? 1.5 : 1)
+    // Ninguna de estas cinco pasa por React ni por los controles, así que con
+    // el bucle por demanda no se dibujarían nunca.
+    st.invalidate()
   }, [nombre, on])
   const barrido = async vista => {
     for (const v of ['sinSombras', 'sinVias', 'sinEdificios', 'dpr0.5', 'dpr1.5']) {
@@ -381,20 +388,38 @@ try {
     // a los diez minutos volver al mapa rebaja los megabytes enteros. Lo único
     // que dice si una caché sirve es cuántas peticiones llegan de verdad a la
     // red tras un F5 en la misma pestaña.
-    if (args.includes('--recarga')) {
-      const yaVistas = new Set(red.keys())
-      const desde = Date.now()
-      salida.boot = {}
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 120_000 })
-      const h = await medirCarga(desde)
-      for (const [k, v] of Object.entries(h)) salida.hitos['recarga_' + k] = v
-      const nuevas = [...red.entries()].filter(([k, r]) => !yaVistas.has(k) && r.fin != null)
-      salida.red_recarga = {
-        peticiones: nuevas.length,
-        MB: +(nuevas.reduce((s, [, r]) => s + r.bytes, 0) / 1048576).toFixed(2),
-        deCache: nuevas.filter(([, r]) => r.cache).length,
+    // --recargas N recarga N veces. Más de una hace falta para juzgar un
+    // service worker: en la PRIMERA visita la página todavía no está
+    // controlada -- el worker se instala mientras los datos ya van por el
+    // cable -- así que la recarga 1 es la que LLENA su caché y la recarga 2 la
+    // primera que puede servirse de ella. Con una sola recarga, una caché que
+    // funciona se mide idéntica a no tener ninguna.
+    if (args.includes('--recarga') || args.includes('--recargas')) {
+      const cuantas = Math.max(1, Number(valorDe('--recargas') ?? 1))
+      for (let i = 1; i <= cuantas; i++) {
+        const yaVistas = new Set(red.keys())
+        const desde = Date.now()
+        salida.boot = {}
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 120_000 })
+        const h = await medirCarga(desde)
+        const sufijo = i === 1 ? '' : String(i)
+        for (const [k, v] of Object.entries(h)) salida.hitos['recarga' + sufijo + '_' + k] = v
+        const nuevas = [...red.entries()].filter(([k, r]) => !yaVistas.has(k) && r.fin != null)
+        // Partido por origen a propósito: las teselas de Esri no se pueden
+        // guardar (su licencia permite usar el servicio, no copiarlo), varían
+        // de una corrida a otra según por dónde pasó la cámara, y son varios
+        // MB. Sumadas al total tapan por completo lo que sí se puede ahorrar,
+        // que es lo que viene del propio sitio.
+        const delSitio = nuevas.filter(([, r]) => { try { return new URL(r.url).origin === url.origin } catch { return false } })
+        salida['red_recarga' + sufijo] = {
+          peticiones: nuevas.length,
+          MB: +(nuevas.reduce((s, [, r]) => s + r.bytes, 0) / 1048576).toFixed(2),
+          MB_sitio: +(delSitio.reduce((s, [, r]) => s + r.bytes, 0) / 1048576).toFixed(2),
+          peticiones_sitio: delSitio.length,
+          deCache: nuevas.filter(([, r]) => r.cache).length,
+        }
+        console.error('  recarga ' + i + ':', JSON.stringify(salida['red_recarga' + sufijo]), JSON.stringify(h))
       }
-      console.error('  recarga:', JSON.stringify(salida.red_recarga), JSON.stringify(h))
     }
   }
   salida.red_total = resumenRed('al final')

@@ -101,6 +101,13 @@ export class CacheTeselas {
   private readonly teselas = new Map<string, Tesela>()
   private readonly enVuelo = new Set<string>()
 
+  /** Aviso de que una petición terminó (llegó o falló). Con el bucle de
+   *  render por demanda (frameloop="demand"), nadie vuelve a mirar esta caché
+   *  si no se pide un cuadro: la tesela se guarda y el relieve se queda con el
+   *  agujero. Quien la construye engancha aquí su invalidate(). Por defecto no
+   *  hace nada, para que la caché siga sirviendo sin nadie que la escuche. */
+  alLlegar: () => void = () => {}
+
   constructor (
     private readonly base = urlGenerado('dem'), private readonly max = 400,
     /** Mismo patrón y mismo número que CacheImagenes (imagenTeselas.ts): sin
@@ -132,6 +139,9 @@ export class CacheTeselas {
         while (this.teselas.size > this.max) this.teselas.delete(this.teselas.keys().next().value!)
       })
       .catch(e => console.warn(`tesela ${k}:`, e))
-      .finally(() => this.enVuelo.delete(k))
+      // El aviso va en el finally y no en el then: un fallo también libera un
+      // hueco de enVuelo, y sin un cuadro más nadie vuelve a pedir lo que no
+      // cupo. Con el bucle por demanda eso deja la cola parada para siempre.
+      .finally(() => { this.enVuelo.delete(k); this.alLlegar() })
   }
 }

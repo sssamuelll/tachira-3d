@@ -176,7 +176,10 @@ test('el panel y la URL dicen lo mismo, en los dos sentidos', async ({ page }) =
   await engancharEscena(page)
 
   const panel = page.getByRole('group', { name: 'Capas del mapa' })
-  await expect(panel.getByRole('button')).toHaveCount(3)
+  // Cuatro desde que existe "Estado del pavimento": edificaciones, municipios,
+  // pci y hospitales. El test se quedó en tres y llevaba rojo desde entonces,
+  // tumbando de paso los cinco del describe que va debajo.
+  await expect(panel.getByRole('button')).toHaveCount(4)
 
   // Estado de fábrica: sólo edificaciones. Y sin `?capas=` en la URL, para que
   // el enlace de siempre siga siendo el enlace de siempre.

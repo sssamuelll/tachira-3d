@@ -3,13 +3,25 @@ import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import * as THREE from 'three'
 import { OrbitControls } from 'three-stdlib'
-import { enuOf, bboxCenterAndSpan, idsCenterAndSpan, Vista, FlyTo, type ApiVista } from './Camera'
+import { enuOf, bboxCenterAndSpan, idsCenterAndSpan, Vista, FlyTo, PIVOTE_MAX, type ApiVista } from './Camera'
 import { ORIGIN, BBOX } from '../data/constants'
+
+// La altura mínima sobre el terreno, con el epsilon de la doble precisión. Se
+// toca EXACTO desde que el freno de descenso deja de devolver el radio entero
+// a ras de suelo (Camera.tsx, `alivio`): antes la cámara quedaba siempre un
+// pelo por encima y la comparación cruda pasaba de casualidad. 15 sumado y
+// restado da 14,999999999999996, o sea cuatro femtómetros por debajo.
+const EPS = 1e-6
+const PISO = 15 - EPS
 import type { Escala } from '../ui/escala'
 
 // Solo se sustituye el puente de r3f: cámara, controles, mallas y el cuadro
 // de Vista son reales. No hace falta WebGL para medir la escala que publica.
-let estado: { camera: THREE.PerspectiveCamera; controls: OrbitControls; scene: THREE.Scene; size: { width: number; height: number }; clock: { elapsedTime: number } }
+let estado: { camera: THREE.PerspectiveCamera; controls: OrbitControls; scene: THREE.Scene; size: { width: number; height: number }; clock: { elapsedTime: number }; invalidate: () => void }
+// Cuántos cuadros pidió Vista. Con frameloop="demand" (App.tsx) un cuadro que
+// nadie pide no se dibuja, así que una animación que no llama a invalidate se
+// congela a medias. Contarlos es la única forma de que un test lo note.
+let pedidos = 0
 let cuadro: (state: unknown, dt: number) => void
 const cuadros: { f: typeof cuadro; prioridad: number }[] = []
 const efectos: (() => void | (() => void))[] = []
@@ -66,7 +78,7 @@ function vistaSobreSuelo (altura = 125, enterrado = false) {
     return mesh
   }
   agregarSuelo(0)
-  estado = { camera, controls, scene, size: { width: 1600, height: 870 }, clock: { elapsedTime: 0 } }
+  estado = { camera, controls, scene, size: { width: 1600, height: 870 }, clock: { elapsedTime: 0 }, invalidate: () => { pedidos++ } }
   const api: { current: ApiVista | null } = { current: null }
   efectos.length = 0
   cuadros.length = 0
@@ -80,7 +92,8 @@ function vistaSobreSuelo (altura = 125, enterrado = false) {
       cuadro(null, 1 / 60)
     }
   }
-  return { camera, controls, scene, terreno, agregarSuelo, api, avanzar }
+  pedidos = 0
+  return { camera, controls, scene, terreno, agregarSuelo, api, avanzar, pedidos: () => pedidos }
 }
 
 /** Solo el destino DOM es sintético; los gestos pasan por OrbitControls. */
@@ -183,7 +196,7 @@ test('el piso radial permite inspeccionar hacia abajo con un radio cercano a 15 
   camera.position.set(0, 125, 0)
   avanzar()
   for (let i = 0; i < 1200; i++) { controls.dollyIn(); avanzar() }
-  expect(camera.position.y).toBeGreaterThanOrEqual(15)
+  expect(camera.position.y).toBeGreaterThanOrEqual(PISO)
   expect(controls.getDistance()).toBeLessThan(16)
 })
 
@@ -197,7 +210,7 @@ test('el target enterrado deja de llevar la rueda bajo el suelo, sin cambiar la 
   controls.dollyIn()
   avanzar()
   // Sin el arreglo: target=-11.380, radio=19.175; 0,95 deja Y=-450,25 m.
-  expect(camera.position.y).toBeGreaterThanOrEqual(15)
+  expect(camera.position.y).toBeGreaterThanOrEqual(PISO)
   expect(camera.position.y).toBeLessThan(125)
   expect(pivote.y).toBeCloseTo(0, 6)
   expect(alturaAntes).toBeCloseTo(125, 6)
@@ -213,7 +226,7 @@ test('seguir acercando llega a inspección de pavimento y nunca atraviesa el pis
     avanzar()
     minima = Math.min(minima, camera.position.y)
   }
-  expect(minima).toBeGreaterThanOrEqual(15)
+  expect(minima).toBeGreaterThanOrEqual(PISO)
   expect(camera.position.y).toBeLessThan(30)
   const alturaMinima = camera.position.y
   controls.dollyOut()
@@ -246,7 +259,7 @@ test('corrige un cerro bajo la cámara aunque el centro de pantalla vea suelo m�
   avanzar()
   // El rayo oblicuo todavía ve Y=0. El vertical debe detectar Y=200 incluso
   // si el paneo ya dejó la cámara por debajo de esa superficie.
-  expect(camera.position.y).toBeGreaterThanOrEqual(215)
+  expect(camera.position.y).toBeGreaterThanOrEqual(215 - EPS)
 })
 
 test('un padre LOD oculto no empuja la cámara sobre una superficie que no se dibuja', () => {
@@ -300,7 +313,7 @@ test('perder cobertura a baja altura espera el relieve sin saltar a la cota máx
   controls.dollyIn()
   avanzar()
   expect(camera.position.y).toBeLessThan(30)
-  expect(camera.position.y).toBeGreaterThanOrEqual(15)
+  expect(camera.position.y).toBeGreaterThanOrEqual(PISO)
 })
 
 test('el error del LOD reserva altura y el detalle nuevo permite bajar sin saltos de cámara', () => {
@@ -325,7 +338,7 @@ test('el error del LOD reserva altura y el detalle nuevo permite bajar sin salto
   avanzar()
   expect(camera.position.distanceTo(sobreHijo)).toBeLessThan(1e-6)
   for (let i = 0; i < 240; i++) { controls.dollyIn(); avanzar() }
-  expect(camera.position.y - 2626.956543).toBeGreaterThanOrEqual(15)
+  expect(camera.position.y - 2626.956543).toBeGreaterThanOrEqual(PISO)
   expect(camera.position.y - 2626.956543).toBeLessThan(30)
 })
 
@@ -338,11 +351,11 @@ test('el destino de los botones sigue animando al corregir el target y respeta e
     avanzar()
     minima = Math.min(minima, camera.position.y)
   }
-  expect(minima).toBeGreaterThanOrEqual(15)
+  expect(minima).toBeGreaterThanOrEqual(PISO)
   expect(camera.position.y).toBeGreaterThan(30)
   expect(camera.position.y).toBeLessThan(125)
   for (let i = 0; i < 8; i++) { api.current!.acercar(); avanzar(120) }
-  expect(camera.position.y).toBeGreaterThanOrEqual(15)
+  expect(camera.position.y).toBeGreaterThanOrEqual(PISO)
   expect(camera.position.y).toBeLessThan(30)
   const alturaMinima = camera.position.y
   api.current!.alejar()
@@ -364,7 +377,7 @@ test('FlyTo conserva el encuadre de búsqueda y el acercamiento posterior respet
   expect(camera.position.y).toBeCloseTo(1040, 6)
   expect(camera.position.z).toBeCloseTo(2080, 6)
   for (let i = 0; i < 10; i++) { api.current!.acercar(); avanzar(120) }
-  expect(camera.position.y).toBeGreaterThanOrEqual(215)
+  expect(camera.position.y).toBeGreaterThanOrEqual(215 - EPS)
   expect(camera.position.y).toBeLessThan(230)
 })
 
@@ -382,7 +395,7 @@ test('la escala sigue el suelo al acercarse aunque el paneo haya enterrado el ta
   terreno.add(suelo)
   scene.add(terreno)
   scene.updateMatrixWorld(true)
-  estado = { camera, controls, scene, size: { width: 1600, height: 870 }, clock: { elapsedTime: 0 } }
+  estado = { camera, controls, scene, size: { width: 1600, height: 870 }, clock: { elapsedTime: 0 }, invalidate: () => { pedidos++ } }
   const publicadas: Escala[] = []
   renderToString(createElement(Vista, {
     api: { current: null }, mirilla: { current: null }, onEscala: e => publicadas.push(e),
@@ -473,4 +486,62 @@ test('un conjunto vacio o sin segmentos no pide encuadre', () => {
   expect(idsCenterAndSpan(positions, index, [])).toBeNull()
   // via con rango vacio (index[i] === index[i+1]): existe pero no dibuja nada
   expect(idsCenterAndSpan(positions, new Uint32Array([0, 0]), [0])).toBeNull()
+})
+
+// El bucle de render va por demanda (App.tsx, frameloop="demand"): un cuadro
+// que nadie pide no se dibuja. OrbitControls pide el suyo mientras el ratón
+// está apretado, pero el zoom amortiguado sigue corriendo DESPUÉS de soltar, y
+// nadie más lo empujaría. Si se quita el invalidate de Vista, un clic en
+// "acercar" mueve la cámara en el modelo y la pantalla se queda en el cuadro
+// anterior hasta que alguien vuelva a tocar algo.
+test('el acercamiento pide cuadro mientras se mueve y deja de pedirlos al llegar', () => {
+  const { api, avanzar, pedidos } = vistaSobreSuelo()
+  expect(pedidos()).toBe(0)
+  api.current!.acercar()
+  avanzar(10)
+  const enMarcha = pedidos()
+  expect(enMarcha).toBeGreaterThan(0)
+  // Hasta que la animación termina. A partir de ahí no se pide ni uno más:
+  // eso es lo que deja la CPU y la GPU en cero con el mapa quieto.
+  avanzar(600)
+  const alFinal = pedidos()
+  expect(alFinal).toBeGreaterThan(enMarcha)
+  avanzar(120)
+  expect(pedidos()).toBe(alFinal)
+})
+
+// Medido en el mapa real (San Cristóbal, 500 m sobre el suelo): el radio de la
+// órbita pasaba de 624 m mirando a 40° a 8.059 m mirando al horizonte, porque
+// el pivote es donde el rayo del centro de pantalla pega en el suelo y a vista
+// rasante ese rayo viaja kilómetros. Como el diente de rueda es una fracción
+// del radio, el MISMO gesto movía 31 m mirando abajo y 403 m mirando al
+// horizonte. Eso es lo que se siente como que el zoom no es logarítmico: el
+// paso no es una fracción de tu altura, es una fracción de lo que el rayo
+// viajó por casualidad.
+test('el pivote no se va al horizonte: el radio queda acotado por la altura', () => {
+  const { camera, controls, avanzar } = vistaSobreSuelo(500)
+  camera.position.set(0, 500, 0)
+  // Casi rasante: el rayo central recorre ~28 km hasta tocar el plano.
+  controls.target.set(0, 500 - 500, -28_636)
+  avanzar(4)
+  const radio = controls.getDistance()
+  const altura = camera.position.y
+  expect(radio).toBeLessThanOrEqual(altura * PIVOTE_MAX + 1)
+})
+
+// El otro filo del mismo problema. Con la cámara posada en su altura mínima
+// sobre el terreno, `holgura` vale 0 y minDistance quedaba EXACTAMENTE igual al
+// radio: la rueda no hacía absolutamente nada. Medido en el mapa real a siete
+// inclinaciones distintas, las siete con minDistance == radio.
+test('pegado al suelo la rueda sigue sirviendo: minDistance no se come el radio', () => {
+  const { camera, controls, avanzar } = vistaSobreSuelo()
+  // Posada en el piso: el efecto vertical de Vista la deja a ALTURA_MINIMA.
+  camera.position.set(0, 0, 0)
+  controls.target.set(0, 0, -400)
+  avanzar(4)
+  expect(controls.minDistance).toBeLessThan(controls.getDistance())
+  const radio = controls.getDistance()
+  controls.dollyIn()
+  avanzar(2)
+  expect(controls.getDistance()).toBeLessThan(radio)
 })

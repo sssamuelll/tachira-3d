@@ -129,6 +129,45 @@ const FRENO = 45
 // (10 m, App.tsx) y deja trabajar a 15 m mirando hacia abajo.
 const RADIO_MINIMO = 10
 
+/**
+ * Techo del radio, en alturas sobre el suelo. El pivote de la órbita es donde
+ * el rayo del centro de la pantalla pega en el terreno, y a vista rasante ese
+ * rayo viaja kilómetros: medido sobre San Cristóbal a 500 m de altura, el
+ * radio pasaba de 624 m mirando a 40° a 8.059 m mirando al horizonte.
+ *
+ * Eso rompía dos cosas a la vez, porque el radio es el brazo de la órbita Y la
+ * unidad del zoom. El mismo diente de rueda movía 31 m mirando abajo y 403 m
+ * mirando al horizonte -- eso es lo que se siente como que el zoom no es
+ * logarítmico: el paso no es una fracción de tu altura, es una fracción de lo
+ * que el rayo viajó por casualidad. Y orbitar giraba alrededor de un punto a
+ * ocho kilómetros, que en pantalla se lee como que el mundo entero se mueve.
+ *
+ * Con el techo, el pivote deja de estar sobre la superficie cuando el rayo se
+ * va lejos: queda flotando sobre la misma línea de visión, a tres alturas por
+ * delante. Es lo que hace Google Earth y es lo que mantiene el paso del zoom
+ * acotado sin tocar cómo se ve nada.
+ *
+ * Calibrable: 3 deja el pivote a unos 18° de depresión, que es un encuadre
+ * normal de mapa. Subirlo devuelve el tirón; bajarlo acerca el centro de giro
+ * hasta que orbitar se siente como girar sobre uno mismo.
+ */
+export const PIVOTE_MAX = 3
+
+/**
+ * Cuánto se puede acortar el radio de un tirón aunque no quede holgura sobre
+ * el suelo. Sin esto, `minDistance` quedaba EXACTAMENTE igual al radio en
+ * cuanto la cámara se posaba en su altura mínima -- medido en el mapa real a
+ * siete inclinaciones distintas, las siete con minDistance == radio -- y la
+ * rueda no hacía absolutamente nada.
+ *
+ * Es seguro porque el tope vertical de más arriba corre en CADA cuadro y solo
+ * sube: la rueda mete la cámara un 10 % hacia el pivote (adelante y un poco
+ * abajo), el tope la devuelve a su altura, y lo que queda es haber avanzado.
+ * A ras de suelo la rueda deja de ser un descenso y pasa a ser un paso al
+ * frente, que es lo que uno quiere mirando una calle.
+ */
+const DOLLY_MINIMO = 0.1
+
 // Ancho al que apunta la barra de escala. Google la dibuja de unos 60 px y
 // tenue; ésta pide 104 y va sobre pastilla blanca, porque acá el número es
 // dato de trabajo -- decidir si una vía se evalúa a 50 m o a 2 km -- y no un
@@ -161,7 +200,7 @@ export function Vista ({ api, onEscala, mirilla }: {
    *  porque cambia sesenta veces por segundo mientras arrastras. */
   mirilla: RefObject<((m: Mirilla) => void) | null>
 }) {
-  const { camera, controls: rawControls, size, scene } = useThree()
+  const { camera, controls: rawControls, size, scene, invalidate } = useThree()
   const controls = rawControls as any
   // Distancia a la que va la cámara, o null si no hay acercamiento en curso.
   const destino = useRef<number | null>(null)
@@ -242,12 +281,29 @@ export function Vista ({ api, onEscala, mirilla }: {
       // permitir volver desde allí; solo se espera cerca del suelo desconocido.
       const freno = previo.medido || previo.altura > ALTURA_MINIMA + FRENO
         ? THREE.MathUtils.smoothstep(previo.altura - ALTURA_MINIMA, 0, FRENO) : 0
-      d = THREE.MathUtils.lerp(previo.radio, d, freno)
+      // El freno mide la altura, pero lo que hay que frenar es el DESCENSO, y
+      // acortar el radio solo hace descender en la medida en que el pivote esté
+      // por debajo. `bajada` es el seno de esa depresión: 1 mirando a plomo, ~0
+      // mirando al horizonte. Sin este término el freno valía 0 posado en el
+      // suelo y devolvía el radio ENTERO, o sea que la rueda no hacía nada a
+      // ninguna inclinación -- el segundo candado, además de minDistance.
+      // Mirando abajo no cambia una coma: bajada = 1 deja el freno como estaba.
+      // Solo con cota MEDIDA. Sin ella el freno es un "espera al relieve" y no
+      // un "no bajes tan rápido": aflojarlo ahí dejaría a la cámara descender
+      // contra un suelo que todavía no se sabe dónde está.
+      const bajada = THREE.MathUtils.clamp(Math.max(0, brazo.y) / Math.max(d, 1e-6), 0, 1)
+      const alivio = previo.medido ? 1 - bajada : 0
+      d = THREE.MathUtils.lerp(previo.radio, d, Math.max(freno, alivio))
       camera.position.copy(target).addScaledVector(brazo.normalize(), d)
       movio = true
     }
     // No repetir controls.update(): consumiría dos veces el damping del pan.
-    if (movio) camera.lookAt(target)
+    // El invalidate es lo que mantiene viva la animación con el bucle por
+    // demanda (App.tsx): OrbitControls pide cuadro mientras el ratón está
+    // apretado, pero el paneo y el zoom siguen amortiguando después de
+    // soltarlo, y nadie más los empujaría hasta el final. `movio` ya es
+    // exactamente "esta animación todavía se está moviendo".
+    if (movio) { camera.lookAt(target); invalidate() }
   }, -0.9) // movimiento antes de que el LOD seleccione el suelo bajo la cámara
 
   useFrame((state) => {
@@ -264,7 +320,10 @@ export function Vista ({ api, onEscala, mirilla }: {
     const subir = Math.max(0, ALTURA_MINIMA - altura)
     camera.position.y += subir
     target.y += subir // traslación rígida: el tope no cambia la inclinación
-    if (subir > 0) camera.lookAt(target)
+    // Sube contra el suelo que acaba de llegar, no contra un gesto: sin pedir
+    // cuadro, el empujón se calcularía y no se vería hasta que alguien tocara
+    // el ratón.
+    if (subir > 0) { camera.lookAt(target); invalidate() }
 
     const suelo = distanciaTerreno(camera, scene, state.clock.elapsedTime)
     brazo.subVectors(target, camera.position)
@@ -274,7 +333,11 @@ export function Vista ({ api, onEscala, mirilla }: {
       // inclinaría la cámara; conservar el radio enterrado vuelve a hundirla.
       // Una ladera puede tocar el rayo antes del near: el pivote conserva
       // su piso sin mover la cámara ni cambiar la dirección de la vista.
-      const distancia = Math.max(RADIO_MINIMO, suelo)
+      // El techo (PIVOTE_MAX) es lo único que lo despega de la superficie, y
+      // solo cuando el rayo se va al horizonte. Sin cota medida la altura es
+      // Infinity y el techo no existe: no hay contra qué acotar todavía.
+      const techo = Math.max(RADIO_MINIMO, (altura + subir) * PIVOTE_MAX)
+      const distancia = Math.min(techo, Math.max(RADIO_MINIMO, suelo))
       target.copy(camera.position).addScaledVector(brazo, distancia / radio)
       if (destino.current !== null) destino.current *= distancia / radio
     }
@@ -283,7 +346,10 @@ export function Vista ({ api, onEscala, mirilla }: {
     const holgura = Math.max(0, altura + subir - ALTURA_MINIMA)
     // Tope preventivo del dolly sobre el plano bajo la cámara; el vertical
     // por cuadro resuelve además laderas, paneo y cambios del LOD.
-    controls.minDistance = brazo.y > 0 ? Math.max(RADIO_MINIMO, d - holgura * d / brazo.y) : RADIO_MINIMO
+    // El DOLLY_MINIMO es el suelo de ese tope: sin holgura la cuenta daba
+    // exactamente el radio de ahora y la rueda quedaba muerta.
+    const margen = brazo.y > 0 ? holgura * d / brazo.y : d
+    controls.minDistance = Math.max(RADIO_MINIMO, d - Math.max(margen, d * DOLLY_MINIMO))
     if (destino.current !== null) destino.current = Math.max(controls.minDistance, destino.current)
     previo.radio = d
     previo.altura = altura + subir

@@ -92,7 +92,7 @@ function seleccionarChunks (runtime: BuildingRuntime, camera: THREE.Camera) {
  * por edificio. El JSON editable queda junto al binario y se carga a demanda
  * cuando exista la herramienta de edición. */
 export function Buildings () {
-  const { camera, controls, scene, size } = useThree()
+  const { camera, controls, scene, size, invalidate } = useThree()
   const group = useRef<THREE.Group>(null)
   const state = useRef<BuildingRuntime | null>(null)
 
@@ -122,6 +122,9 @@ export function Buildings () {
       }))
       runtime.nextSelection = 0
       root.userData.manifest = manifest
+      // El índice llega a un ref, sin re-render: con el bucle por demanda
+      // (App.tsx) nadie pediría el cuadro que lo convierte en geometría.
+      invalidate()
     }).catch((error: unknown) => {
       if (controller.signal.aborted || !runtime.alive) return
       root.userData.error = String(error)
@@ -237,6 +240,14 @@ export function Buildings () {
       pendientes: runtime.downloads.pending.size, triangulos: triangles, bytes: runtime.bytes,
       fallos: runtime.downloads.failed.size, mpp,
     })
+
+    // Queda trabajo: hay una descarga en vuelo, o un buffer esperando su
+    // turno de convertirse en malla (se arma UNA por cuadro, arriba). Con el
+    // bucle por demanda hay que pedir el cuadro siguiente o la tanda se
+    // detiene a medio bajar. Se sostiene sola: el primer cuadro lo pide quien
+    // movió la cámara, y de ahí en adelante esta línea, hasta que no queda
+    // nada pendiente.
+    if (runtime.downloads.pending.size > 0 || runtime.downloads.ready.size > 0) invalidate()
   }, -0.2) // Terrain (-0.75) → cámara (-0.5) → masa → contacto (-0.1) → vías (0).
 
   return <group ref={group} name="edificios" />
