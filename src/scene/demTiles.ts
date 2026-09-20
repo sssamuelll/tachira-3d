@@ -2,6 +2,7 @@
 // 257×257 píxeles, RGB Terrarium, alpha 255 = dentro del estado.
 
 import { urlGenerado } from '../data/rutas'
+import { telemetria } from './telemetria'
 
 export const LADO = 257
 
@@ -131,14 +132,22 @@ export class CacheTeselas {
     const k = `${z}/${x}/${y}`
     if (this.teselas.has(k) || this.enVuelo.has(k)) return
     this.enVuelo.add(k)
+    telemetria.sube('dem.pide')
     fetch(`${this.base}/${k}.png`)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer() })
       .then(png => pixelesDelPng(png, LADO))
       .then(rgba => {
         this.teselas.set(k, decodificar(rgba))
-        while (this.teselas.size > this.max) this.teselas.delete(this.teselas.keys().next().value!)
+        telemetria.sube('dem.llega')
+        while (this.teselas.size > this.max) {
+          this.teselas.delete(this.teselas.keys().next().value!)
+          // Desalojar una tesela que el relieve todavía usa lo devuelve al
+          // padre grueso hasta que vuelva a bajar: parpadeo de geometría.
+          telemetria.sube('dem.desalojo')
+        }
+        telemetria.pone('dem.vivas', this.teselas.size)
       })
-      .catch(e => console.warn(`tesela ${k}:`, e))
+      .catch(e => { telemetria.sube('dem.falla'); console.warn(`tesela ${k}:`, e) })
       // El aviso va en el finally y no en el then: un fallo también libera un
       // hueco de enVuelo, y sin un cuadro más nadie vuelve a pedir lo que no
       // cupo. Con el bucle por demanda eso deja la cola parada para siempre.

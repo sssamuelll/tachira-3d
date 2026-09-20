@@ -9,6 +9,7 @@ import { xTesela, yTesela } from '../data/mercator'
 import { enuOf } from './Camera'
 import { alturaTerreno, distanciaVista } from './distanciaVista'
 import { edificiosActivos, HALO_EDIFICIOS, sueloEdificiosListo } from './buildingsStyle'
+import { telemetria } from './telemetria'
 import { metrosPorPixel } from './roadStyle'
 import { materialPieza } from './piezasShader'
 
@@ -148,7 +149,7 @@ export function Piezas ({ piezas = PIEZAS }: { piezas?: readonly Pieza[] } = {})
     }
   }, [scene, piezas])
 
-  useFrame(frame => {
+  useFrame(frame => telemetria.mide('piezas.ms', () => {
     const runtime = state.current
     if (!runtime || !group.current) return
     const csm = (scene.userData.csm ?? null) as CSM | null
@@ -160,6 +161,7 @@ export function Piezas ({ piezas = PIEZAS }: { piezas?: readonly Pieza[] } = {})
     group.current.visible = runtime.active
     runtime.dem.clear()
     const ready = scene.userData.terrainReady as Set<string> | undefined
+    const dibujadas = telemetria.activa ? new Set<string>() : null
     for (const pieza of runtime.piezas) {
       if (pieza.modelo && csm !== pieza.csm) {
         liberarMateriales(pieza)
@@ -190,8 +192,11 @@ export function Piezas ({ piezas = PIEZAS }: { piezas?: readonly Pieza[] } = {})
         pieza.proximoApoyo = now + 0.2
       }
       pieza.root.visible = sueloListo && pieza.modelo !== null && pieza.cota !== null
+      if (pieza.root.visible) dibujadas?.add(pieza.root.name)
+      else if (cerca && pieza.modelo) telemetria.sube('piezas.sin_suelo')
     }
-  }, -0.2) // Después de terreno/cámara; antes del pase de contacto (-0.1).
+    if (dibujadas) telemetria.conjunto('piezas.dibujadas', dibujadas)
+  }), -0.2) // Después de terreno/cámara; antes del pase de contacto (-0.1).
 
   return <group ref={group} name="piezas" visible={false} />
 }

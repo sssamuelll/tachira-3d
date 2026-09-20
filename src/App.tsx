@@ -10,6 +10,7 @@ import { CapaPuntos } from './scene/CapaPuntos'
 import { LimitesMunicipales } from './scene/LimitesMunicipales'
 import { SombrasEdificios } from './scene/SombrasEdificios'
 import { fechaDeEscena } from './scene/sol'
+import { telemetria } from './scene/telemetria'
 import { FlyTo, Vista, bboxCenterAndSpan, idsCenterAndSpan, enuOf, type Encuadre, type ApiVista } from './scene/Camera'
 import { usePicking } from './scene/PickingPass'
 import { LassoOverlay, pointInLasso, type Pt } from './ui/LassoOverlay'
@@ -64,15 +65,51 @@ const VIGENCIA_MARCADOR_MS = 1000
  */
 function PuenteEscena () {
   const store = useStore()
+  const gl = useThree(s => s.gl)
+  // Cierra el cuadro ANTERIOR: se registra con la prioridad más negativa de
+  // todas, así que corre antes que los controles (-1) y que el LOD (-0.75).
+  // Es también el único momento en que renderer.info trae las cuentas de un
+  // cuadro completo -- three lo reinicia al empezar cada render (autoReset).
+  // Salvo bajo la sonda (scripts/perf-baseline.mjs): ella apaga el autoReset
+  // y reinicia por su cuenta, así que ahí estos cinco salen en cero y las
+  // cuentas buenas son las suyas.
+  // Prioridad negativa a propósito: una positiva le quita a r3f el render
+  // automático y el mapa se quedaría en negro (events-*.esm.js: `priority > 0`).
+  const antes = useRef(0)
+  useFrame(() => {
+    // Cuánto pasó desde el cuadro DIBUJADO anterior. Con el bucle por demanda
+    // eso no es "lo que tardó el cuadro": si nadie pidió dibujar, son los
+    // segundos que el mapa estuvo quieto. Sirve para lo contrario de lo que
+    // parece -- un tirón dentro de una ráfaga de cuadros sale aquí, pero un
+    // valor enorme casi siempre es reposo, no lentitud.
+    const ahora = performance.now()
+    if (antes.current) telemetria.pone('cuadro.dt', +(ahora - antes.current).toFixed(1))
+    antes.current = ahora
+    telemetria.pone('gl.calls', gl.info.render.calls)
+    telemetria.pone('gl.tris_k', Math.round(gl.info.render.triangles / 1000))
+    telemetria.pone('gl.geometrias', gl.info.memory.geometries)
+    telemetria.pone('gl.texturas', gl.info.memory.textures)
+    telemetria.pone('gl.programas', gl.info.programs?.length ?? 0)
+    telemetria.cerrarCuadro()
+  }, -2)
   useEffect(() => {
-    const w = window as unknown as { __escena?: unknown; __enu?: unknown }
+    const w = window as unknown as { __escena?: unknown; __enu?: unknown; __telemetria?: unknown }
     w.__escena = store
+    // La telemetría solo existe en diagnóstico: encenderla aquí es lo que
+    // hace que en producción cada sube()/conjunto() salga en su primera línea.
+    telemetria.reiniciar()
+    telemetria.activa = true
+    w.__telemetria = telemetria
     // El test sitúa la cámara por latitud/longitud (los sitios donde se
     // midieron las anomalías del DEM). Se expone la conversión de la app y no
     // se rehace en el test: dos implementaciones del mismo ENU se separan y el
     // test terminaría mirando a un kilómetro de donde cree.
     w.__enu = enuOf
-    return () => { delete w.__escena; delete w.__enu }
+    return () => {
+      telemetria.activa = false
+      telemetria.reiniciar()
+      delete w.__escena; delete w.__enu; delete w.__telemetria
+    }
   }, [store])
   return null
 }

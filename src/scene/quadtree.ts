@@ -26,7 +26,22 @@ export interface Datos {
    *  post dentro del estado: no existe para el árbol. */
   error (n: Nodo): number | null
   listo (n: Nodo): boolean
+  /**
+   * ¿Se pueden dibujar TODOS estos hermanos en ESTE cuadro? No es
+   * `hermanos.every(listo)`: quien tiene un presupuesto de mallas nuevas por
+   * cuadro responde que sí a cada hermano por separado -- queda cupo -- y que
+   * no a los cuatro juntos. Bajar a un cuarteto que no se puede armar entero
+   * deja sin dibujar a los que se queden sin cupo Y al padre, que ya se
+   * descartó: un agujero de un cuadro, y el parpadeo al orbitar.
+   *
+   * Opcional: sin presupuesto, `every(listo)` es la respuesta correcta.
+   */
+  listoJuntos? (hermanos: Nodo[]): boolean
   pedir (n: Nodo): void
+  /** Este nodo NO se dibuja, y quien lo cubriría tampoco: su padre ya se
+   *  descartó al bajar, o es una raíz y no hay padre. Un agujero en el
+   *  relieve durante este cuadro. Solo para medirlo. */
+  hueco? (n: Nodo): void
   /** Solo se llama con el nodo listo. */
   caja (n: Nodo): Box3
 }
@@ -35,23 +50,25 @@ export interface Datos {
  * Los nodos a dibujar este cuadro. Puro: decide, no carga ni dibuja.
  *
  * Un nodo se refina si su error proyectado pasa de ERROR_PX y sus hijos con
- * datos están todos listos; si a alguno le falta la tesela, se pide y se
- * dibuja el padre mientras tanto, para que el relieve nunca tenga huecos.
+ * datos se pueden dibujar TODOS en este cuadro (listoJuntos); si a alguno le
+ * falta la tesela o el presupuesto, se pide y se dibuja el padre mientras
+ * tanto, para que el relieve nunca tenga huecos.
  * Fuera del frustum ni se dibuja ni se pide nada.
  */
 export function seleccionar (raices: Nodo[], vista: Vista, datos: Datos, zMax: number): Nodo[] {
   const salida: Nodo[] = []
+  const juntos = datos.listoJuntos ?? ((hs: Nodo[]) => hs.every(c => datos.listo(c)))
   const visitar = (n: Nodo) => {
     const error = datos.error(n)
     if (error == null) return
-    if (!datos.listo(n)) { datos.pedir(n); return }
+    if (!datos.listo(n)) { datos.pedir(n); datos.hueco?.(n); return }
     const caja = datos.caja(n)
     if (!vista.intersecta(caja)) return
     if (n.z < zMax) {
       const d = Math.max(1, caja.distanceToPoint(vista.posicion))
       if (error / vista.mpp(d) > ERROR_PX) {
         const h = hijos(n).filter(c => datos.error(c) != null)
-        if (h.length > 0 && h.every(c => datos.listo(c))) { for (const c of h) visitar(c); return }
+        if (h.length > 0 && juntos(h)) { for (const c of h) visitar(c); return }
         for (const c of h) if (!datos.listo(c)) datos.pedir(c)
       }
     }

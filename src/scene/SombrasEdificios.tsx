@@ -1,5 +1,6 @@
 import { useEffect,useMemo } from 'react'
 import { useFrame,useThree } from '@react-three/fiber'
+import { telemetria } from './telemetria'
 import * as THREE from 'three'
 import { direccionSol } from './sol'
 import { CONTACTO_PX,camaraContacto,uniformesContacto,liberarContacto } from './buildingShadows'
@@ -24,7 +25,7 @@ export function SombrasEdificios({date}:{date:Date}) {
     delete scene.userData.edificiosShadowStats
     state.target.dispose();state.material.dispose();state.meshes.clear()
   },[state,scene])
-  useFrame(()=>{
+  useFrame(()=>telemetria.mide('contacto.ms', ()=>{
     const alive=new Set<THREE.Mesh>()
     for(const name of ['edificios','piezas']) {
       const group=scene.getObjectByName(name)
@@ -62,6 +63,6 @@ export function SombrasEdificios({date}:{date:Date}) {
       uniformesContacto.uContactoMapa.value=state.target.depthTexture!
       uniformesContacto.uContactoOn.value=1
     } finally {gl.setRenderTarget(previous);gl.autoClear=autoClear;gl.shadowMap.enabled=shadows;gl.xr.enabled=xr}
-  },-0.1)
+  }),-0.1)
   return null
 }

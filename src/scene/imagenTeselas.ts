@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { Nodo } from './quadtree'
+import { telemetria } from './telemetria'
 
 /**
  * La foto satelital que se cuelga de cada nodo del relieve. Un nodo del
@@ -123,6 +124,7 @@ export class CacheImagenes {
     const k = this.clave(z, x, y)
     if (this.texturas.has(k) || this.enVuelo.has(k) || (this.fallos.get(k) ?? 0) >= INTENTOS) return
     this.enVuelo.add(k)
+    telemetria.sube('imagen.pide')
     fetch(urlImagen(z, x, y))
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob() })
       .then(b => createImageBitmap(b))
@@ -150,13 +152,20 @@ export class CacheImagenes {
         tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping
         tex.needsUpdate = true
         this.texturas.set(k, tex)
+        telemetria.sube('imagen.llega')
         while (this.texturas.size > this.max) {
           const vieja = this.texturas.keys().next().value!
           this.texturas.get(vieja)!.dispose()
           this.texturas.delete(vieja)
+          // Si la desalojada se sigue viendo, su nodo cae a la foto del padre
+          // y se vuelve a pedir: el ciclo nítido-borroso-nítido que se ve
+          // titilar cuando hay más nodos en pantalla que cupo de texturas.
+          telemetria.sube('imagen.desalojo')
         }
+        telemetria.pone('imagen.vivas', this.texturas.size)
       })
       .catch(e => {
+        telemetria.sube('imagen.falla')
         const n = (this.fallos.get(k) ?? 0) + 1
         this.fallos.set(k, n)
         if (n >= INTENTOS) console.warn(`imagen ${k}: ${e}`)

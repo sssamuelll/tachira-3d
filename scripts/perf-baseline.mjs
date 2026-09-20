@@ -205,10 +205,19 @@ try {
   // dentro del cuadro cuando corre este rAF (r3f registra el suyo primero,
   // así que ya pasó por sus useFrame y su render). `largas` son las long
   // tasks (>50 ms) que cayeron dentro de la ventana.
+  // Resumen de una línea de la telemetría: solo lo que delata parpadeo.
+  const churn = t => ['terreno.hueco_cupo', 'terreno.hueco_tesela', 'terreno.nodos.entra', 'terreno.nodos.sale', 'terreno.nodos.parpadeo',
+    'imagen.baja', 'imagen.desalojo', 'imagen.pide', 'terreno.armados', 'terreno.desalojo',
+    'terreno.sin_cupo', 'dem.desalojo', 'edificios.chunks.parpadeo', 'edificios.sin_suelo']
+    .filter(k => t[k]?.total).map(k => k.replace('terreno.', '') + ' ' + t[k].cuadro).join(', ') || 'nada'
+
   let convergida = null
   const sonda = async (etiqueta, durante, ventanaMs = 3000) => {
     const p = page.evaluate(ventanaMs => new Promise(res => {
       const st = window.__escena.getState(); const gl = st.gl
+      // El anillo de telemetría se vacía aquí para que el resumen cubra
+      // exactamente la ventana de la muestra y no lo que pasó antes.
+      window.__telemetria?.reiniciar()
       const auto = gl.info.autoReset; gl.info.autoReset = false; gl.info.reset()
       const t0 = performance.now(); let last = t0; const dts = [], calls = [], tris = [], cpu = [], largas = []
       const po = new PerformanceObserver(l => { for (const e of l.getEntries()) largas.push(Math.round(e.duration)) })
@@ -230,6 +239,9 @@ try {
           dpr: gl.getPixelRatio(), canvas: [gl.domElement.width, gl.domElement.height],
           nodos: terreno ? terreno.children.filter(c => c.visible).length + '/' + terreno.children.length : null,
           cam: st.camera.position.toArray().map(Math.round),
+          // Lo que entra y sale del dibujo por cuadro (src/scene/telemetria.ts):
+          // es lo único que distingue un mapa quieto de uno que titila.
+          tele: window.__telemetria ? window.__telemetria.resumen() : null,
         })
       }
       requestAnimationFrame(tick)
@@ -245,6 +257,7 @@ try {
     }
     salida.muestras.push({ etiqueta, ...r })
     process.stderr.write('  ' + etiqueta + ': ' + r.fps + ' fps, ' + r.ms_p50 + ' ms, cpu ' + r.cpu_p50 + ' ms, ' + r.calls + ' calls, ' + r.tris_k + 'k tris, nodos ' + r.nodos + (r.largas.length ? ', largas ' + r.largas.join('/') : '') + '\n')
+    if (r.tele) process.stderr.write('    churn/cuadro: ' + churn(r.tele) + '\n')
   }
   // Espera a que la escena deje de cambiar antes de medir. No es cortesía: el
   // relieve refina por niveles y la foto satelital llega tesela a tesela, así
@@ -356,6 +369,7 @@ try {
     if (perfil) await perfilar('E calle quieta')
     if (sweep) await barrido('E calle')
     await sonda('E2 calle orbitando', () => arrastrar(200, 0))
+    if (perfil) await perfilar('E calle orbitando', async () => { await arrastrar(200, 0); await arrastrar(-200, 0) })
     const lluvia = page.locator('button[title="Lluvia"]')
     if (await lluvia.count()) {
       await lluvia.click(); await page.waitForTimeout(2500)

@@ -72,5 +72,40 @@ describe('seleccionar', () => {
     expect(d.pedidos).toEqual([])
   })
 
+  // El parpadeo medido el 2026-09-20 con la telemetría: al orbitar sobre la
+  // ciudad, el 87 % de los cuadros agotaba el presupuesto de mallas nuevas
+  // (TerrainLod, NODOS_POR_CUADRO) DESPUÉS de haber bajado a un cuarteto. Los
+  // hermanos que se quedaron sin cupo no se dibujan, y el padre tampoco
+  // porque ya se descartó: un agujero de un cuadro que se rellena al
+  // siguiente. Eso es lo que se ve titilar.
+  it('no baja a un cuarteto que el presupuesto no puede armar entero', () => {
+    const armadas = new Set<string>()
+    let cupo = 2
+    const base = (n: Nodo) => ({ 8: 100, 9: 50 } as Record<number, number>)[n.z] ?? null
+    const d = {
+      pedidos: [] as string[],
+      error: base,
+      // Lo mismo que hace TerrainLod: una malla ya armada siempre está lista;
+      // una nueva depende de que quede cupo en este cuadro.
+      listo: (n: Nodo) => armadas.has(clave(n)) || cupo > 0,
+      listoJuntos: (h: Nodo[]) => h.filter(c => !armadas.has(clave(c))).length <= cupo,
+      pedir: (n: Nodo) => { d.pedidos.push(clave(n)) },
+      caja: (n: Nodo) => {
+        if (!armadas.has(clave(n))) { armadas.add(clave(n)); cupo-- }
+        return new Box3(new Vector3(-500, 0, -500), new Vector3(500, 0, 500))
+      },
+    }
+    // Con cupo para dos de los cuatro hijos: el padre entero, sin agujeros.
+    expect(seleccionar([raiz], vista(10_000), d, 15).map(clave)).toEqual(['8/76/121'])
+    // Y con cupo para los cuatro, baja de verdad.
+    cupo = 4
+    expect(seleccionar([raiz], vista(10_000), d, 15)).toHaveLength(4)
+  })
+
+  it('sin listoJuntos se comporta como antes: basta con que cada hijo esté listo', () => {
+    const d = datos({ 8: 100, 9: 5 })
+    expect(seleccionar([raiz], vista(10_000), d, 15)).toHaveLength(4)
+  })
+
   it('ERROR_PX es 2', () => { expect(ERROR_PX).toBe(2) })
 })
