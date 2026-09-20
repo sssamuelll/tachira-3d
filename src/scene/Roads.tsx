@@ -4,6 +4,7 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { useThree, useFrame } from '@react-three/fiber'
+import { telemetria } from './telemetria'
 import { patchLineMaterial, SOMBRA_VACIA, CASING_REL, ALZA_MIN_M, ATTR_VIA, ATTR_VIA_ITEMS } from './roadsShader'
 import { TEXTURAS, TEXTURAS_BASE, ASFALTO_DESDE_PX, type Asfalto } from './asfalto'
 import { direccionSol, CASCADA_CERCA } from './sol'
@@ -271,7 +272,7 @@ export function Roads (
   // La presencia de cada nivel depende de cuánto terreno cabe en un píxel, así
   // que se recalcula mientras la cámara se mueve. Son unas pocas asignaciones
   // de float por cuadro: más barato que detectar si la cámara se movió.
-  useFrame((state, dt) => {
+  useFrame((state, dt) => telemetria.mide('vias.ms', () => {
     // La lluvia no cae de un cuadro al otro: un salto de seco a mojado se lee
     // como un cambio de material y no como que empezó a llover (mojado.ts).
     const destinoMojado = lluvia ? 1 : 0
@@ -357,7 +358,7 @@ export function Roads (
       const visible = a > 0 && (!o.superficie || mpp < 4 * o.anchoMax / ASFALTO_DESDE_PX)
       for (const capa of o.capas) capa.linea.visible = visible
     }
-  })
+  }))
 
   return (
     <group>

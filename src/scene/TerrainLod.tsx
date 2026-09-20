@@ -12,6 +12,7 @@ import { CacheImagenes, Z_MAX_IMG } from './imagenTeselas'
 import { seleccionar, clave, ERROR_PX, type Nodo } from './quadtree'
 import { geometriaNodo, raices, ventana } from './nodoTerreno'
 import { stateMask } from './stateMask'
+import { telemetria } from './telemetria'
 import { ancestrosEdificios, coberturaEdificios, errorMallaEdificios } from './buildingTerrain'
 import type { TerrainMeta, Municipio } from '../data/types'
 
@@ -102,6 +103,14 @@ const TEXTURAS_MAX = 300
 // Lo que NO se puede afirmar con esto es que baje el tirón MÁS largo: 452 ms
 // sin cupo contra 515 y 459 con él, que es ruido. Calibrable: 2 es el valor
 // medido, no un valor de partida.
+// Sigue siendo 2 después de arreglar el parpadeo (2026-09-20). El quadtree ya
+// no baja a un cuarteto que no pueda armar entero (listoJuntos, quadtree.ts),
+// y la tentación era subirlo a 4 para que un cuarteto cupiera en un cuadro.
+// Medido: con 4 los agujeros también desaparecen, pero vuelven las tareas
+// largas del hilo principal (117 y 141 ms en dos corridas, orbitando a pie de
+// calle y en el vuelo por el estado; con 2 no aparece ninguna). listoJuntos
+// adelanta los hermanos que quepan sin dibujarlos, así que el cuarteto se
+// completa en dos cuadros y el cupo medido se queda como estaba.
 const NODOS_POR_CUADRO = 2
 
 // Las cascadas de sombra. Tres y no cuatro: con maxFar de 8 km la tercera ya
@@ -379,11 +388,40 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
   // descuenta cuando arma una malla de verdad.
   const listoDe = (n: Nodo): boolean =>
     mallas.has(clave(n)) || (teselaDe(n) !== undefined && cupo.current > 0)
+  // El cuarteto entero o nada. Si el cupo no alcanza para armar los hermanos
+  // que faltan, seleccionar() dibuja al padre un cuadro más en vez de dejar
+  // el hueco de los que se queden fuera -- medido el 2026-09-20 con la
+  // telemetría, ese hueco era el parpadeo al orbitar sobre la ciudad.
+  //
+  // Y arma igual lo que quepa, aunque este cuadro no se dibuje: sin eso, un
+  // cuarteto que no cabe entero en el cupo no se armaría NUNCA (nadie pide
+  // sus mallas) y el relieve se quedaría grueso para siempre. Con esto, un
+  // cuarteto tarda dos cuadros a cupo 2, sin un solo agujero y sin pagar el
+  // doble de vértices en un mismo cuadro.
+  const listoJuntos = (hermanos: Nodo[]): boolean => {
+    const faltan: Nodo[] = []
+    for (const h of hermanos) {
+      if (mallas.has(clave(h))) continue
+      if (teselaDe(h) === undefined) return false
+      faltan.push(h)
+    }
+    // Armar AHORA lo que quepa, diga lo que diga la respuesta:
+    //  - Si el cuarteto cabe, hay que armarlo ya. Si no, el primer hermano se
+    //    visita, baja a sus propios hijos y se lleva el cupo del hermano que
+    //    todavía no se ha visitado: ese nieto se cuela y el tío se queda sin
+    //    malla. Medido: 0,34 huecos por cuadro que sobrevivían así.
+    //  - Si no cabe, se adelanta igual: el cuarteto se completa en el cuadro
+    //    siguiente, sin que nadie lo dibuje a medias.
+    const cabe = faltan.length <= cupo.current
+    for (const h of faltan) { if (cupo.current <= 0) break; cajaDe(h) }
+    return cabe
+  }
   const cajaDe = (n: Nodo): THREE.Box3 => {
     const k = clave(n)
     let m = mallas.get(k)
     if (!m) {
       cupo.current--
+      telemetria.sube('terreno.armados')
       // Infinity es una orden de refinamiento, nunca un error de la malla:
       // usarlo para el faldón produciría vértices con Y=-Infinity.
       const errorMalla = errorMallaEdificios(n, errores.current)
@@ -428,7 +466,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
   // que las crea, para que al montar corra en ese orden.
   useEffect(() => { const c = csm.current; if (c) { c.updateFrustums(); sesgar(c) } }, [size])
 
-  useFrame(() => {
+  useFrame(() => telemetria.mide('terreno.ms', () => {
     const c = csm.current
     if (!grupo.current || !c) return
     cupo.current = NODOS_POR_CUADRO
@@ -469,11 +507,27 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     }, {
       error: errorDe,
       listo: listoDe,
+      listoJuntos,
       pedir: n => { const w = ventana(n, meta.dem); cache.pedir(w.zt, w.xt, w.yt) },
+      // El agujero de verdad: seleccionar() ya bajó a este cuarteto y este
+      // hermano no se dibuja, ni su padre. Se rellena al cuadro siguiente:
+      // es lo que se ve titilar. Separado por causa -- sin tesela todavía, o
+      // con la tesela pero sin cupo para armar la malla.
+      hueco: n => telemetria.sube(teselaDe(n) === undefined ? 'terreno.hueco_tesela' : 'terreno.hueco_cupo'),
       caja: cajaDe,
     }, imagen ? Z_MAX_IMG : Z_MAX_RELIEVE)
     const visibles = new Set(sel.map(clave))
+    // El conjunto que se dibuja y el que los edificios usan de suelo: lo que
+    // entra y sale de estos dos por cuadro ES el parpadeo (telemetria.ts).
+    telemetria.conjunto('terreno.nodos', visibles)
     scene.userData.terrainReady = coberturaEdificios(sel)
+    if (telemetria.activa) {
+      telemetria.conjunto('terreno.suelo', scene.userData.terrainReady as Set<string>)
+      telemetria.pone('terreno.mallas', mallas.size)
+      const porZ: Record<number, number> = {}
+      for (const n of sel) porZ[n.z] = (porZ[n.z] ?? 0) + 1
+      for (const z in porZ) telemetria.pone('terreno.z' + z, porZ[z])
+    }
     for (const [k, m] of mallas) {
       const v = visibles.has(k)
       m.mesh.visible = v
@@ -493,16 +547,22 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     // más cercano que ya esté, con el trozo que le toca: al refinar, el nodo
     // nuevo aparece con la foto borrosa del padre y se afina cuando llega la
     // propia, en vez de parpadear en gris.
+    // El z de la foto que acaba usando cada nodo. Cuando baja, el nodo pasa
+    // de su tesela a la del padre: se ve borroso de golpe y nítido otra vez
+    // -- parpadeo sin que el nodo deje de dibujarse (telemetria.ts).
+    const nivelImg = telemetria.activa ? new Map<string, number>() : null
     for (const n of sel) {
       const u = (mallas.get(clave(n))!.mesh.material as THREE.Material).userData.uniforms as UniformsRelieve
       if (!imagen) { u.uImagen.value = 0; continue }
       if (frustum.intersectsBox(mallas.get(clave(n))!.caja)) imgs.pedir(n.z, n.x, n.y)
       const mejor = imgs.mejor(n)
-      if (!mejor) { u.uImagen.value = 0; continue }
+      if (!mejor) { u.uImagen.value = 0; telemetria.sube('terreno.sin_imagen'); continue }
+      nivelImg?.set(clave(n), n.z + Math.log2(mejor.esc))
       u.uImg.value = mejor.tex
       u.uImgUv.value.set(mejor.ox, mejor.oy, mejor.esc)
       u.uImagen.value = 1
     }
+    if (nivelImg) telemetria.mapa('imagen.nivel', nivelImg)
 
     // LRU: las más viejas primero, nunca una visible. CSM guarda cada material
     // que le instalaron en un Map propio: hay que sacarlo de ahí también, o el
@@ -511,6 +571,7 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
       if (mallas.size <= GEOMETRIAS_MAX) break
       if (visibles.has(k)) continue
       grupo.current.remove(m.mesh)
+      telemetria.sube('terreno.desalojo')
       m.mesh.geometry.dispose()
       c.shaders.delete(m.mesh.material)
       ;(m.mesh.material as THREE.Material).dispose()
@@ -528,8 +589,8 @@ export function TerrainLod ({ meta, municipios, date, imagen = true }: {
     // respecto al anterior. No mueve nada -- mismos 412 nodos, misma altura de
     // cámara al milímetro en el experimento de vista de calle -- porque el
     // cupo ya cubre todo el refinamiento. Eran cuadros de más y nada a cambio.
-    if (cupo.current <= 0) invalidate()
-  }, -0.75) // controles (-1) → animación (-0.9) → LOD → tope (-0.5) → vías (0)
+    if (cupo.current <= 0) { telemetria.sube('terreno.sin_cupo'); invalidate() }
+  }), -0.75) // controles (-1) → animación (-0.9) → LOD → tope (-0.5) → vías (0)
 
   return <group ref={grupo} name="terrain" userData={{ alturaMaxima: techoInicial }} />
 }

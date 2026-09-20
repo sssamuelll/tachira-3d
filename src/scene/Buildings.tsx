@@ -10,6 +10,7 @@ import { cajasSustituidas, vaciarSustituidos } from '../data/piezas'
 import { materialEdificios } from './buildingsShader'
 import { distanciaVista } from './distanciaVista'
 import { metrosPorPixel } from './roadStyle'
+import { telemetria } from './telemetria'
 import {
   edificiosActivos, candidatosEdificios, sueloEdificiosListo,
   CHUNKS_EDIFICIOS_CACHE, BYTES_EDIFICIOS_CACHE,
@@ -145,7 +146,7 @@ export function Buildings () {
     }
   }, [scene])
 
-  useFrame(frame => {
+  useFrame(frame => telemetria.mide('edificios.ms', () => {
     const runtime = state.current
     const root = group.current
     if (!runtime || !root) return
@@ -186,12 +187,18 @@ export function Buildings () {
     const ready = scene.userData.terrainReady as Set<string> | undefined
     let activeChunks = 0
     let triangles = 0
+    // Las manzanas que se están dibujando, para medir cuántas entran y salen
+    // por cuadro: una que se apaga porque su suelo dejó de estar cubierto es
+    // un parpadeo, no un cambio de vista (telemetria.ts).
+    const dibujados = telemetria.activa ? new Set<string>() : null
     for (const chunk of runtime.meshes.values()) {
       const wanted = runtime.wanted.has(chunk.meta.key)
       chunk.mesh.visible = wanted && sueloEdificiosListo(chunk.meta.demNodes, ready)
       if (wanted) chunk.used = now
-      if (chunk.mesh.visible) { activeChunks++; triangles += chunk.meta.triangles }
+      if (chunk.mesh.visible) { activeChunks++; triangles += chunk.meta.triangles; dibujados?.add(chunk.meta.key) }
+      else if (wanted) telemetria.sube('edificios.sin_suelo')
     }
+    if (dibujados) telemetria.conjunto('edificios.chunks', dibujados)
 
     // Una validación/construcción por cuadro, sin setState. Dos buffers como
     // máximo entre vuelo y cola evitan una ráfaga de parseo al terminar fetch.
@@ -248,7 +255,7 @@ export function Buildings () {
     // movió la cámara, y de ahí en adelante esta línea, hasta que no queda
     // nada pendiente.
     if (runtime.downloads.pending.size > 0 || runtime.downloads.ready.size > 0) invalidate()
-  }, -0.2) // Terrain (-0.75) → cámara (-0.5) → masa → contacto (-0.1) → vías (0).
+  }), -0.2) // Terrain (-0.75) → cámara (-0.5) → masa → contacto (-0.1) → vías (0).
 
   return <group ref={group} name="edificios" />
 }
